@@ -100,3 +100,33 @@ HNAME_RE: re.Pattern[str] = re.compile(
     r"(?:\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$"
 )
 """Regex pattern for validating hostname format."""
+
+
+# ========== Validation functions ==========
+def validate_results_root(path: Path) -> tuple[bool, str]:
+    """Validate that RESULTS_ROOT is writable.
+
+    Args:
+        path: Path to validate for writability
+
+    Returns:
+        Tuple of (is_valid, error_message). error_message is empty string if valid.
+    """
+    # Check if path exists
+    if not path.exists():
+        # Try to create it
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+            return True, ""
+        except (PermissionError, OSError) as e:
+            return False, f"Cannot create results directory {path}: {e}"
+
+    # Path exists, check if it's a directory
+    if not path.is_dir():
+        return False, f"Results path {path} exists but is not a directory"
+
+    # Check if writable
+    if not os.access(path, os.W_OK):
+        return False, f"Results directory {path} is not writable"
+
+    return True, ""

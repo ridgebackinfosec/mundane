@@ -9,6 +9,7 @@ from .constants import (
     SAMPLE_THRESHOLD, VISIBLE_GROUPS,
     HTTP_TIMEOUT, PROCESS_TERMINATE_TIMEOUT,
     SEARCH_WINDOW_SIZE, MIN_TERM_LENGTH,
+    validate_results_root,
 )
 from .logging_setup import setup_logging, log_info, log_error
 from .ops import require_cmd, resolve_cmd, root_or_sudo_available, run_command_with_progress, clone_nessus_plugin_hosts

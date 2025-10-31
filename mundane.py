@@ -2113,6 +2113,14 @@ def main(args: types.SimpleNamespace) -> None:
     # Initialize logging
     setup_logging()
 
+    # Validate RESULTS_ROOT is writable before proceeding
+    from mundane_pkg import validate_results_root
+    is_valid, error_msg = validate_results_root(RESULTS_ROOT)
+    if not is_valid:
+        err(f"Results directory validation failed: {error_msg}")
+        warn(f"Please check the NPH_RESULTS_ROOT environment variable or ensure {RESULTS_ROOT} is writable")
+        sys.exit(1)
+
     # Track session start time
     from datetime import datetime
     session_start_time = datetime.now()

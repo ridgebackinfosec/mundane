@@ -4,6 +4,23 @@ A modernized **TUI helper** to review Nessus plugin host files quickly and kick 
 
 ---
 
+## Table of Contents
+
+- [Requirements](#requirements)
+- [Environment configuration](#environment-configuration-no-config-files-required)
+- [Logging & diagnostics](#logging--diagnostics)
+- [Quick start](#quick-start)
+- [Features](#features)
+- [Commands (common)](#commands-common)
+- [Custom workflow options](#custom-workflow-options)
+- [Custom command placeholders](#custom-command-placeholders)
+- [Architecture notes](#architecture-notes-phases-16)
+- [Tips](#tips)
+- [Directory layout](#directory-layout-after-wizard)
+- [License](#license)
+
+---
+
 ## Requirements
 
 - **Python 3.11+** (3.8+ may still work but is not the target)
@@ -53,6 +70,24 @@ tail -f mundane.log
 ---
 
 ## Quick start
+
+**Got 5 minutes and a `.nessus` scan file?** Try this:
+
+```bash
+# 1. Export plugins from your scan (wizard handles cloning NessusPluginHosts automatically)
+python mundane.py wizard myscan.nessus --review
+
+# That's it! The wizard will:
+#   - Clone NessusPluginHosts if needed
+#   - Export all plugins to ./nessus_plugin_hosts/
+#   - Launch the interactive review TUI
+```
+
+**Already have exported plugin files?** Jump straight to review:
+
+```bash
+python mundane.py review --export-root ./nessus_plugin_hosts
+```
 
 ### 1) Seed exports from a `.nessus` (wizard)
 Clone **NessusPluginHosts** and export plugin hostlists into `./nessus_plugin_hosts`:

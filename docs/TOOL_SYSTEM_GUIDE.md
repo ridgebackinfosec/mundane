@@ -501,6 +501,6 @@ def _build_simple_workflow(ctx: ToolContext) -> Optional[CommandResult]:
 ## See Also
 
 - [ADDING_TOOLS_QUICKSTART.md](ADDING_TOOLS_QUICKSTART.md) - Quick reference
-- [tool_context.py](mundane_pkg/tool_context.py) - ToolContext and CommandResult source
-- [tool_registry.py](mundane_pkg/tool_registry.py) - Tool registry source
-- [tool_definitions.py](mundane_pkg/tool_definitions.py) - Tool registration source
+- [tool_context.py](../mundane_pkg/tool_context.py) - ToolContext and CommandResult source
+- [tool_registry.py](../mundane_pkg/tool_registry.py) - Tool registry source
+- [tool_definitions.py](../mundane_pkg/tool_definitions.py) - Tool registration source

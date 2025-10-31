@@ -314,7 +314,7 @@ def render_actions_footer(
     can_next: bool,
     can_prev: bool,
 ) -> None:
-    """Render a two-row, two-column action footer with available commands.
+    """Render a three-row, two-column action footer with available commands.
 
     Args:
         group_applied: Whether a group filter is currently active
@@ -323,6 +323,7 @@ def render_actions_footer(
         can_next: Whether next page is available
         can_prev: Whether previous page is available
     """
+    # Row 1: Navigation basics + filtering controls
     left_row1 = join_actions_texts(
         [
             key_text("Enter", "Open first match"),
@@ -332,39 +333,43 @@ def render_actions_footer(
     )
     right_row1 = join_actions_texts(
         [
-            key_text("F", "Set filter"),
+            key_text("F", "Filter"),
             key_text("C", "Clear filter"),
-            key_text(
-                "O",
-                f"Toggle sort (now: {'Hosts' if sort_mode=='hosts' else 'Name'})",
-            ),
+            key_text("O", f"Sort: {'Hosts' if sort_mode=='hosts' else 'Name'}"),
         ]
     )
+
+    # Row 2: Analysis + pagination
     left_row2 = join_actions_texts(
         [
-            key_text("R", "Reviewed files"),
+            key_text("R", "Reviewed"),
             key_text("H", "Compare"),
-            key_text("I", "Superset analysis"),
-            key_text("E", f"CVEs for all filtered ({candidates_count})"),
-            key_text(
-                "M",
-                f"Mark ALL filtered as REVIEW_COMPLETE ({candidates_count})",
-            ),
+            key_text("I", "Superset"),
         ]
     )
-    right_items = [
+    right_items_row2 = [
         key_text("N", "Next page", enabled=can_next),
         key_text("P", "Prev page", enabled=can_prev),
     ]
     if group_applied:
-        right_items.append(key_text("X", "Clear group"))
-    right_row2 = join_actions_texts(right_items)
+        right_items_row2.append(key_text("X", "Clear group"))
+    right_row2 = join_actions_texts(right_items_row2)
+
+    # Row 3: Bulk operations
+    left_row3 = join_actions_texts(
+        [
+            key_text("E", f"CVEs ({candidates_count})"),
+            key_text("M", f"Mark reviewed ({candidates_count})"),
+        ]
+    )
+    right_row3 = Text()  # Empty for now, reserved for future actions
 
     grid = Table.grid(expand=True, padding=(0, 1))
     grid.add_column(ratio=1)
     grid.add_column(ratio=1)
     grid.add_row(left_row1, right_row1)
     grid.add_row(left_row2, right_row2)
+    grid.add_row(left_row3, right_row3)
     _console_global.print(grid)
 
 
@@ -395,28 +400,28 @@ def show_actions_help(
     )
     table.add_row(
         Text("Filtering", style="bold"),
-        key_text("F", "Set filter"),
-        key_text("C", "Clear filter"),
+        key_text("F", "Filter - Set a filter to narrow down file list"),
+        key_text("C", "Clear filter - Remove active filter"),
     )
     table.add_row(
         Text("Sorting", style="bold"),
         key_text(
             "O",
-            f"Toggle sort (now: {'Hosts' if sort_mode=='hosts' else 'Name'})",
+            f"Sort: {'Hosts' if sort_mode=='hosts' else 'Name'} - Toggle between host count and name sorting",
         ),
     )
     table.add_row(
         Text("Bulk review", style="bold"),
         key_text(
             "M",
-            f"Mark ALL filtered as REVIEW_COMPLETE ({candidates_count})",
+            f"Mark reviewed ({candidates_count}) - Mark all filtered files as REVIEW_COMPLETE",
         ),
     )
     table.add_row(
         Text("Analysis", style="bold"),
         key_text("H", "Compare - Find files with identical host:port combinations"),
-        key_text("I", "Inclusion - Find files where one is a subset of another"),
-        key_text("E", f"CVEs for all filtered files ({candidates_count})"),
+        key_text("I", "Superset - Find files where one is a subset of another"),
+        key_text("E", f"CVEs ({candidates_count}) - Extract CVEs for all filtered files"),
     )
     if group_applied:
         table.add_row(

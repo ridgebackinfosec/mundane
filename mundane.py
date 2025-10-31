@@ -1417,7 +1417,7 @@ def handle_file_list_actions(
             else:
                 print(f"[{idx}] {fmt_reviewed(file.name)}")
 
-        print(fmt_action("[?] Help  [U] Undo review-complete  [F] Set filter  [C] Clear filter  [B] Back"))
+        print(fmt_action("[?] Help  [U] Undo review-complete  [F] Filter  [C] Clear filter  [B] Back"))
 
         try:
             choice = input("Action or [B]ack: ").strip().lower()

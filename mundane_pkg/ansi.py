@@ -144,3 +144,47 @@ def colorize_severity_label(label: str) -> str:
     _, default_ansi = SEVERITY_COLORS["default"]
     color = "" if NO_COLOR else default_ansi
     return f"{C.BOLD}{color}{label}{C.RESET}"
+
+
+def breadcrumb(*parts: str, max_width: int = 78) -> str:
+    """Create a breadcrumb navigation string from parts.
+
+    Args:
+        *parts: Navigation parts (e.g., "Scan", "Severity", "Files")
+        max_width: Maximum width before truncation (default: 78)
+
+    Returns:
+        Formatted breadcrumb string with '>' separators and cyan color
+
+    Example:
+        breadcrumb("MyS can", "4_Critical", "Files")
+        → "MyScan > 4_Critical > Files"
+    """
+    if not parts:
+        return ""
+
+    separator = f"{C.CYAN} > {C.RESET}"
+    # Build breadcrumb with colored parts
+    colored_parts = [f"{C.CYAN}{part}{C.RESET}" for part in parts]
+    breadcrumb_str = separator.join(colored_parts)
+
+    # Calculate actual display width (without ANSI codes)
+    display_str = " > ".join(parts)
+
+    # Truncate if too long
+    if len(display_str) > max_width:
+        # Try truncating the last part
+        available = max_width - len(" > ".join(parts[:-1])) - 3 - 5  # -3 for " > ", -5 for "..."
+        if available > 10:
+            last_part = parts[-1]
+            truncated_last = last_part[:available] + "..."
+            colored_parts[-1] = f"{C.CYAN}{truncated_last}{C.RESET}"
+            breadcrumb_str = separator.join(colored_parts)
+        else:
+            # Too long even after truncation, just show first and last
+            if len(parts) > 2:
+                first = f"{C.CYAN}{parts[0][:20]}{C.RESET}"
+                last = f"{C.CYAN}{parts[-1][:30]}...{C.RESET}"
+                breadcrumb_str = f"{first}{separator}...{separator}{last}"
+
+    return breadcrumb_str

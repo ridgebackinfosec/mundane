@@ -1724,7 +1724,9 @@ def browse_workflow_groups(
 
     while True:
         # Build table of workflows
-        header("Workflow Mapped Files - Select Workflow")
+        from mundane_pkg import breadcrumb
+        bc = breadcrumb(scan_dir.name, "Workflow Mapped Files")
+        header(bc if bc else "Workflow Mapped Files - Select Workflow")
 
         table = Table(title="Workflows", box=box.SIMPLE)
         table.add_column("#", style="cyan", justify="right")
@@ -1893,7 +1895,10 @@ def browse_file_list(
         page_items = display[start:end]
 
         try:
-            header(f"Severity: {severity_label}")
+            from mundane_pkg import breadcrumb
+            filter_info = f"filtered: '{file_filter}'" if file_filter else "Files"
+            bc = breadcrumb(scan_dir.name, severity_label, filter_info)
+            header(bc if bc else f"Severity: {severity_label}")
             status = (
                 f"Unreviewed files ({len(unreviewed)}). "
                 f"Current filter: '{file_filter or '*'}'"
@@ -2246,7 +2251,9 @@ def main(args: types.SimpleNamespace) -> None:
 
         # Severity loop
         while True:
-            header(f"Scan: {scan_dir.name} — choose severity")
+            from mundane_pkg import breadcrumb
+            bc = breadcrumb(scan_dir.name, "Choose severity")
+            header(bc if bc else f"Scan: {scan_dir.name} — choose severity")
             severities = list_dirs(scan_dir)
             if not severities:
                 warn("No severity directories in this scan.")

@@ -55,6 +55,7 @@ mundane = "mundane:app"
 
 [tool.setuptools]
 packages = ["mundane_pkg"]
+py-modules = ["mundane"]
 
 [tool.setuptools.package-data]
 mundane_pkg = ["*.yaml"]

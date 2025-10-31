@@ -97,10 +97,11 @@ def render_scan_table(scans: list[Path]) -> None:
         scans: List of scan directory paths to display
     """
     table = Table(
-        title=None, box=box.SIMPLE, show_lines=False, pad_edge=False
+        title=None, box=box.SIMPLE, show_lines=False, pad_edge=False,
+        overflow="fold"
     )
-    table.add_column("#", justify="right", no_wrap=True)
-    table.add_column("Scan")
+    table.add_column("#", justify="right", no_wrap=True, max_width=5)
+    table.add_column("Scan", overflow="fold")
     for i, scan_dir in enumerate(scans, 1):
         table.add_row(str(i), scan_dir.name)
     _console_global.print(table)
@@ -121,14 +122,15 @@ def render_severity_table(
             for Workflow Mapped row
     """
     table = Table(
-        title=None, box=box.SIMPLE, show_lines=False, pad_edge=False
+        title=None, box=box.SIMPLE, show_lines=False, pad_edge=False,
+        overflow="fold"
     )
-    table.add_column("#", justify="right", no_wrap=True)
-    table.add_column("Severity", no_wrap=True)
+    table.add_column("#", justify="right", no_wrap=True, max_width=5)
+    table.add_column("Severity", no_wrap=True, max_width=20)
     # Headers indicate percent (cells contain N (P%))
-    table.add_column("Unreviewed (%)", justify="right", no_wrap=True)
-    table.add_column("Reviewed (%)", justify="right", no_wrap=True)
-    table.add_column("Total", justify="right", no_wrap=True)
+    table.add_column("Unreviewed (%)", justify="right", no_wrap=True, max_width=15)
+    table.add_column("Reviewed (%)", justify="right", no_wrap=True, max_width=14)
+    table.add_column("Total", justify="right", no_wrap=True, max_width=8)
 
     for i, severity_dir in enumerate(severities, 1):
         unreviewed, reviewed, total = count_severity_files(severity_dir)
@@ -181,14 +183,15 @@ def render_file_list_table(
         sev_map: Optional mapping of file paths to severity directories
     """
     table = Table(
-        title=None, box=box.SIMPLE, show_lines=False, pad_edge=False
+        title=None, box=box.SIMPLE, show_lines=False, pad_edge=False,
+        overflow="fold"
     )
-    table.add_column("#", justify="right", no_wrap=True)
-    table.add_column("File")
+    table.add_column("#", justify="right", no_wrap=True, max_width=5)
+    table.add_column("File", overflow="fold")
     if sort_mode == "hosts":
-        table.add_column("Hosts", justify="right", no_wrap=True)
+        table.add_column("Hosts", justify="right", no_wrap=True, max_width=8)
     if sev_map:
-        table.add_column("Severity", justify="left", no_wrap=True)
+        table.add_column("Severity", justify="left", no_wrap=True, max_width=15)
 
     for i, file_path in enumerate(display, 1):
         row_number = row_offset + i
@@ -237,12 +240,13 @@ def render_compare_tables(
         groups_sorted: List of filename groups with identical combinations
     """
     summary = Table(
-        title=None, box=box.SIMPLE, show_lines=False, pad_edge=False
+        title=None, box=box.SIMPLE, show_lines=False, pad_edge=False,
+        overflow="fold"
     )
-    summary.add_column("Aspect")
-    summary.add_column("Equal Across Files", justify="center", no_wrap=True)
-    summary.add_column("Intersection Size", justify="right", no_wrap=True)
-    summary.add_column("Union Size", justify="right", no_wrap=True)
+    summary.add_column("Aspect", max_width=20)
+    summary.add_column("Equal Across Files", justify="center", no_wrap=True, max_width=20)
+    summary.add_column("Intersection Size", justify="right", no_wrap=True, max_width=18)
+    summary.add_column("Union Size", justify="right", no_wrap=True, max_width=12)
     summary.add_row(
         "Hosts",
         "✅" if same_hosts else "❌",
@@ -263,13 +267,14 @@ def render_compare_tables(
         box=box.SIMPLE,
         show_lines=False,
         pad_edge=False,
+        overflow="fold"
     )
-    files_table.add_column("#", justify="right", no_wrap=True)
-    files_table.add_column("File")
-    files_table.add_column("Hosts", justify="right", no_wrap=True)
-    files_table.add_column("Ports", justify="right", no_wrap=True)
+    files_table.add_column("#", justify="right", no_wrap=True, max_width=5)
+    files_table.add_column("File", overflow="fold")
+    files_table.add_column("Hosts", justify="right", no_wrap=True, max_width=8)
+    files_table.add_column("Ports", justify="right", no_wrap=True, max_width=8)
     files_table.add_column(
-        "Explicit combos?", justify="center", no_wrap=True
+        "Explicit combos?", justify="center", no_wrap=True, max_width=16
     )
 
     for i, (file_path, hosts, ports_set, combos, had_explicit) in enumerate(
@@ -291,10 +296,11 @@ def render_compare_tables(
             box=box.SIMPLE,
             show_lines=False,
             pad_edge=False,
+            overflow="fold"
         )
-        groups_table.add_column("#", justify="right", no_wrap=True)
-        groups_table.add_column("File count", justify="right", no_wrap=True)
-        groups_table.add_column("Files (sample)")
+        groups_table.add_column("#", justify="right", no_wrap=True, max_width=5)
+        groups_table.add_column("File count", justify="right", no_wrap=True, max_width=12)
+        groups_table.add_column("Files (sample)", overflow="fold")
         for i, names in enumerate(groups_sorted, 1):
             sample = "\n".join(names[:8]) + (
                 f"\n... (+{len(names)-8} more)" if len(names) > 8 else ""

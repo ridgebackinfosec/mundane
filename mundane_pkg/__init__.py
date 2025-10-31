@@ -64,5 +64,12 @@ from .workflow_mapper import (
     WorkflowStep,
     WorkflowMapper,
 )
+from .config import (
+    MundaneConfig,
+    load_config,
+    save_config,
+    get_config_path,
+    create_example_config,
+)
 # Note: tool_definitions is NOT imported here to avoid circular imports
 # Tools are registered lazily on first access via _ensure_registered()

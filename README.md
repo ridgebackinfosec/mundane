@@ -84,24 +84,66 @@ mundane --help
 
 ---
 
-## Environment configuration (no config files required)
+## Configuration
 
-All runtime defaults are controlled via environment variables:
+Mundane supports both **environment variables** and an optional **config file** for user preferences.
+
+### Config file (optional)
+
+Create `~/.mundane/config.yaml` to set persistent preferences:
+
+```bash
+# Create an example config file with all options documented
+mundane config init
+```
+
+**Available settings:**
+```yaml
+# Paths
+results_root: "~/mundane_scans"       # Custom path for scan artifacts
+
+# Display preferences
+default_page_size: 20                  # Items per page in lists
+top_ports_count: 10                    # Top ports to show in summaries
+
+# Behavior
+default_workflow_path: "~/my_workflows.yaml"  # Path to custom workflows
+auto_save_session: true                # Auto-save progress (default: true)
+confirm_bulk_operations: true          # Confirm bulk actions (default: true)
+
+# Network
+http_timeout: 15                       # HTTP request timeout (seconds)
+
+# Tool defaults
+default_tool: "nmap"                   # Pre-select tool: nmap, netexec, custom
+default_netexec_protocol: "smb"       # Default netexec protocol
+nmap_default_profile: "SMB"           # Default NSE profile name
+```
+
+All settings are optional - the application works with defaults if no config file exists.
+
+### Environment variables
+
+Environment variables override config file settings:
 
 | Variable | Description | Default |
 |---|---|---|
+| `NPH_RESULTS_ROOT` | Root directory for scan artifacts | `scan_artifacts` |
 | `MUNDANE_LOG` | Log file path | `~/mundane.log` |
 | `MUNDANE_DEBUG` | DEBUG logging when truthy (`1`, `true`, `on`) | off |
 | `MUNDANE_PROMPT` | Enable confirmation prompts | on |
 | `MUNDANE_SUDO_PREFLIGHT` | Run sudo preflight checks | on |
 
-Example:
+**Example:**
 ```bash
+export NPH_RESULTS_ROOT="$HOME/security/scans"
 export MUNDANE_LOG="$PWD/mundane.log"
 export MUNDANE_DEBUG=1
-python mundane.py review
+mundane review --export-root ./nessus_plugin_hosts
 tail -f mundane.log
 ```
+
+**Priority order:** Environment variables > Config file > Application defaults
 
 ---
 

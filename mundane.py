@@ -1358,7 +1358,9 @@ def handle_file_list_actions(
         return None, file_filter, reviewed_filter, group_filter, sort_mode, page_idx
 
     if ans == "f":
-        file_filter = input("Enter substring to filter by: ").strip()
+        info("Filter help: Enter any text to match filenames (case-insensitive)")
+        info("Examples: 'apache' matches 'Apache_2.4', 'ssl' matches 'SSL_Certificate'")
+        file_filter = input("Enter substring to filter by (or press Enter for none): ").strip()
         page_idx = 0
         return None, file_filter, reviewed_filter, group_filter, sort_mode, page_idx
 
@@ -1495,7 +1497,9 @@ def handle_file_list_actions(
                 page_idx,
             )
         if choice == "f":
-            reviewed_filter = input("Enter substring to filter by: ").strip()
+            info("Filter help: Enter any text to match filenames (case-insensitive)")
+            info("Examples: 'apache' matches 'Apache_2.4', 'ssl' matches 'SSL_Certificate'")
+            reviewed_filter = input("Enter substring to filter by (or press Enter for none): ").strip()
             return (
                 None,
                 file_filter,

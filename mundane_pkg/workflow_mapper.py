@@ -55,16 +55,34 @@ class WorkflowMapper:
 
         Args:
             yaml_path: Path to workflow mappings YAML file.
-                       If None, uses default workflow_mappings.yaml in nessus directory.
+                       If None, uses default workflow_mappings.yaml from package or repo root.
         """
         if yaml_path is None:
-            # Default to workflow_mappings.yaml in nessus directory
-            nessus_dir = Path(__file__).parent.parent
-            yaml_path = nessus_dir / "workflow_mappings.yaml"
+            yaml_path = self._find_default_yaml()
 
         self.yaml_path = yaml_path
         self.workflows: dict[str, Workflow] = {}
         self._load_workflows()
+
+    def _find_default_yaml(self) -> Path:
+        """
+        Find default workflow_mappings.yaml file.
+
+        Checks in order:
+        1. Package directory (for pipx/pip install)
+        2. Repository root (for git clone + direct execution)
+
+        Returns:
+            Path to workflow_mappings.yaml (may not exist)
+        """
+        # Try package directory first (pipx install case)
+        package_yaml = Path(__file__).parent / "workflow_mappings.yaml"
+        if package_yaml.exists():
+            return package_yaml
+
+        # Fallback to repo root (git clone case)
+        repo_root_yaml = Path(__file__).parent.parent / "workflow_mappings.yaml"
+        return repo_root_yaml
 
     def _load_workflows(self) -> None:
         """Load workflows from YAML file."""

@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mundane"
+version = "1.0.0"
+description = "Modern CLI for Nessus plugin host review and security tool orchestration"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "Ridgeback InfoSec, LLC"}
+]
+keywords = ["nessus", "security", "penetration-testing", "vulnerability-scanning", "nmap", "netexec"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: System Administrators",
+    "Topic :: Security",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Environment :: Console",
+]
+
+dependencies = [
+    "rich>=13.7,<14",
+    "typer>=0.12,<1",
+    "shellingham>=1.5,<2",
+    "colorama>=0.4.6,<1",
+    "pyperclip>=1.8,<2",
+    "loguru>=0.7.3",
+    "requests>=2.32.5",
+    "beautifulsoup4>=4.14.2",
+    "pyyaml>=6.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "black>=23.0",
+    "mypy>=1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/ridgebackinfosec/mundane"
+Repository = "https://github.com/ridgebackinfosec/mundane"
+Issues = "https://github.com/ridgebackinfosec/mundane/issues"
+
+[project.scripts]
+mundane = "mundane:app"
+
+[tool.setuptools]
+packages = ["mundane_pkg"]
+
+[tool.setuptools.package-data]
+mundane_pkg = ["*.yaml"]

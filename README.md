@@ -6,6 +6,7 @@ A modernized **TUI helper** to review Nessus plugin host files quickly and kick 
 
 ## Table of Contents
 
+- [Installation](#installation)
 - [Requirements](#requirements)
 - [Environment configuration](#environment-configuration-no-config-files-required)
 - [Logging & diagnostics](#logging--diagnostics)
@@ -21,14 +22,59 @@ A modernized **TUI helper** to review Nessus plugin host files quickly and kick 
 
 ---
 
+## Installation
+
+### Option 1: Install with pipx (recommended)
+
+Install directly from GitHub to get the `mundane` command globally:
+
+```bash
+pipx install git+https://github.com/ridgebackinfosec/mundane.git
+```
+
+Verify installation:
+```bash
+mundane --help
+```
+
+**Benefits:**
+- Isolated environment (no dependency conflicts)
+- Global `mundane` command available system-wide
+- Easy to upgrade: `pipx upgrade mundane`
+- Easy to uninstall: `pipx uninstall mundane`
+
+### Option 2: Install with pip
+
+```bash
+pip install git+https://github.com/ridgebackinfosec/mundane.git
+```
+
+### Option 3: Git clone (for development)
+
+Clone and run directly without installation:
+
+```bash
+git clone https://github.com/ridgebackinfosec/mundane.git
+cd mundane
+pip install -r requirements.txt
+python mundane.py --help
+```
+
+For development with editable install:
+```bash
+git clone https://github.com/ridgebackinfosec/mundane.git
+cd mundane
+pipx install -e .  # or: pip install -e .
+mundane --help
+```
+
+---
+
 ## Requirements
 
 - **Python 3.11+** (3.8+ may still work but is not the target)
-- Install Python deps:
-  ```bash
-  pip install -r requirements.txt
-  ```
-  Uses: `rich`, `typer`, `pyperclip`, `colorama`, `loguru`, `requests`, `beautifulsoup4`, `pyyaml`
+- Dependencies (automatically installed with pip/pipx):
+  - `rich`, `typer`, `pyperclip`, `colorama`, `loguru`, `requests`, `beautifulsoup4`, `pyyaml`
 - Optional external tools (only when you run them):
   - `git` – used by the wizard to clone **NessusPluginHosts**
   - `nmap`

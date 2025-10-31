@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mundane"
-version = "1.0.0"
+version = "1.1.1"
 description = "Modern CLI for Nessus plugin host review and security tool orchestration"
 readme = "README.md"
 requires-python = ">=3.11"

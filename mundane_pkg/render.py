@@ -97,8 +97,7 @@ def render_scan_table(scans: list[Path]) -> None:
         scans: List of scan directory paths to display
     """
     table = Table(
-        title=None, box=box.SIMPLE, show_lines=False, pad_edge=False,
-        overflow="fold"
+        title=None, box=box.SIMPLE, show_lines=False, pad_edge=False
     )
     table.add_column("#", justify="right", no_wrap=True, max_width=5)
     table.add_column("Scan", overflow="fold")
@@ -122,8 +121,7 @@ def render_severity_table(
             for Workflow Mapped row
     """
     table = Table(
-        title=None, box=box.SIMPLE, show_lines=False, pad_edge=False,
-        overflow="fold"
+        title=None, box=box.SIMPLE, show_lines=False, pad_edge=False
     )
     table.add_column("#", justify="right", no_wrap=True, max_width=5)
     table.add_column("Severity", no_wrap=True, max_width=20)
@@ -183,8 +181,7 @@ def render_file_list_table(
         sev_map: Optional mapping of file paths to severity directories
     """
     table = Table(
-        title=None, box=box.SIMPLE, show_lines=False, pad_edge=False,
-        overflow="fold"
+        title=None, box=box.SIMPLE, show_lines=False, pad_edge=False
     )
     table.add_column("#", justify="right", no_wrap=True, max_width=5)
     table.add_column("File", overflow="fold")
@@ -240,8 +237,7 @@ def render_compare_tables(
         groups_sorted: List of filename groups with identical combinations
     """
     summary = Table(
-        title=None, box=box.SIMPLE, show_lines=False, pad_edge=False,
-        overflow="fold"
+        title=None, box=box.SIMPLE, show_lines=False, pad_edge=False
     )
     summary.add_column("Aspect", max_width=20)
     summary.add_column("Equal Across Files", justify="center", no_wrap=True, max_width=20)
@@ -266,8 +262,7 @@ def render_compare_tables(
         title="Filtered Files",
         box=box.SIMPLE,
         show_lines=False,
-        pad_edge=False,
-        overflow="fold"
+        pad_edge=False
     )
     files_table.add_column("#", justify="right", no_wrap=True, max_width=5)
     files_table.add_column("File", overflow="fold")
@@ -295,8 +290,7 @@ def render_compare_tables(
             title="Identical Host:Port Groups",
             box=box.SIMPLE,
             show_lines=False,
-            pad_edge=False,
-            overflow="fold"
+            pad_edge=False
         )
         groups_table.add_column("#", justify="right", no_wrap=True, max_width=5)
         groups_table.add_column("File count", justify="right", no_wrap=True, max_width=12)

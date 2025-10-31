@@ -34,6 +34,10 @@ from mundane_pkg import (
     RESULTS_ROOT,
     PLUGIN_DETAILS_BASE,
     NSE_PROFILES,
+    MAX_FILE_BYTES,
+    DEFAULT_TOP_PORTS,
+    SAMPLE_THRESHOLD,
+    VISIBLE_GROUPS,
     # ansi / labels
     C,
     header,
@@ -114,12 +118,6 @@ from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.table import Table
 from rich.traceback import install as rich_tb_install
-
-# === Constants ===
-MAX_FILE_BYTES = 2_000_000
-DEFAULT_TOP_PORTS = 5
-SAMPLE_THRESHOLD = 5
-VISIBLE_GROUPS = 5
 
 # Create a console for the interactive flow
 _console_global = Console()

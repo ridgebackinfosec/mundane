@@ -21,7 +21,13 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.prompt import Prompt
 
 from .ansi import fmt_action, header, info, ok, warn
-from .constants import NETEXEC_PROTOCOLS, NSE_PROFILES
+from .constants import (
+    NETEXEC_PROTOCOLS,
+    NSE_PROFILES,
+    HTTP_TIMEOUT,
+    SEARCH_WINDOW_SIZE,
+    MIN_TERM_LENGTH,
+)
 
 # Optional dependencies for Metasploit search
 try:
@@ -42,11 +48,8 @@ USER_AGENT = (
     "Chrome/141.0.0.0 Safari/537.36"
 )
 HTTP_HEADERS = {"User-Agent": USER_AGENT}
-HTTP_TIMEOUT = 12
 PARENTHESIS_PATTERN = re.compile(r"\(([^)]+)\)")
 MSF_PATTERN = re.compile(r"Metasploit[:\-\s]*\(?([^)]+)\)?", re.IGNORECASE)
-SEARCH_WINDOW_SIZE = 800
-MIN_TERM_LENGTH = 2
 
 
 # ========== NSE Profile Selection ==========

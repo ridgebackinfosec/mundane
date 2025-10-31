@@ -24,6 +24,7 @@ from rich.progress import (
 )
 
 from .ansi import C, err, header, ok
+from .constants import PROCESS_TERMINATE_TIMEOUT
 from .logging_setup import log_error, log_info, log_timing
 
 
@@ -138,7 +139,7 @@ def run_command_with_progress(
         try:
             proc.terminate()
             try:
-                proc.wait(timeout=3)
+                proc.wait(timeout=PROCESS_TERMINATE_TIMEOUT)
             except subprocess.TimeoutExpired:
                 proc.kill()
         finally:

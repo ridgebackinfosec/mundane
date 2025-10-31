@@ -64,6 +64,36 @@ SEVERITY_COLORS: dict[str, tuple[str, str]] = {
 """Severity level to color mapping for Rich and ANSI outputs."""
 
 
+# ========== File processing limits ==========
+MAX_FILE_BYTES: int = 2_000_000
+"""Maximum file size in bytes to process (2MB limit for safety)."""
+
+DEFAULT_TOP_PORTS: int = 5
+"""Default number of top ports to display in summaries."""
+
+SAMPLE_THRESHOLD: int = 5
+"""Threshold for triggering host sampling in tool workflows."""
+
+VISIBLE_GROUPS: int = 5
+"""Number of comparison groups to display before pagination."""
+
+
+# ========== HTTP and network timeouts ==========
+HTTP_TIMEOUT: int = 12
+"""Timeout in seconds for HTTP requests to plugin detail pages."""
+
+PROCESS_TERMINATE_TIMEOUT: int = 3
+"""Timeout in seconds when waiting for subprocess termination."""
+
+
+# ========== Search and parsing configuration ==========
+SEARCH_WINDOW_SIZE: int = 800
+"""Character window size around CVE matches when searching plugin pages."""
+
+MIN_TERM_LENGTH: int = 2
+"""Minimum length for search terms when extracting CVEs."""
+
+
 # ========== Validation patterns ==========
 HNAME_RE: re.Pattern[str] = re.compile(
     r"^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?"

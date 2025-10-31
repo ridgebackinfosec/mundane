@@ -145,6 +145,61 @@ tail -f mundane.log
 
 **Priority order:** Environment variables > Config file > Application defaults
 
+### Config Management Commands
+
+Mundane provides CLI commands to manage your configuration without manually editing YAML:
+
+#### Create example config file
+```bash
+# Generate ~/.mundane/config.yaml with all options documented
+mundane config-init
+```
+Creates a commented example config file with all available settings. Useful for first-time setup.
+
+#### View current configuration
+```bash
+# Display merged configuration from all sources (file + defaults)
+mundane config-show
+```
+Shows a Rich table with all settings, their current values, and sources (file/default/env).
+
+#### Get specific config value
+```bash
+# Retrieve a single config value
+mundane config-get default_page_size
+mundane config-get results_root
+```
+Useful for scripting or checking individual settings.
+
+#### Set config value
+```bash
+# Set a config value (creates config file if needed)
+mundane config-set default_page_size 30
+mundane config-set results_root "~/my_scans"
+mundane config-set auto_save_session false
+```
+Updates `~/.mundane/config.yaml` with the new value. Creates the file if it doesn't exist.
+
+**Common workflows:**
+
+```bash
+# First-time setup
+mundane config-init
+# Edit ~/.mundane/config.yaml to customize
+
+# Quick customization without editing YAML
+mundane config-set default_page_size 50
+mundane config-set default_tool "netexec"
+
+# Check what you've configured
+mundane config-show
+
+# Verify specific setting
+mundane config-get default_tool
+```
+
+**Note:** All config commands are optional - mundane works perfectly with defaults if no config file exists.
+
 ---
 
 ## Logging & diagnostics
@@ -265,6 +320,12 @@ python mundane.py compare 4_Critical/*.txt
 
 # Quick file preview
 python mundane.py view nessus_plugin_hosts/<Scan>/<Severity>/<Plugin>.txt [--grouped]
+
+# Config management
+mundane config-init                    # Create example config file
+mundane config-show                    # Display current configuration
+mundane config-get <key>               # Get specific config value
+mundane config-set <key> <value>       # Set config value
 ```
 
 ---

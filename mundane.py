@@ -2688,5 +2688,169 @@ def wizard(
             warn("\nInterrupted — returning to shell.")
 
 
+# === Config management commands ===
+
+@app.command(help="Initialize example config file.")
+def config_init() -> None:
+    """Create an example config file at ~/.mundane/config.yaml with all options documented."""
+    from mundane_pkg import create_example_config, get_config_path
+
+    config_path = get_config_path()
+    if config_path.exists():
+        err(f"Config file already exists at {config_path}")
+        info("To recreate, delete the existing file first or edit it manually")
+        raise typer.Exit(1)
+
+    if create_example_config():
+        ok(f"Created example config at {config_path}")
+        info("Edit this file to customize your preferences")
+    else:
+        err("Failed to create example config")
+        raise typer.Exit(1)
+
+
+@app.command(help="Show current configuration.")
+def config_show() -> None:
+    """Display current configuration (merged from file and defaults)."""
+    from mundane_pkg import load_config, get_config_path
+    from rich.table import Table
+
+    config_path = get_config_path()
+    config = load_config()
+
+    header("Current Configuration")
+    if config_path.exists():
+        info(f"Config file: {config_path}")
+    else:
+        info(f"No config file found (using defaults)")
+        info(f"Create one with: mundane config-init")
+
+    print()
+
+    # Create table
+    table = Table(title="Configuration Values", show_header=True, header_style="bold cyan")
+    table.add_column("Setting", style="cyan")
+    table.add_column("Value", style="yellow")
+    table.add_column("Source", style="green")
+
+    # Add rows for each setting
+    import os
+
+    # results_root
+    env_val = os.environ.get("NPH_RESULTS_ROOT")
+    if env_val:
+        table.add_row("results_root", env_val, "Environment variable")
+    elif config.results_root:
+        table.add_row("results_root", str(config.results_root), "Config file")
+    else:
+        table.add_row("results_root", str(RESULTS_ROOT), "Default")
+
+    # default_page_size
+    if config.default_page_size:
+        table.add_row("default_page_size", str(config.default_page_size), "Config file")
+    else:
+        table.add_row("default_page_size", "auto (terminal height)", "Default")
+
+    # top_ports_count
+    if config.top_ports_count:
+        table.add_row("top_ports_count", str(config.top_ports_count), "Config file")
+    else:
+        table.add_row("top_ports_count", str(DEFAULT_TOP_PORTS), "Default")
+
+    # default_workflow_path
+    if config.default_workflow_path:
+        table.add_row("default_workflow_path", config.default_workflow_path, "Config file")
+
+    # auto_save_session
+    table.add_row("auto_save_session", str(config.auto_save_session), "Config file" if config_path.exists() else "Default")
+
+    # confirm_bulk_operations
+    table.add_row("confirm_bulk_operations", str(config.confirm_bulk_operations), "Config file" if config_path.exists() else "Default")
+
+    # http_timeout
+    if config.http_timeout:
+        table.add_row("http_timeout", str(config.http_timeout), "Config file")
+    else:
+        table.add_row("http_timeout", str(HTTP_TIMEOUT), "Default")
+
+    # Tool defaults
+    if config.default_tool:
+        table.add_row("default_tool", config.default_tool, "Config file")
+
+    if config.default_netexec_protocol:
+        table.add_row("default_netexec_protocol", config.default_netexec_protocol, "Config file")
+
+    if config.nmap_default_profile:
+        table.add_row("nmap_default_profile", config.nmap_default_profile, "Config file")
+
+    _console.print(table)
+    print()
+    info(f"Edit config: {config_path}")
+
+
+@app.command(help="Get a specific config value.")
+def config_get(
+    key: str = typer.Argument(..., help="Config key to retrieve")
+) -> None:
+    """Get and display a specific configuration value."""
+    from mundane_pkg import load_config
+
+    config = load_config()
+
+    # Map key to config attribute
+    if not hasattr(config, key):
+        err(f"Unknown config key: {key}")
+        info("Available keys: results_root, default_page_size, top_ports_count, default_workflow_path,")
+        info("                auto_save_session, confirm_bulk_operations, http_timeout,")
+        info("                default_tool, default_netexec_protocol, nmap_default_profile")
+        raise typer.Exit(1)
+
+    value = getattr(config, key)
+    if value is None:
+        info(f"{key} is not set (using default)")
+    else:
+        print(value)
+
+
+@app.command(help="Set a config value.")
+def config_set(
+    key: str = typer.Argument(..., help="Config key to set"),
+    value: str = typer.Argument(..., help="Value to set")
+) -> None:
+    """Set a configuration value in ~/.mundane/config.yaml."""
+    from mundane_pkg import load_config, save_config, get_config_path
+
+    config = load_config()
+
+    # Validate key
+    if not hasattr(config, key):
+        err(f"Unknown config key: {key}")
+        info("Available keys: results_root, default_page_size, top_ports_count, default_workflow_path,")
+        info("                auto_save_session, confirm_bulk_operations, http_timeout,")
+        info("                default_tool, default_netexec_protocol, nmap_default_profile")
+        raise typer.Exit(1)
+
+    # Type conversion based on key
+    try:
+        if key in ["default_page_size", "top_ports_count", "http_timeout"]:
+            typed_value = int(value)
+        elif key in ["auto_save_session", "confirm_bulk_operations"]:
+            typed_value = value.lower() in ("true", "1", "yes", "on")
+        else:
+            typed_value = value
+
+        setattr(config, key, typed_value)
+
+        if save_config(config):
+            ok(f"Set {key} = {typed_value}")
+            info(f"Config saved to {get_config_path()}")
+        else:
+            err("Failed to save config")
+            raise typer.Exit(1)
+    except ValueError as e:
+        err(f"Invalid value for {key}: {e}")
+        raise typer.Exit(1)
+
+
 if __name__ == "__main__":
     app()

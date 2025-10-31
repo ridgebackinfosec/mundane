@@ -1,6 +1,6 @@
 # mundane.py
 
-A modernized **TUI helper** to review Nessus plugin host files quickly and kick off focused checks with **nmap**, **NetExec**, or custom commands. Includes a one-step **wizard** to seed an export structure directly from a `.nessus` file.
+A modernized **TUI helper** to review Nessus findings quickly and kick off focused checks with **nmap**, **NetExec**, or custom commands. Includes a one-step **wizard** to seed an export structure directly from a `.nessus` file.
 
 ---
 

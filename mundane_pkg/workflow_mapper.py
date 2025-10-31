@@ -49,7 +49,7 @@ class WorkflowMapper:
     Manages workflow mappings from YAML configuration.
     """
 
-    def __init__(self, yaml_path: Optional[Path] = None):
+    def __init__(self, yaml_path: Optional[Path] = None) -> None:
         """
         Initialize workflow mapper.
 

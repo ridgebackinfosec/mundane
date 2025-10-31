@@ -84,8 +84,8 @@ def save_session(
         with open(session_file, "w", encoding="utf-8") as f:
             json.dump(asdict(state), f, indent=2)
     except Exception as e:
-        # Silent fail - session persistence is not critical
-        pass
+        # Session persistence is not critical, but log the error for debugging
+        log_error(f"Failed to save session to {session_file}: {e}")
 
 
 def load_session(scan_dir: Path) -> Optional[SessionState]:

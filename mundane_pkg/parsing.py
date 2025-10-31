@@ -367,7 +367,7 @@ def extract_plugin_id_from_filename(name_or_path) -> Optional[str]:
     return match.group(1) if match else None
 
 
-def group_files_by_workflow(files, workflow_mapper):
+def group_files_by_workflow(files: list[tuple[Path, Path]], workflow_mapper: "WorkflowMapper") -> dict[str, list[tuple[Path, Path]]]:
     """
     Group files by their workflow name.
 

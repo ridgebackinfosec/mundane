@@ -76,7 +76,6 @@ mundane --help
 - Dependencies (automatically installed with pip/pipx):
   - `rich`, `typer`, `pyperclip`, `colorama`, `loguru`, `requests`, `beautifulsoup4`, `pyyaml`
 - Optional external tools (only when you run them):
-  - `git` – used by the wizard to clone **NessusPluginHosts**
   - `nmap`
   - `nxc` / `netexec`
   - `msfconsole` – for Metasploit module searches
@@ -217,11 +216,11 @@ mundane config-get default_tool
 **Got 5 minutes and a `.nessus` scan file?** Try this:
 
 ```bash
-# 1. Export plugins from your scan (wizard handles cloning NessusPluginHosts automatically)
+# 1. Export plugins from your scan
 python mundane.py wizard myscan.nessus --review
 
 # That's it! The wizard will:
-#   - Clone NessusPluginHosts if needed
+#   - Parse your .nessus file
 #   - Export all plugins to ./nessus_plugin_hosts/
 #   - Launch the interactive review TUI
 ```
@@ -232,15 +231,15 @@ python mundane.py wizard myscan.nessus --review
 python mundane.py review --export-root ./nessus_plugin_hosts
 ```
 
-### 1) Seed exports from a `.nessus` (wizard)
-Clone **NessusPluginHosts** and export plugin hostlists into `./nessus_plugin_hosts`:
+### 1) Export plugins from a `.nessus` (wizard)
+Export plugin hostlists from `.nessus` file into `./nessus_plugin_hosts`:
 
 ```bash
 python mundane.py wizard path/to/scan.nessus
 # immediately start reviewing after export:
 python mundane.py wizard path/to/scan.nessus --review
-# customize clone/output locations:
-python mundane.py wizard scan.nessus --repo-dir ./vendor/NessusPluginHosts --out-dir ./nessus_plugin_hosts
+# customize output location:
+python mundane.py wizard scan.nessus --out-dir ./nessus_plugin_hosts
 ```
 
 ### 2) Review exports interactively
@@ -306,8 +305,8 @@ python mundane.py review --export-root ./nessus_plugin_hosts
 ## Commands (common)
 
 ```bash
-# Wizard: seed exported plugin files from a .nessus scan (then optionally review)
-python mundane.py wizard <scan.nessus> [--repo-dir DIR] [--out-dir DIR] [--review]
+# Wizard: export plugin files from a .nessus scan (then optionally review)
+python mundane.py wizard <scan.nessus> [--out-dir DIR] [--review]
 
 # Interactive review (main workflow)
 python mundane.py review --export-root ./nessus_plugin_hosts [--no-tools] [--custom-workflows PATH] [--custom-workflows-only PATH]
@@ -435,6 +434,6 @@ scan_artifacts/
 
 ## License
 
-This tool orchestrates local utilities and uses data produced by
+This tool orchestrates local utilities and includes Nessus XML parsing functionality adapted from
 [DefensiveOrigins/NessusPluginHosts](https://github.com/DefensiveOrigins/NessusPluginHosts).
-Respect all dependencies’ licenses and your organization’s policies.
+Respect all dependencies' licenses and your organization's policies.

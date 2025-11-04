@@ -12,7 +12,7 @@ from .constants import (
     validate_results_root,
 )
 from .logging_setup import setup_logging, log_info, log_error
-from .ops import require_cmd, resolve_cmd, root_or_sudo_available, run_command_with_progress, clone_nessus_plugin_hosts
+from .ops import require_cmd, resolve_cmd, root_or_sudo_available, run_command_with_progress
 from .parsing import (
     is_ipv6, is_ipv4,
     is_valid_token, build_item_set,
@@ -71,6 +71,10 @@ from .config import (
     save_config,
     get_config_path,
     create_example_config,
+)
+from .nessus_export import (
+    export_nessus_plugins,
+    ExportResult,
 )
 # Note: tool_definitions is NOT imported here to avoid circular imports
 # Tools are registered lazily on first access via _ensure_registered()

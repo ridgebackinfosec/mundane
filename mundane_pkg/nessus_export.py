@@ -1,0 +1,382 @@
+"""Nessus .nessus XML parsing and plugin export functionality.
+
+Adapted from DefensiveOrigins/NessusPluginHosts
+Repository: https://github.com/DefensiveOrigins/NessusPluginHosts
+Contributors: DefensiveOrigins, ChrisTraynor
+
+Integrated into mundane with enhancements:
+- Type hints and comprehensive docstrings
+- Integration with mundane's logging infrastructure
+- Rich progress reporting support
+- Cleaner API design for programmatic use
+"""
+
+from __future__ import annotations
+
+import ipaddress
+import xml.etree.ElementTree as ET
+from collections import defaultdict
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, Optional, Set, Tuple
+
+from .ansi import err, info, ok
+from .logging_setup import log_error, log_info, log_timing
+
+# Severity labels for integer severity levels (0-4)
+SEV_LABELS: Tuple[str, ...] = ("Info", "Low", "Medium", "High", "Critical")
+
+
+@dataclass
+class ExportResult:
+    """Result of Nessus plugin export operation.
+
+    Attributes:
+        plugins_exported: Total number of plugins exported
+        total_hosts: Total number of unique host:port combinations
+        scan_name: Name of the scan (derived from .nessus filename)
+        severities: Mapping of severity level to plugin count
+    """
+    plugins_exported: int
+    total_hosts: int
+    scan_name: str
+    severities: Dict[int, int]
+
+
+def is_ip(entry: str) -> bool:
+    """Check if a host entry is an IP address.
+
+    Args:
+        entry: Host entry, potentially with port (e.g., "192.168.1.1:80")
+
+    Returns:
+        True if the host part is a valid IPv4 or IPv6 address
+    """
+    try:
+        ipaddress.ip_address(entry.split(":")[0])
+        return True
+    except ValueError:
+        return False
+
+
+def sort_key_ip(entry: str) -> Tuple[ipaddress.IPv4Address | ipaddress.IPv6Address, int]:
+    """Generate sort key for IP address entries.
+
+    Sorts by IP address (natural ordering) then port number.
+
+    Args:
+        entry: Host:port string (e.g., "192.168.1.1:80")
+
+    Returns:
+        Tuple of (IP address object, port number) for sorting
+    """
+    ip_part, port_part = (entry.split(":") + ["0"])[:2]
+    return (ipaddress.ip_address(ip_part), int(port_part))
+
+
+def severity_label_from_int(sev_int: int) -> str:
+    """Convert severity integer to human-readable label.
+
+    Args:
+        sev_int: Severity level (0=Info, 1=Low, 2=Medium, 3=High, 4=Critical)
+
+    Returns:
+        Severity label string, or "Unknown" if out of range
+    """
+    if 0 <= sev_int < len(SEV_LABELS):
+        return SEV_LABELS[sev_int]
+    return "Unknown"
+
+
+def cvss_to_sev(cvss_score: Optional[str]) -> int:
+    """Map CVSS base score to severity bucket.
+
+    CVSS v3 is preferred, with fallback to v2. Mapping:
+      - 0.0            -> 0 (Info)
+      - 0.1 - 3.9      -> 1 (Low)
+      - 4.0 - 6.9      -> 2 (Medium)
+      - 7.0 - 8.9      -> 3 (High)
+      - 9.0 - 10.0     -> 4 (Critical)
+
+    Args:
+        cvss_score: CVSS score as string, or None if missing
+
+    Returns:
+        Severity integer (0-4), defaults to 0 if score is missing or invalid
+    """
+    try:
+        s = float(cvss_score)
+    except (TypeError, ValueError):
+        return 0  # Default to Info if score missing or unparsable
+
+    if s == 0.0:
+        return 0
+    if 0.0 < s <= 3.9:
+        return 1
+    if 4.0 <= s <= 6.9:
+        return 2
+    if 7.0 <= s <= 8.9:
+        return 3
+    return 4  # >= 9.0
+
+
+def sanitize_filename(name: str, max_len: int = 80) -> str:
+    """Sanitize a string for safe filesystem use.
+
+    Replaces invalid characters with underscores, collapses multiple spaces,
+    and enforces maximum length.
+
+    Args:
+        name: Raw string to sanitize
+        max_len: Maximum filename length (default 80)
+
+    Returns:
+        Filesystem-safe string with invalid chars replaced by underscores
+    """
+    safe = "".join(
+        c if (c.isalnum() or c in "-_ .") else "_"
+        for c in (name or "").strip()
+    )
+    safe = "_".join(safe.split())  # Collapse multiple spaces
+
+    if not safe:
+        safe = "plugin"
+
+    if len(safe) > max_len:
+        safe = safe[:max_len].rstrip("_")
+
+    return safe
+
+
+def truthy(text: Optional[str]) -> bool:
+    """Convert XML text content to boolean.
+
+    Args:
+        text: XML text value to interpret as boolean
+
+    Returns:
+        True if text is "true", "yes", or "1" (case-insensitive)
+    """
+    return bool(text) and text.strip().lower() in ("true", "yes", "1")
+
+
+def _build_index_stream(
+    filename: Path,
+    include_ports: bool = True
+) -> Tuple[Dict[str, dict], Dict[str, Set[str]]]:
+    """Parse .nessus XML file and build plugin index with streaming.
+
+    Memory-efficient single-pass parsing using iterparse with element clearing.
+
+    Args:
+        filename: Path to .nessus XML file
+        include_ports: Whether to include port numbers in host entries
+
+    Returns:
+        Tuple of:
+          - plugins dict: plugin_id -> {name, severity_int, severity_label, msf}
+          - plugin_hosts dict: plugin_id -> set of host entries
+
+    Raises:
+        ET.ParseError: If XML parsing fails
+        FileNotFoundError: If .nessus file doesn't exist
+    """
+    plugins: Dict[str, dict] = {}
+    plugin_hosts: Dict[str, Set[str]] = defaultdict(set)
+    current_host = ""
+
+    try:
+        for event, elem in ET.iterparse(filename, events=("start", "end")):
+            tag = elem.tag
+
+            # Track current host being processed
+            if event == "start" and tag == "ReportHost":
+                current_host = elem.attrib.get("name", "")
+
+            # Process each plugin finding
+            elif event == "end" and tag == "ReportItem":
+                pid = elem.attrib.get("pluginID")
+                if not pid:
+                    elem.clear()
+                    continue
+
+                # Severity: prefer CVSS v3, fallback to CVSS v2
+                cvss = elem.findtext("cvss3_base_score")
+                if not cvss:
+                    cvss = elem.findtext("cvss_base_score")
+                sev_int = cvss_to_sev(cvss)
+
+                # Check for Metasploit module availability
+                msf_flag = truthy(elem.findtext("exploit_framework_metasploit"))
+
+                # Store or merge plugin metadata (keep highest severity)
+                pname = (elem.attrib.get("pluginName") or "").strip()
+                existing = plugins.get(pid)
+
+                if existing is None:
+                    plugins[pid] = {
+                        "name": pname,
+                        "severity_int": sev_int,
+                        "severity_label": severity_label_from_int(sev_int),
+                        "msf": msf_flag,
+                    }
+                else:
+                    # Keep highest severity across all instances
+                    if sev_int > existing["severity_int"]:
+                        existing["severity_int"] = sev_int
+                        existing["severity_label"] = severity_label_from_int(sev_int)
+                    # Merge MSF flag (any True wins)
+                    if msf_flag:
+                        existing["msf"] = True
+                    # Fill name if previously blank
+                    if not existing.get("name") and pname:
+                        existing["name"] = pname
+
+                # Record host:port combination
+                port = elem.attrib.get("port", "0")
+                entry = current_host if (not include_ports or port == "0") else f"{current_host}:{port}"
+                plugin_hosts[pid].add(entry)
+
+                elem.clear()  # Free memory immediately
+
+            # Clean up after processing host
+            elif event == "end" and tag == "ReportHost":
+                elem.clear()
+                current_host = ""
+
+        return plugins, plugin_hosts
+
+    except ET.ParseError as e:
+        log_error(f"Failed to parse {filename} as XML: {e}")
+        err(f"Error: Could not parse {filename} as XML.")
+        raise
+    except FileNotFoundError as e:
+        log_error(f"Nessus file not found: {filename}")
+        err(f"Error: File {filename} not found.")
+        raise
+
+
+def _write_plugin_file(
+    path: Path,
+    lines: list[str]
+) -> bool:
+    """Write plugin host list to file.
+
+    Args:
+        path: Output file path
+        lines: Host entries to write (one per line)
+
+    Returns:
+        True if file was written, False if no lines provided
+    """
+    if not lines:
+        return False
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    with path.open("w", encoding="utf-8") as fh:
+        fh.writelines(line + "\n" for line in lines)
+
+    return True
+
+
+@log_timing
+def export_nessus_plugins(
+    nessus_file: Path,
+    output_dir: Path,
+    *,
+    include_ports: bool = True
+) -> ExportResult:
+    """Export all plugins from .nessus file to organized directory structure.
+
+    Creates directory structure:
+        output_dir/
+          {scan_name}/
+            4_Critical/
+              {plugin_id}_{plugin_name}[-MSF].txt
+            3_High/
+            2_Medium/
+            1_Low/
+            0_Info/
+
+    Each file contains one host:port per line, sorted with IPs first (by address),
+    then hostnames (alphabetically). Files with Metasploit modules available are
+    suffixed with "-MSF".
+
+    Args:
+        nessus_file: Path to .nessus XML file to parse
+        output_dir: Root directory for export output
+        include_ports: Whether to include port numbers in host listings (default: True)
+
+    Returns:
+        ExportResult with export statistics
+
+    Raises:
+        ET.ParseError: If XML parsing fails
+        FileNotFoundError: If .nessus file doesn't exist
+        PermissionError: If output directory is not writable
+    """
+    log_info(f"Exporting Nessus plugins from {nessus_file} to {output_dir}")
+
+    # Parse .nessus file
+    plugins, plugin_hosts = _build_index_stream(nessus_file, include_ports)
+
+    if not plugins:
+        log_info("No plugins with findings found in .nessus file")
+        info("No plugins with findings found.")
+        return ExportResult(
+            plugins_exported=0,
+            total_hosts=0,
+            scan_name=nessus_file.stem,
+            severities={}
+        )
+
+    # Prepare export directory structure
+    scan_name = sanitize_filename(nessus_file.stem)
+    base_scan_dir = output_dir / scan_name
+
+    # Sort plugins: severity descending, then plugin ID ascending
+    def sort_key(item: Tuple[str, dict]) -> Tuple[int, float]:
+        pid, meta = item
+        try:
+            pid_int = int(pid)
+        except ValueError:
+            pid_int = float("inf")
+        return (-meta["severity_int"], pid_int)
+
+    # Track statistics
+    total_hosts = 0
+    severities: Dict[int, int] = {}
+
+    # Export each plugin
+    for pid, meta in sorted(plugins.items(), key=sort_key):
+        # Create severity-based subdirectory
+        sev_dir = base_scan_dir / f"{meta['severity_int']}_{meta['severity_label']}"
+
+        # Generate filename with optional MSF suffix
+        msf_suffix = "-MSF" if meta.get("msf") else ""
+        fname = f"{pid}_{sanitize_filename(meta['name'])}{msf_suffix}.txt"
+        out_path = sev_dir / fname
+
+        # Sort hosts: IPs first (by address), then hostnames (alphabetically)
+        hosts = plugin_hosts.get(pid, set())
+        ip_list = [h for h in hosts if is_ip(h)]
+        host_list = [h for h in hosts if not is_ip(h)]
+        ip_list_sorted = sorted(ip_list, key=sort_key_ip)
+        host_list_sorted = sorted(host_list)
+        ordered = ip_list_sorted + host_list_sorted
+
+        # Write plugin file
+        if _write_plugin_file(out_path, ordered):
+            log_info(f"Wrote {out_path}")
+            total_hosts += len(ordered)
+            severities[meta["severity_int"]] = severities.get(meta["severity_int"], 0) + 1
+
+    log_info(f"Export complete: {len(plugins)} plugins, {total_hosts} host entries")
+
+    return ExportResult(
+        plugins_exported=len(plugins),
+        total_hosts=total_hosts,
+        scan_name=scan_name,
+        severities=severities
+    )

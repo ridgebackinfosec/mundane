@@ -22,7 +22,6 @@ from mundane_pkg import (
     resolve_cmd,
     root_or_sudo_available,
     run_command_with_progress,
-    clone_nessus_plugin_hosts,
     # parsing
     normalize_combos,
     parse_for_overview,
@@ -2634,7 +2633,7 @@ def show_nessus_tool_suggestions(nessus_file: Path) -> None:
 
 
 @app.command(
-    help="Wizard: seed exported plugin files from a .nessus scan using NessusPluginHosts."
+    help="Wizard: export plugin files from a .nessus scan and optionally launch review."
 )
 def wizard(
     nessus: Path = typer.Argument(
@@ -2646,46 +2645,36 @@ def wizard(
         "-o",
         help="Export output directory",
     ),
-    repo_dir: Path = typer.Option(
-        Path.home() / "NessusPluginHosts",
-        "--repo-dir",
-        help="Where to clone the helper repo",
-    ),
     review: bool = typer.Option(
         False, "--review", help="Launch interactive review after export"
     ),
 ) -> None:
     """
-    Clone NessusPluginHosts repo and export plugin files from .nessus scan.
+    Export plugin files from .nessus scan to organized directory structure.
 
     Optionally launch interactive review after export completes.
     """
-    # 1) Ensure repo present
-    repo_url = "https://github.com/DefensiveOrigins/NessusPluginHosts"
-    repo_path = clone_nessus_plugin_hosts(repo_url, repo_dir)
+    from mundane_pkg.nessus_export import export_nessus_plugins
 
-    # 2) Run export
+    # Run export
     header("Exporting plugin host files")
     out_dir.mkdir(parents=True, exist_ok=True)
-    helper = repo_path / "NessusPluginHosts.py"
-    if not helper.exists():
-        err(f"Helper script not found: {helper}")
+
+    try:
+        result = export_nessus_plugins(
+            nessus_file=nessus,
+            output_dir=out_dir,
+            include_ports=True
+        )
+
+        ok(f"Export complete: {result.plugins_exported} plugins, {result.total_hosts} hosts")
+        info(f"Files written under: {out_dir.resolve()}")
+        info("Next step:")
+        info(f"  mundane review --export-root {out_dir}")
+
+    except Exception as e:
+        err(f"Export failed: {e}")
         raise typer.Exit(1)
-
-    cmd = [
-        sys.executable,
-        str(helper),
-        "-f",
-        str(nessus),
-        "--list-plugins",
-        "--export-plugin-hosts",
-        str(out_dir),
-    ]
-    run_command_with_progress(cmd, shell=False)
-
-    ok(f"Export complete. Files written under: {out_dir.resolve()}")
-    info("Next step:")
-    info(f"  python mundane.py review --export-root {out_dir}")
 
     # Show suggested tool commands
     print()  # Blank line for spacing

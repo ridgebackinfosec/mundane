@@ -153,35 +153,6 @@ def run_command_with_progress(
 
 
 @log_timing
-def clone_nessus_plugin_hosts(repo_url: str, dest: Path) -> Path:
-    """Clone NessusPluginHosts repository if not already present.
-
-    Args:
-        repo_url: Git repository URL to clone
-        dest: Destination path for the cloned repository
-
-    Returns:
-        Path to the cloned repository
-
-    Raises:
-        SystemExit: If git command is not available
-        subprocess.CalledProcessError: If git clone fails
-    """
-    if dest.exists() and (dest / "NessusPluginHosts.py").exists():
-        log_info(f"Repo already present at {dest}")
-        ok(f"Repo already present: {dest}")
-        return dest
-    require_cmd("git")
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    header("Cloning NessusPluginHosts")
-    log_info(f"Cloning repo {repo_url} -> {dest}")
-    run_command_with_progress(
-        ["git", "clone", "--depth", "1", repo_url, str(dest)]
-    )
-    ok(f"Cloned into {dest}")
-    return dest
-
-
 def root_or_sudo_available() -> bool:
     """Check if running as root or if sudo is available.
 

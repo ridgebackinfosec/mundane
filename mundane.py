@@ -56,6 +56,7 @@ from mundane_pkg import (
     show_actions_help,
     show_reviewed_help,
     menu_pager,
+    severity_cell,
     pretty_severity_label,
     list_files,
     default_page_size,
@@ -690,7 +691,7 @@ def handle_file_view(chosen: Path, plugin_url: Optional[str] = None, workflow_ma
         workflow_option = " / [W] Workflow" if has_workflow else ""
         try:
             action_choice = input(
-                f"\n[V] View file / [E] CVE info / [C] Copy to clipboard{workflow_option} / [Enter] Skip: "
+                f"\n[V] View file / [E] CVE info / [C] Copy to clipboard{workflow_option} / [Enter] Continue: "
             ).strip().lower()
         except KeyboardInterrupt:
             # User cancelled - just return to continue file processing
@@ -2084,7 +2085,7 @@ def show_session_statistics(
             sev_table.add_column("Completed Count", justify="right", style="yellow")
 
             for sev_label in sorted(severity_counts.keys()):
-                sev_col = colorize_severity_label(sev_label)
+                sev_col = severity_cell(sev_label)
                 sev_table.add_row(sev_col, str(severity_counts[sev_label]))
 
             info("Per-Severity Breakdown:")

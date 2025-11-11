@@ -201,7 +201,7 @@ def render_file_list_table(
         if sev_map and file_path in sev_map:
             sev_dir = sev_map[file_path]
             sev_label = pretty_severity_label(sev_dir.name)
-            sev_colored = colorize_severity_label(sev_label)
+            sev_colored = severity_cell(sev_label)
             row_data.append(sev_colored)
         elif sev_map:
             # File in sev_map but not found - show unknown

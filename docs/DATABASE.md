@@ -102,7 +102,7 @@ Top-level scan tracking - one row per Nessus export.
 | Column | Type | Description |
 |---|---|---|
 | `scan_id` | INTEGER | Primary key (auto-increment) |
-| `scan_name` | TEXT | Unique scan name (from wizard or export directory) |
+| `scan_name` | TEXT | Unique scan name (from import command or export directory) |
 | `nessus_file_path` | TEXT | Original .nessus file path |
 | `nessus_file_hash` | TEXT | SHA256 of .nessus file for change detection |
 | `export_root` | TEXT | Where plugin .txt files are stored |
@@ -510,11 +510,11 @@ Control database behavior with these environment variables:
 ```bash
 # Disable database entirely (legacy mode)
 export MUNDANE_USE_DB=0
-mundane review --export-root ./nessus_plugin_hosts
+mundane review --export-root ~/.mundane/scans/<scan_name>
 
 # Use database-only mode (no JSON session files)
 export MUNDANE_DB_ONLY=1
-mundane review --export-root ./nessus_plugin_hosts
+mundane review --export-root ~/.mundane/scans/<scan_name>
 ```
 
 ---

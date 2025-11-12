@@ -1,6 +1,6 @@
 # mundane.py
 
-A modernized **TUI helper** to review Nessus findings quickly and kick off focused checks with **nmap**, **NetExec**, or custom commands. Includes a one-step **wizard** to seed an export structure directly from a `.nessus` file.
+A modernized **TUI helper** to review Nessus findings quickly and kick off focused checks with **nmap**, **NetExec**, or custom commands. Includes a one-step **import** to seed an export structure directly from a `.nessus` file.
 
 ---
 
@@ -127,11 +127,11 @@ Environment variables override config file settings:
 
 | Variable | Description | Default |
 |---|---|---|
-| `MUNDANE_RESULTS_ROOT` | Root directory for mundane artifacts | `mundane_artifacts` |
+| `MUNDANE_RESULTS_ROOT` | Root directory for tool artifacts | `~/.mundane/artifacts` |
 | `NPH_RESULTS_ROOT` | (Deprecated) Legacy name for `MUNDANE_RESULTS_ROOT` | - |
 | `MUNDANE_USE_DB` | Enable SQLite database integration | `1` (enabled) |
 | `MUNDANE_DB_ONLY` | Use database-only mode (skip JSON session files) | `0` (dual-mode) |
-| `MUNDANE_LOG` | Log file path | `~/mundane.log` |
+| `MUNDANE_LOG` | Log file path | `~/.mundane/mundane.log` |
 | `MUNDANE_DEBUG` | DEBUG logging when truthy (`1`, `true`, `on`) | off |
 | `MUNDANE_PROMPT` | Enable confirmation prompts | on |
 | `MUNDANE_SUDO_PREFLIGHT` | Run sudo preflight checks | on |
@@ -219,35 +219,38 @@ mundane config-get default_tool
 **Got 5 minutes and a `.nessus` scan file?** Try this:
 
 ```bash
-# 1. Export plugins from your scan
-python mundane.py wizard myscan.nessus --review
+# 1. Import your scan
+python mundane.py import myscan.nessus --review
 
-# That's it! The wizard will:
+# That's it! The import command will:
 #   - Parse your .nessus file
-#   - Export all plugins to ./nessus_plugin_hosts/
+#   - Export all plugins to ~/.mundane/scans/<scan_name>/
 #   - Launch the interactive review TUI
 ```
 
 **Already have exported plugin files?** Jump straight to review:
 
 ```bash
-python mundane.py review --export-root ./nessus_plugin_hosts
+python mundane.py review --export-root ~/.mundane/scans/<scan_name>
 ```
 
-### 1) Export plugins from a `.nessus` (wizard)
-Export plugin hostlists from `.nessus` file into `./nessus_plugin_hosts`:
+### 1) Import plugins from a `.nessus`
+Import plugin hostlists from `.nessus` file:
 
 ```bash
-python mundane.py wizard path/to/scan.nessus
-# immediately start reviewing after export:
-python mundane.py wizard path/to/scan.nessus --review
-# customize output location:
-python mundane.py wizard scan.nessus --out-dir ./nessus_plugin_hosts
+# Auto-detect scan name and export to ~/.mundane/scans/<scan_name>
+python mundane.py import path/to/scan.nessus
+
+# Immediately start reviewing after import:
+python mundane.py import path/to/scan.nessus --review
+
+# Customize output location:
+python mundane.py import scan.nessus --out-dir ./custom_location
 ```
 
 ### 2) Review exports interactively
 ```bash
-python mundane.py review --export-root ./nessus_plugin_hosts
+python mundane.py review --export-root ~/.mundane/scans/<scan_name>
 ```
 
 ---
@@ -288,7 +291,7 @@ python mundane.py review --export-root ./nessus_plugin_hosts
   - Session duration with hours/minutes/seconds
   - Per-severity breakdown for completed files
   - Detailed file lists (reviewed, completed, skipped)
-- **Wizard post-export suggestions** - Suggested commands after wizard completes:
+- **Import post-export suggestions** - Suggested commands after import completes:
   - eyewitness (web screenshot tool)
   - gowitness (web screenshot tool)
   - msfconsole db_import
@@ -329,7 +332,7 @@ All operations maintain **dual-mode synchronization** - data is written to both 
 ### Database Operations
 
 **Database features work transparently:**
-- Wizard exports automatically register scans and plugins
+- Import command automatically registers scans and plugins
 - Review sessions track progress in database
 - Tool executions are logged with metadata (duration, exit codes, sudo usage)
 - Artifacts are fingerprinted with SHA256 hashes
@@ -364,11 +367,11 @@ mundane review --export-root ./nessus_plugin_hosts
 ## Commands (common)
 
 ```bash
-# Wizard: export plugin files from a .nessus scan (then optionally review)
-python mundane.py wizard <scan.nessus> [--out-dir DIR] [--review]
+# Import: export plugin files from a .nessus scan (then optionally review)
+python mundane.py import <scan.nessus> [--out-dir DIR] [--review]
 
 # Interactive review (main workflow)
-python mundane.py review --export-root ./nessus_plugin_hosts [--no-tools] [--custom-workflows PATH] [--custom-workflows-only PATH]
+python mundane.py review --export-root ~/.mundane/scans/<scan_name> [--no-tools] [--custom-workflows PATH] [--custom-workflows-only PATH]
 
 # Summarize a scan directory
 python mundane.py summary ./nessus_plugin_hosts/<ScanName> [--top-ports 10]
@@ -473,20 +476,24 @@ cat {TCP_IPS} | xargs -I{} sh -c 'echo {}; nmap -Pn -p {PORTS} {}'
 
 ---
 
-## Directory layout (after wizard)
+## Directory layout (after import)
 
 ```
-nessus_plugin_hosts/
-  <ScanName>/
-    4_Critical/
-      193421_Apache_2.4.x___2.4.54_Authentication_Bypass.txt
-      ...
-    3_High/
-    2_Medium/
-    1_Low/
-    0_Info/
-mundane_artifacts/
-  <ScanName>/<Severity>/<PluginBase>/run-YYYYmmdd-HHMMSS.*
+~/.mundane/
+  ├── mundane.db                       # SQLite database
+  ├── config.yaml                      # Configuration file
+  ├── mundane.log                      # Application log
+  ├── scans/                           # Scan exports
+  │   └── <ScanName>/
+  │       ├── 4_Critical/
+  │       │   └── 193421_Apache_2.4.x___2.4.54_Authentication_Bypass.txt
+  │       ├── 3_High/
+  │       ├── 2_Medium/
+  │       ├── 1_Low/
+  │       ├── 0_Info/
+  │       └── .session.json            # Session state
+  └── artifacts/                       # Tool outputs
+      └── <ScanName>/<Severity>/<PluginBase>/run-YYYYmmdd-HHMMSS.*
 ```
 
 ---

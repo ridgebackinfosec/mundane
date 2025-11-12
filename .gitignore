@@ -39,10 +39,10 @@ env/
 # Project specific
 nessus/mundane_artifacts/
 nessus/scan_artifacts/  # Legacy
-mundane_artifacts/
 scan_artifacts/  # Legacy
 *.log
-.mundane_session.json
+.session.json
+.mundane_session.json  # Legacy
 
 # Testing
 .pytest_cache/

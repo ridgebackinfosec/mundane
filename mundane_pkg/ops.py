@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import time
@@ -232,6 +233,7 @@ def log_tool_execution(
     ports: Optional[str] = None,
     file_path: Optional[Path] = None,
     scan_dir: Optional[Path] = None,
+    conn: Optional[sqlite3.Connection] = None,
 ) -> Optional[int]:
     """Log a tool execution to the database.
 
@@ -245,12 +247,55 @@ def log_tool_execution(
         ports: Port specification string
         file_path: Path to plugin file being processed
         scan_dir: Scan directory for session linking
+        conn: Optional database connection. If None, creates new connection.
+              Useful for testing or including in larger transactions.
+
+    Returns:
+        execution_id if successful, None otherwise
+    """
+    if conn is not None:
+        # Use provided connection (testing or transaction)
+        return _log_tool_execution_impl(
+            conn, tool_name, command_text, execution_metadata,
+            tool_protocol, host_count, sampled, ports, file_path, scan_dir
+        )
+
+    # Production path: create new connection
+    try:
+        from .database import db_transaction
+        with db_transaction() as new_conn:
+            return _log_tool_execution_impl(
+                new_conn, tool_name, command_text, execution_metadata,
+                tool_protocol, host_count, sampled, ports, file_path, scan_dir
+            )
+    except Exception as e:
+        log_error(f"Failed to log tool execution to database: {e}")
+        return None
+
+
+def _log_tool_execution_impl(
+    conn: sqlite3.Connection,
+    tool_name: str,
+    command_text: str,
+    execution_metadata: ExecutionMetadata,
+    tool_protocol: Optional[str],
+    host_count: Optional[int],
+    sampled: bool,
+    ports: Optional[str],
+    file_path: Optional[Path],
+    scan_dir: Optional[Path],
+) -> Optional[int]:
+    """Internal implementation of log_tool_execution - requires connection.
+
+    Args:
+        conn: Database connection
+        (other args same as log_tool_execution)
 
     Returns:
         execution_id if successful, None otherwise
     """
     try:
-        from .database import db_transaction, query_one
+        from .database import query_one
         from .models import ToolExecution, now_iso
 
         # Determine session_id and file_id
@@ -260,28 +305,26 @@ def log_tool_execution(
         if scan_dir and scan_dir.exists():
             # Try to find active session
             scan_name = scan_dir.name
-            with db_transaction() as conn:
-                row = query_one(
-                    conn,
-                    """
-                    SELECT s.session_id
-                    FROM sessions s
-                    JOIN scans sc ON s.scan_id = sc.scan_id
-                    WHERE sc.scan_name = ? AND s.session_end IS NULL
-                    ORDER BY s.session_start DESC LIMIT 1
-                    """,
-                    (scan_name,)
-                )
-                if row:
-                    session_id = row["session_id"]
+            row = query_one(
+                conn,
+                """
+                SELECT s.session_id
+                FROM sessions s
+                JOIN scans sc ON s.scan_id = sc.scan_id
+                WHERE sc.scan_name = ? AND s.session_end IS NULL
+                ORDER BY s.session_start DESC LIMIT 1
+                """,
+                (scan_name,)
+            )
+            if row:
+                session_id = row["session_id"]
 
         if file_path and file_path.exists():
             # Try to find file_id
-            with db_transaction() as conn:
-                from .models import PluginFile
-                plugin_file = PluginFile.get_by_path(str(file_path.resolve()), conn)
-                if plugin_file:
-                    file_id = plugin_file.file_id
+            from .models import PluginFile
+            plugin_file = PluginFile.get_by_path(str(file_path.resolve()), conn)
+            if plugin_file:
+                file_id = plugin_file.file_id
 
         # Create tool execution record
         tool_exec = ToolExecution(
@@ -299,13 +342,12 @@ def log_tool_execution(
             used_sudo=execution_metadata.used_sudo
         )
 
-        with db_transaction() as conn:
-            execution_id = tool_exec.save(conn)
-            log_info(f"Logged tool execution to database (ID: {execution_id})")
-            return execution_id
+        execution_id = tool_exec.save(conn)
+        log_info(f"Logged tool execution to database (ID: {execution_id})")
+        return execution_id
 
     except Exception as e:
-        log_error(f"Failed to log tool execution to database: {e}")
+        log_error(f"Failed to log tool execution to database (impl): {e}")
         return None
 
 
@@ -313,7 +355,8 @@ def log_artifact(
     execution_id: int,
     artifact_path: Path,
     artifact_type: str,
-    metadata: Optional[dict] = None
+    metadata: Optional[dict] = None,
+    conn: Optional[sqlite3.Connection] = None,
 ) -> Optional[int]:
     """Log an artifact file to the database.
 
@@ -322,12 +365,44 @@ def log_artifact(
         artifact_path: Path to artifact file
         artifact_type: Type of artifact (nmap_xml, nmap_nmap, nmap_gnmap, log, etc.)
         metadata: Optional metadata dictionary (tool-specific info)
+        conn: Optional database connection. If None, creates new connection.
+              Useful for testing or including in larger transactions.
+
+    Returns:
+        artifact_id if successful, None otherwise
+    """
+    if conn is not None:
+        # Use provided connection (testing or transaction)
+        return _log_artifact_impl(conn, execution_id, artifact_path, artifact_type, metadata)
+
+    # Production path: create new connection
+    try:
+        from .database import db_transaction
+        with db_transaction() as new_conn:
+            return _log_artifact_impl(new_conn, execution_id, artifact_path, artifact_type, metadata)
+    except Exception as e:
+        log_error(f"Failed to log artifact to database: {e}")
+        return None
+
+
+def _log_artifact_impl(
+    conn: sqlite3.Connection,
+    execution_id: int,
+    artifact_path: Path,
+    artifact_type: str,
+    metadata: Optional[dict],
+) -> Optional[int]:
+    """Internal implementation of log_artifact - requires connection.
+
+    Args:
+        conn: Database connection
+        (other args same as log_artifact)
 
     Returns:
         artifact_id if successful, None otherwise
     """
     try:
-        from .database import db_transaction, compute_file_hash
+        from .database import compute_file_hash
         from .models import Artifact, now_iso
 
         # Compute file stats if file exists
@@ -347,20 +422,20 @@ def log_artifact(
             metadata=metadata
         )
 
-        with db_transaction() as conn:
-            artifact_id = artifact.save(conn)
-            log_info(f"Logged artifact to database: {artifact_path.name} (ID: {artifact_id})")
-            return artifact_id
+        artifact_id = artifact.save(conn)
+        log_info(f"Logged artifact to database: {artifact_path.name} (ID: {artifact_id})")
+        return artifact_id
 
     except Exception as e:
-        log_error(f"Failed to log artifact to database: {e}")
+        log_error(f"Failed to log artifact to database (impl): {e}")
         return None
 
 
 def log_artifacts_for_nmap(
     execution_id: int,
     oabase: Path,
-    metadata: Optional[dict] = None
+    metadata: Optional[dict] = None,
+    conn: Optional[sqlite3.Connection] = None,
 ) -> list[int]:
     """Log nmap output artifacts (-oA outputs) to database.
 
@@ -368,6 +443,8 @@ def log_artifacts_for_nmap(
         execution_id: Tool execution ID
         oabase: Base path for -oA output (without extension)
         metadata: Optional metadata
+        conn: Optional database connection. If None, creates new connection.
+              Useful for testing or including in larger transactions.
 
     Returns:
         List of artifact IDs created
@@ -384,7 +461,7 @@ def log_artifacts_for_nmap(
     for ext, artifact_type in output_formats:
         artifact_path = Path(str(oabase) + ext)
         if artifact_path.exists():
-            artifact_id = log_artifact(execution_id, artifact_path, artifact_type, metadata)
+            artifact_id = log_artifact(execution_id, artifact_path, artifact_type, metadata, conn=conn)
             if artifact_id:
                 artifact_ids.append(artifact_id)
 

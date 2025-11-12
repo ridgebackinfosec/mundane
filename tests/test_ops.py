@@ -55,7 +55,8 @@ class TestLogToolExecution:
         execution_id = log_tool_execution(
             tool_name="nmap",
             command_text="nmap -sV 192.168.1.1",
-            execution_metadata=metadata
+            execution_metadata=metadata,
+            conn=temp_db
         )
 
         assert execution_id is not None
@@ -88,7 +89,8 @@ class TestLogToolExecution:
             execution_metadata=metadata,
             host_count=256,
             sampled=False,
-            ports="1-65535"
+            ports="1-65535",
+            conn=temp_db
         )
 
         assert execution_id is not None
@@ -118,7 +120,8 @@ class TestLogToolExecution:
             command_text="netexec smb targets.txt -u admin -p password",
             execution_metadata=metadata,
             tool_protocol="smb",
-            host_count=10
+            host_count=10,
+            conn=temp_db
         )
 
         assert execution_id is not None
@@ -163,7 +166,8 @@ class TestLogToolExecution:
                 tool_name="nmap",
                 command_text="nmap 192.168.1.1",
                 execution_metadata=metadata,
-                scan_dir=scan_dir
+                scan_dir=scan_dir,
+                conn=temp_db
             )
 
             assert execution_id is not None
@@ -201,7 +205,8 @@ class TestLogToolExecution:
             tool_name="nmap",
             command_text="nmap -sV 192.168.1.1",
             execution_metadata=metadata,
-            file_path=file_path
+            file_path=file_path,
+            conn=temp_db
         )
 
         assert execution_id is not None
@@ -240,7 +245,8 @@ class TestLogArtifact:
         artifact_id = log_artifact(
             execution_id=exec_id,
             artifact_path=artifact_file,
-            artifact_type="nmap_xml"
+            artifact_type="nmap_xml",
+            conn=temp_db
         )
 
         assert artifact_id is not None
@@ -282,7 +288,8 @@ class TestLogArtifact:
             execution_id=exec_id,
             artifact_path=artifact_file,
             artifact_type="nmap_xml",
-            metadata=metadata_dict
+            metadata=metadata_dict,
+            conn=temp_db
         )
 
         assert artifact_id is not None
@@ -315,7 +322,8 @@ class TestLogArtifact:
         artifact_id = log_artifact(
             execution_id=exec_id,
             artifact_path=nonexistent,
-            artifact_type="nmap_xml"
+            artifact_type="nmap_xml",
+            conn=temp_db
         )
 
         assert artifact_id is not None
@@ -351,7 +359,7 @@ class TestLogArtifactsForNmap:
         (temp_dir / "scan.nmap").write_text("Nmap scan")
         (temp_dir / "scan.gnmap").write_text("# Nmap scan")
 
-        artifact_ids = log_artifacts_for_nmap(exec_id, oabase)
+        artifact_ids = log_artifacts_for_nmap(exec_id, oabase, conn=temp_db)
 
         assert len(artifact_ids) == 3
 
@@ -380,7 +388,7 @@ class TestLogArtifactsForNmap:
         oabase = temp_dir / "scan"
         (temp_dir / "scan.xml").write_text("<nmaprun/>")
 
-        artifact_ids = log_artifacts_for_nmap(exec_id, oabase)
+        artifact_ids = log_artifacts_for_nmap(exec_id, oabase, conn=temp_db)
 
         assert len(artifact_ids) == 1
 
@@ -406,7 +414,7 @@ class TestLogArtifactsForNmap:
 
         oabase = temp_dir / "scan"
 
-        artifact_ids = log_artifacts_for_nmap(exec_id, oabase)
+        artifact_ids = log_artifacts_for_nmap(exec_id, oabase, conn=temp_db)
 
         assert len(artifact_ids) == 0
 
@@ -428,7 +436,7 @@ class TestLogArtifactsForNmap:
 
         metadata_dict = {"scan_type": "version_detection"}
 
-        artifact_ids = log_artifacts_for_nmap(exec_id, oabase, metadata=metadata_dict)
+        artifact_ids = log_artifacts_for_nmap(exec_id, oabase, metadata=metadata_dict, conn=temp_db)
 
         assert len(artifact_ids) == 1
 

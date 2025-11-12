@@ -1131,11 +1131,38 @@ def run_tool_workflow(
         elif action == "run":
             try:
                 tool_used = True
+                from mundane_pkg import log_tool_execution
+
+                # Execute command and capture metadata
                 if isinstance(cmd, list):
-                    run_command_with_progress(cmd, shell=False)
+                    exec_metadata = run_command_with_progress(cmd, shell=False)
                 else:
                     shell_exec = shutil.which("bash") or shutil.which("sh")
-                    run_command_with_progress(cmd, shell=True, executable=shell_exec)
+                    exec_metadata = run_command_with_progress(cmd, shell=True, executable=shell_exec)
+
+                # Log execution to database
+                cmd_str = display_cmd if isinstance(display_cmd, str) else " ".join(str(x) for x in display_cmd)
+
+                # Count hosts for metadata
+                host_count = None
+                try:
+                    if tcp_ips.exists():
+                        with open(tcp_ips) as f:
+                            host_count = sum(1 for _ in f)
+                except Exception:
+                    pass
+
+                log_tool_execution(
+                    tool_name=selected_tool.name,
+                    command_text=cmd_str,
+                    execution_metadata=exec_metadata,
+                    tool_protocol=getattr(selected_tool, 'protocol', None),
+                    host_count=host_count,
+                    ports=ports_str if ports_str else None,
+                    file_path=chosen,
+                    scan_dir=scan_dir
+                )
+
             except KeyboardInterrupt:
                 warn("\nRun interrupted — returning to tool menu.")
                 continue

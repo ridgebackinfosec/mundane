@@ -12,6 +12,8 @@ import re
 import shutil
 import subprocess
 import sys
+import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -31,13 +33,27 @@ from .logging_setup import log_error, log_info, log_timing
 _console_global = Console()
 
 
+@dataclass
+class ExecutionMetadata:
+    """Metadata about a command execution.
+
+    Attributes:
+        exit_code: Command exit code
+        duration_seconds: Execution time in seconds
+        used_sudo: Whether command was run with sudo
+    """
+    exit_code: int
+    duration_seconds: float
+    used_sudo: bool
+
+
 @log_timing
 def run_command_with_progress(
     cmd: list[str] | str,
     *,
     shell: bool = False,
     executable: Optional[str] = None,
-) -> int:
+) -> ExecutionMetadata:
     """Execute a command with a Rich progress spinner.
 
     For sudo commands, prompts for password upfront to avoid interrupting
@@ -49,12 +65,13 @@ def run_command_with_progress(
         executable: Shell executable to use (if shell=True)
 
     Returns:
-        Command exit code (0 for success)
+        ExecutionMetadata with exit code, duration, and sudo usage
 
     Raises:
         subprocess.CalledProcessError: If command returns non-zero exit code
         KeyboardInterrupt: If user interrupts execution
     """
+    start_time = time.time()
     display_cmd = (
         cmd if isinstance(cmd, str) else " ".join(str(x) for x in cmd)
     )
@@ -63,17 +80,18 @@ def run_command_with_progress(
         display_cmd = display_cmd[:117] + "..."
 
     # Delay spinner until after sudo password (if needed)
+    def _cmd_starts_with_sudo(c: list[str] | str) -> bool:
+        """Check if a command starts with sudo."""
+        if isinstance(c, list):
+            return len(c) > 0 and os.path.basename(str(c[0])) == "sudo"
+        if isinstance(c, str):
+            return bool(re.match(r"^\s*(?:\S*/)?sudo\b", c))
+        return False
+
+    used_sudo = _cmd_starts_with_sudo(cmd)
+
     try:
-
-        def _cmd_starts_with_sudo(c: list[str] | str) -> bool:
-            """Check if a command starts with sudo."""
-            if isinstance(c, list):
-                return len(c) > 0 and os.path.basename(str(c[0])) == "sudo"
-            if isinstance(c, str):
-                return bool(re.match(r"^\s*(?:\S*/)?sudo\b", c))
-            return False
-
-        if _cmd_starts_with_sudo(cmd):
+        if used_sudo:
             # Check if sudo is already validated (non-interactive)
             try:
                 check_result = subprocess.run(
@@ -145,11 +163,18 @@ def run_command_with_progress(
         finally:
             raise
 
+    duration = time.time() - start_time
+
     if return_code != 0:
         log_error(f"Command failed with rc={return_code}")
         raise subprocess.CalledProcessError(return_code, cmd)
     log_info(f"Command succeeded with rc={return_code}")
-    return return_code
+
+    return ExecutionMetadata(
+        exit_code=return_code,
+        duration_seconds=duration,
+        used_sudo=used_sudo
+    )
 
 
 @log_timing
@@ -194,3 +219,91 @@ def resolve_cmd(candidates: list[str]) -> Optional[str]:
         if shutil.which(candidate):
             return candidate
     return None
+
+
+def log_tool_execution(
+    tool_name: str,
+    command_text: str,
+    execution_metadata: ExecutionMetadata,
+    *,
+    tool_protocol: Optional[str] = None,
+    host_count: Optional[int] = None,
+    sampled: bool = False,
+    ports: Optional[str] = None,
+    file_path: Optional[Path] = None,
+    scan_dir: Optional[Path] = None,
+) -> Optional[int]:
+    """Log a tool execution to the database.
+
+    Args:
+        tool_name: Name of the tool (nmap, netexec, etc.)
+        command_text: Full command that was executed
+        execution_metadata: Metadata from command execution
+        tool_protocol: Protocol for netexec (smb, rdp, etc.)
+        host_count: Number of hosts targeted
+        sampled: Whether host list was sampled
+        ports: Port specification string
+        file_path: Path to plugin file being processed
+        scan_dir: Scan directory for session linking
+
+    Returns:
+        execution_id if successful, None otherwise
+    """
+    try:
+        from .database import db_transaction, query_one
+        from .models import ToolExecution, now_iso
+
+        # Determine session_id and file_id
+        session_id = None
+        file_id = None
+
+        if scan_dir and scan_dir.exists():
+            # Try to find active session
+            scan_name = scan_dir.name
+            with db_transaction() as conn:
+                row = query_one(
+                    conn,
+                    """
+                    SELECT s.session_id
+                    FROM sessions s
+                    JOIN scans sc ON s.scan_id = sc.scan_id
+                    WHERE sc.scan_name = ? AND s.session_end IS NULL
+                    ORDER BY s.session_start DESC LIMIT 1
+                    """,
+                    (scan_name,)
+                )
+                if row:
+                    session_id = row["session_id"]
+
+        if file_path and file_path.exists():
+            # Try to find file_id
+            with db_transaction() as conn:
+                from .models import PluginFile
+                plugin_file = PluginFile.get_by_path(str(file_path.resolve()), conn)
+                if plugin_file:
+                    file_id = plugin_file.file_id
+
+        # Create tool execution record
+        tool_exec = ToolExecution(
+            session_id=session_id,
+            file_id=file_id,
+            tool_name=tool_name,
+            tool_protocol=tool_protocol,
+            command_text=command_text,
+            executed_at=now_iso(),
+            exit_code=execution_metadata.exit_code,
+            duration_seconds=execution_metadata.duration_seconds,
+            host_count=host_count,
+            sampled=sampled,
+            ports=ports,
+            used_sudo=execution_metadata.used_sudo
+        )
+
+        with db_transaction() as conn:
+            execution_id = tool_exec.save(conn)
+            log_info(f"Logged tool execution to database (ID: {execution_id})")
+            return execution_id
+
+    except Exception as e:
+        log_error(f"Failed to log tool execution to database: {e}")
+        return None

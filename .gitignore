@@ -47,7 +47,14 @@ scan_artifacts/  # Legacy
 # Testing
 .pytest_cache/
 .coverage
+coverage.xml
 htmlcov/
+.tox/
+*.cover
+.hypothesis/
+test_goad_export/
 
 # Type checking
 .mypy_cache/
+.dmypy.json
+dmypy.json

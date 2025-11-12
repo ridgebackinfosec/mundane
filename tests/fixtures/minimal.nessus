@@ -1,0 +1,68 @@
+<?xml version="1.0" ?>
+<NessusClientData_v2>
+  <Report name="Minimal Test Scan">
+    <ReportHost name="192.168.1.1">
+      <HostProperties>
+        <tag name="host-ip">192.168.1.1</tag>
+      </HostProperties>
+      <ReportItem port="80" svc_name="www" protocol="tcp" severity="2" pluginID="12345" pluginName="Test Medium Plugin">
+        <description>Test vulnerability description for medium severity.</description>
+        <plugin_modification_date>2024/01/01</plugin_modification_date>
+        <plugin_publication_date>2024/01/01</plugin_publication_date>
+        <risk_factor>Medium</risk_factor>
+        <solution>Update the software to the latest version.</solution>
+        <synopsis>A test vulnerability exists.</synopsis>
+        <plugin_output>Test output showing vulnerability details.</plugin_output>
+        <cvss3_base_score>5.3</cvss3_base_score>
+      </ReportItem>
+      <ReportItem port="443" svc_name="https" protocol="tcp" severity="0" pluginID="10107" pluginName="HTTP Server Type and Version">
+        <description>HTTP server banner information.</description>
+        <plugin_modification_date>2024/01/01</plugin_modification_date>
+        <plugin_publication_date>2024/01/01</plugin_publication_date>
+        <risk_factor>None</risk_factor>
+        <solution>n/a</solution>
+        <synopsis>HTTP server version detected.</synopsis>
+        <plugin_output>Server: nginx/1.18.0</plugin_output>
+      </ReportItem>
+    </ReportHost>
+    <ReportHost name="192.168.1.2">
+      <HostProperties>
+        <tag name="host-ip">192.168.1.2</tag>
+      </HostProperties>
+      <ReportItem port="22" svc_name="ssh" protocol="tcp" severity="3" pluginID="54321" pluginName="SSH Server Version">
+        <description>SSH server version information.</description>
+        <plugin_modification_date>2024/01/01</plugin_modification_date>
+        <plugin_publication_date>2024/01/01</plugin_publication_date>
+        <risk_factor>High</risk_factor>
+        <solution>Upgrade SSH server.</solution>
+        <synopsis>Outdated SSH server detected.</synopsis>
+        <plugin_output>OpenSSH 7.4</plugin_output>
+        <cvss3_base_score>7.5</cvss3_base_score>
+      </ReportItem>
+      <ReportItem port="80" svc_name="www" protocol="tcp" severity="2" pluginID="12345" pluginName="Test Medium Plugin">
+        <description>Test vulnerability description for medium severity.</description>
+        <plugin_modification_date>2024/01/01</plugin_modification_date>
+        <plugin_publication_date>2024/01/01</plugin_publication_date>
+        <risk_factor>Medium</risk_factor>
+        <solution>Update the software to the latest version.</solution>
+        <synopsis>A test vulnerability exists.</synopsis>
+        <plugin_output>Test output showing vulnerability details.</plugin_output>
+        <cvss3_base_score>5.3</cvss3_base_score>
+      </ReportItem>
+    </ReportHost>
+    <ReportHost name="test.local">
+      <HostProperties>
+        <tag name="host-ip">test.local</tag>
+      </HostProperties>
+      <ReportItem port="443" svc_name="https" protocol="tcp" severity="0" pluginID="10107" pluginName="HTTP Server Type and Version">
+        <description>HTTP server banner information.</description>
+        <plugin_modification_date>2024/01/01</plugin_modification_date>
+        <plugin_publication_date>2024/01/01</plugin_publication_date>
+        <risk_factor>None</risk_factor>
+        <solution>n/a</solution>
+        <synopsis>HTTP server version detected.</synopsis>
+        <plugin_output>Server: Apache/2.4.41</plugin_output>
+      </ReportItem>
+    </ReportHost>
+  </Report>
+</NessusClientData_v2>

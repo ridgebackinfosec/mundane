@@ -127,6 +127,8 @@ def is_reviewed_filename(filename: str) -> bool:
 def rename_review_complete(path: Path) -> Path:
     """Mark a file as review complete by adding prefix to filename.
 
+    Also updates database review state to 'completed' if database is enabled.
+
     Args:
         path: Path to the file to rename
 
@@ -142,6 +144,10 @@ def rename_review_complete(path: Path) -> Path:
     try:
         path.rename(new)
         ok(f"Renamed to {new.name}")
+
+        # Update database
+        _db_update_review_state(new, "completed")
+
         return new
     except Exception as e:
         err(f"Failed to rename: {e}")
@@ -150,6 +156,8 @@ def rename_review_complete(path: Path) -> Path:
 
 def undo_review_complete(path: Path) -> Path:
     """Remove review complete prefix from filename.
+
+    Also updates database review state to 'pending' if database is enabled.
 
     Args:
         path: Path to the file to undo
@@ -167,6 +175,10 @@ def undo_review_complete(path: Path) -> Path:
     try:
         path.rename(new)
         ok(f"Removed review complete marker: {new.name}")
+
+        # Update database
+        _db_update_review_state(new, "pending")
+
         return new
     except Exception as e:
         err(f"Failed to rename: {e}")
@@ -274,3 +286,35 @@ def write_work_files(
             for host in hosts:
                 f.write(f"{host}:{ports_str}\n")
     return tcp_ips, udp_ips, tcp_sockets
+
+
+# ========== Database Integration (Internal Helper) ==========
+
+def _db_update_review_state(file_path: Path, new_state: str) -> None:
+    """Update review state in database if enabled (internal helper).
+
+    Args:
+        file_path: Path to the plugin file
+        new_state: New review state ('pending', 'reviewed', 'completed', 'skipped')
+    """
+    try:
+        import os
+        # Check if database is enabled
+        use_db = os.environ.get("MUNDANE_DB_ONLY", "0") != "0" or os.environ.get("MUNDANE_USE_DB", "1") == "1"
+
+        if not use_db:
+            return
+
+        from .database import db_transaction
+        from .models import PluginFile
+
+        # Try to find and update file in database
+        with db_transaction() as conn:
+            plugin_file = PluginFile.get_by_path(str(file_path.resolve()), conn)
+
+            if plugin_file:
+                plugin_file.update_review_state(new_state, conn=conn)
+
+    except Exception:
+        # Database update is optional - don't fail if it doesn't work
+        pass

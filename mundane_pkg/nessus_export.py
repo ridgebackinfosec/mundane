@@ -285,7 +285,8 @@ def export_nessus_plugins(
     nessus_file: Path,
     output_dir: Path,
     *,
-    include_ports: bool = True
+    include_ports: bool = True,
+    use_database: bool = True
 ) -> ExportResult:
     """Export all plugins from .nessus file to organized directory structure.
 
@@ -303,10 +304,13 @@ def export_nessus_plugins(
     then hostnames (alphabetically). Files with Metasploit modules available are
     suffixed with "-MSF".
 
+    Also populates SQLite database with scan, plugin, and host metadata if enabled.
+
     Args:
         nessus_file: Path to .nessus XML file to parse
         output_dir: Root directory for export output
         include_ports: Whether to include port numbers in host listings (default: True)
+        use_database: Whether to write metadata to database (default: True)
 
     Returns:
         ExportResult with export statistics
@@ -374,9 +378,138 @@ def export_nessus_plugins(
 
     log_info(f"Export complete: {len(plugins)} plugins, {total_hosts} host entries")
 
+    # Write to database if enabled
+    if use_database:
+        _write_to_database(
+            nessus_file=nessus_file,
+            scan_name=scan_name,
+            base_scan_dir=base_scan_dir,
+            plugins=plugins,
+            plugin_hosts=plugin_hosts
+        )
+
     return ExportResult(
         plugins_exported=len(plugins),
         total_hosts=total_hosts,
         scan_name=scan_name,
         severities=severities
     )
+
+
+# ========== Database Integration ==========
+
+def _write_to_database(
+    nessus_file: Path,
+    scan_name: str,
+    base_scan_dir: Path,
+    plugins: Dict[str, dict],
+    plugin_hosts: Dict[str, Set[str]]
+) -> None:
+    """Write scan, plugin, and host data to database.
+
+    Args:
+        nessus_file: Path to original .nessus file
+        scan_name: Sanitized scan name
+        base_scan_dir: Base directory where plugin files are exported
+        plugins: Plugin metadata dictionary
+        plugin_hosts: Plugin hosts dictionary (plugin_id -> set of host:port entries)
+    """
+    try:
+        from .database import db_transaction, compute_file_hash
+        from .models import Scan, Plugin, PluginFile, now_iso
+        from .parsing import is_ipv4, is_ipv6
+
+        log_info("Writing metadata to database...")
+
+        with db_transaction() as conn:
+            # Create or update scan
+            nessus_hash = compute_file_hash(nessus_file) if nessus_file.exists() else None
+
+            scan = Scan(
+                scan_name=scan_name,
+                nessus_file_path=str(nessus_file.resolve()),
+                nessus_file_hash=nessus_hash,
+                export_root=str(base_scan_dir.parent),
+                created_at=now_iso()
+            )
+
+            # Check if scan exists
+            existing_scan = Scan.get_by_name(scan_name, conn)
+            if existing_scan:
+                scan.scan_id = existing_scan.scan_id
+                log_info(f"Updating existing scan: {scan_name}")
+            else:
+                log_info(f"Creating new scan: {scan_name}")
+
+            scan_id = scan.save(conn)
+
+            # Insert/update plugins and plugin files
+            for plugin_id_str, meta in plugins.items():
+                plugin_id = int(plugin_id_str)
+
+                # Create plugin metadata
+                plugin = Plugin(
+                    plugin_id=plugin_id,
+                    plugin_name=meta["name"],
+                    severity_int=meta["severity_int"],
+                    severity_label=meta["severity_label"],
+                    has_metasploit=meta.get("msf", False),
+                    cvss3_score=meta.get("cvss3"),
+                    cvss2_score=meta.get("cvss2"),
+                    plugin_url=f"https://www.tenable.com/plugins/nessus/{plugin_id}"
+                )
+                plugin.save(conn)
+
+                # Create plugin file entry
+                sev_dir = f"{meta['severity_int']}_{meta['severity_label']}"
+                msf_suffix = "-MSF" if meta.get("msf") else ""
+                fname = f"{plugin_id}_{sanitize_filename(meta['name'])}{msf_suffix}.txt"
+                file_path = base_scan_dir / sev_dir / fname
+
+                hosts = plugin_hosts.get(plugin_id_str, set())
+
+                plugin_file = PluginFile(
+                    scan_id=scan_id,
+                    plugin_id=plugin_id,
+                    file_path=str(file_path.resolve()),
+                    severity_dir=sev_dir,
+                    review_state="pending",
+                    host_count=len(hosts),
+                    file_created_at=now_iso(),
+                    last_parsed_at=now_iso()
+                )
+
+                file_id = plugin_file.save(conn)
+
+                # Insert host:port entries
+                for host_entry in hosts:
+                    # Parse host:port
+                    if ":" in host_entry:
+                        host, port_str = host_entry.rsplit(":", 1)
+                        try:
+                            port = int(port_str)
+                        except ValueError:
+                            host = host_entry
+                            port = None
+                    else:
+                        host = host_entry
+                        port = None
+
+                    # Determine IP type
+                    is_v4 = is_ipv4(host)
+                    is_v6 = is_ipv6(host)
+
+                    conn.execute(
+                        """
+                        INSERT OR IGNORE INTO plugin_file_hosts (
+                            file_id, host, port, is_ipv4, is_ipv6
+                        ) VALUES (?, ?, ?, ?, ?)
+                        """,
+                        (file_id, host, port, is_v4, is_v6)
+                    )
+
+        log_info(f"Database updated: {len(plugins)} plugins, {scan_id=}")
+
+    except Exception as e:
+        log_error(f"Failed to write to database: {e}")
+        # Don't fail the export if database write fails

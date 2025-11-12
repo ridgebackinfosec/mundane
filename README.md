@@ -127,7 +127,8 @@ Environment variables override config file settings:
 
 | Variable | Description | Default |
 |---|---|---|
-| `NPH_RESULTS_ROOT` | Root directory for scan artifacts | `scan_artifacts` |
+| `MUNDANE_RESULTS_ROOT` | Root directory for mundane artifacts | `mundane_artifacts` |
+| `NPH_RESULTS_ROOT` | (Deprecated) Legacy name for `MUNDANE_RESULTS_ROOT` | - |
 | `MUNDANE_LOG` | Log file path | `~/mundane.log` |
 | `MUNDANE_DEBUG` | DEBUG logging when truthy (`1`, `true`, `on`) | off |
 | `MUNDANE_PROMPT` | Enable confirmation prompts | on |
@@ -426,7 +427,7 @@ nessus_plugin_hosts/
     2_Medium/
     1_Low/
     0_Info/
-scan_artifacts/
+mundane_artifacts/
   <ScanName>/<Severity>/<PluginBase>/run-YYYYmmdd-HHMMSS.*
 ```
 

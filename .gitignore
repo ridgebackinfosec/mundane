@@ -37,7 +37,10 @@ env/
 .DS_Store
 
 # Project specific
-nessus/scan_artifacts/
+nessus/mundane_artifacts/
+nessus/scan_artifacts/  # Legacy
+mundane_artifacts/
+scan_artifacts/  # Legacy
 *.log
 .mundane_session.json
 

@@ -1131,7 +1131,7 @@ def run_tool_workflow(
         elif action == "run":
             try:
                 tool_used = True
-                from mundane_pkg import log_tool_execution
+                from mundane_pkg import log_tool_execution, log_artifacts_for_nmap
 
                 # Execute command and capture metadata
                 if isinstance(cmd, list):
@@ -1152,7 +1152,7 @@ def run_tool_workflow(
                 except Exception:
                     pass
 
-                log_tool_execution(
+                execution_id = log_tool_execution(
                     tool_name=selected_tool.name,
                     command_text=cmd_str,
                     execution_metadata=exec_metadata,
@@ -1162,6 +1162,10 @@ def run_tool_workflow(
                     file_path=chosen,
                     scan_dir=scan_dir
                 )
+
+                # Track artifacts (nmap outputs, etc.)
+                if execution_id and selected_tool.name == "nmap":
+                    log_artifacts_for_nmap(execution_id, oabase)
 
             except KeyboardInterrupt:
                 warn("\nRun interrupted — returning to tool menu.")

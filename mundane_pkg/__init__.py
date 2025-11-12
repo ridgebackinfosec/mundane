@@ -12,7 +12,11 @@ from .constants import (
     validate_results_root,
 )
 from .logging_setup import setup_logging, log_info, log_error
-from .ops import require_cmd, resolve_cmd, root_or_sudo_available, run_command_with_progress, ExecutionMetadata, log_tool_execution
+from .ops import (
+    require_cmd, resolve_cmd, root_or_sudo_available,
+    run_command_with_progress, ExecutionMetadata,
+    log_tool_execution, log_artifact, log_artifacts_for_nmap
+)
 from .parsing import (
     is_ipv6, is_ipv4,
     is_valid_token, build_item_set,

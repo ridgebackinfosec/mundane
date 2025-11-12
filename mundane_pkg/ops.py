@@ -307,3 +307,85 @@ def log_tool_execution(
     except Exception as e:
         log_error(f"Failed to log tool execution to database: {e}")
         return None
+
+
+def log_artifact(
+    execution_id: int,
+    artifact_path: Path,
+    artifact_type: str,
+    metadata: Optional[dict] = None
+) -> Optional[int]:
+    """Log an artifact file to the database.
+
+    Args:
+        execution_id: Tool execution ID that created this artifact
+        artifact_path: Path to artifact file
+        artifact_type: Type of artifact (nmap_xml, nmap_nmap, nmap_gnmap, log, etc.)
+        metadata: Optional metadata dictionary (tool-specific info)
+
+    Returns:
+        artifact_id if successful, None otherwise
+    """
+    try:
+        from .database import db_transaction, compute_file_hash
+        from .models import Artifact, now_iso
+
+        # Compute file stats if file exists
+        file_size = None
+        file_hash = None
+        if artifact_path.exists():
+            file_size = artifact_path.stat().st_size
+            file_hash = compute_file_hash(artifact_path)
+
+        artifact = Artifact(
+            execution_id=execution_id,
+            artifact_path=str(artifact_path.resolve()),
+            artifact_type=artifact_type,
+            file_size_bytes=file_size,
+            file_hash=file_hash,
+            created_at=now_iso(),
+            metadata=metadata
+        )
+
+        with db_transaction() as conn:
+            artifact_id = artifact.save(conn)
+            log_info(f"Logged artifact to database: {artifact_path.name} (ID: {artifact_id})")
+            return artifact_id
+
+    except Exception as e:
+        log_error(f"Failed to log artifact to database: {e}")
+        return None
+
+
+def log_artifacts_for_nmap(
+    execution_id: int,
+    oabase: Path,
+    metadata: Optional[dict] = None
+) -> list[int]:
+    """Log nmap output artifacts (-oA outputs) to database.
+
+    Args:
+        execution_id: Tool execution ID
+        oabase: Base path for -oA output (without extension)
+        metadata: Optional metadata
+
+    Returns:
+        List of artifact IDs created
+    """
+    artifact_ids = []
+
+    # Check for standard nmap output formats
+    output_formats = [
+        (".xml", "nmap_xml"),
+        (".nmap", "nmap_nmap"),
+        (".gnmap", "nmap_gnmap"),
+    ]
+
+    for ext, artifact_type in output_formats:
+        artifact_path = Path(str(oabase) + ext)
+        if artifact_path.exists():
+            artifact_id = log_artifact(execution_id, artifact_path, artifact_type, metadata)
+            if artifact_id:
+                artifact_ids.append(artifact_id)
+
+    return artifact_ids

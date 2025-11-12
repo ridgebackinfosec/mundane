@@ -37,6 +37,7 @@ from mundane_pkg import (
     DEFAULT_TOP_PORTS,
     SAMPLE_THRESHOLD,
     VISIBLE_GROUPS,
+    HTTP_TIMEOUT,
     # ansi / labels
     C,
     header,

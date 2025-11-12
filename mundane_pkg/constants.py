@@ -11,8 +11,34 @@ from pathlib import Path
 
 
 # ========== Application paths and prefixes ==========
-RESULTS_ROOT: Path = Path(os.environ.get("NPH_RESULTS_ROOT", "scan_artifacts"))
-"""Root directory for scan artifacts and results output."""
+def _get_results_root() -> Path:
+    """Get results root directory with backward compatibility for env vars.
+
+    Checks MUNDANE_RESULTS_ROOT first (new), then NPH_RESULTS_ROOT (deprecated),
+    then falls back to default 'mundane_artifacts'.
+
+    Returns:
+        Path to results root directory
+    """
+    # New variable takes precedence
+    if "MUNDANE_RESULTS_ROOT" in os.environ:
+        return Path(os.environ["MUNDANE_RESULTS_ROOT"])
+
+    # Fallback to legacy variable with warning
+    if "NPH_RESULTS_ROOT" in os.environ:
+        import warnings
+        warnings.warn(
+            "NPH_RESULTS_ROOT is deprecated. Please use MUNDANE_RESULTS_ROOT instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        return Path(os.environ["NPH_RESULTS_ROOT"])
+
+    # Default
+    return Path("mundane_artifacts")
+
+RESULTS_ROOT: Path = _get_results_root()
+"""Root directory for mundane artifacts and results output."""
 
 REVIEW_PREFIX: str = "REVIEW_COMPLETE-"
 """Prefix added to filenames that have been reviewed."""

@@ -129,6 +129,8 @@ Environment variables override config file settings:
 |---|---|---|
 | `MUNDANE_RESULTS_ROOT` | Root directory for mundane artifacts | `mundane_artifacts` |
 | `NPH_RESULTS_ROOT` | (Deprecated) Legacy name for `MUNDANE_RESULTS_ROOT` | - |
+| `MUNDANE_USE_DB` | Enable SQLite database integration | `1` (enabled) |
+| `MUNDANE_DB_ONLY` | Use database-only mode (skip JSON session files) | `0` (dual-mode) |
 | `MUNDANE_LOG` | Log file path | `~/mundane.log` |
 | `MUNDANE_DEBUG` | DEBUG logging when truthy (`1`, `true`, `on`) | off |
 | `MUNDANE_PROMPT` | Enable confirmation prompts | on |
@@ -300,6 +302,62 @@ python mundane.py review --export-root ./nessus_plugin_hosts
 - **Scan overview** summaries (totals, top ports, identical groups).
 - **Progress indicators** for cloning, parsing, exporting, or running tools.
 - **Registry-driven tool system** (nmap/netexec/metasploit today; others can be added later).
+
+---
+
+## SQLite Database Integration
+
+Mundane includes an **integrated SQLite database** that automatically tracks scan metadata, tool executions, and artifacts for audit trail and historical analysis.
+
+### What is Tracked
+
+The database maintains comprehensive records of:
+
+- **Scans**: Export metadata (scan name, export directory, timestamp)
+- **Plugins**: Vulnerability findings (plugin ID, name, severity, CVSS scores)
+- **Plugin Files**: Individual plugin host list files (file paths, line counts)
+- **Sessions**: Review session state (start time, completed files, progress)
+- **Tool Executions**: Commands run during reviews (tool name, command text, exit codes, execution duration)
+- **Artifacts**: Generated files from tool runs (file paths, SHA256 hashes, file sizes)
+
+### Database Location
+
+The database is stored at **`~/.mundane/mundane.db`** by default.
+
+All operations maintain **dual-mode synchronization** - data is written to both the database and traditional JSON session files for compatibility.
+
+### Database Operations
+
+**Database features work transparently:**
+- Wizard exports automatically register scans and plugins
+- Review sessions track progress in database
+- Tool executions are logged with metadata (duration, exit codes, sudo usage)
+- Artifacts are fingerprinted with SHA256 hashes
+- No manual database management required
+
+**For advanced usage**, see [docs/DATABASE.md](docs/DATABASE.md) for schema reference and query examples.
+
+### Environment Variables
+
+Control database behavior with these environment variables:
+
+| Variable | Description | Default |
+|---|---|---|
+| `MUNDANE_USE_DB` | Enable database integration (`1`, `true`, `on`) | `1` (enabled) |
+| `MUNDANE_DB_ONLY` | Skip JSON session files, use only database | `0` (dual-mode) |
+
+**Examples:**
+```bash
+# Disable database entirely (legacy mode)
+export MUNDANE_USE_DB=0
+mundane review --export-root ./nessus_plugin_hosts
+
+# Use database-only mode (no JSON session files)
+export MUNDANE_DB_ONLY=1
+mundane review --export-root ./nessus_plugin_hosts
+```
+
+**Note**: Dual-mode (default) ensures compatibility with existing workflows while enabling database features.
 
 ---
 

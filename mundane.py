@@ -2639,7 +2639,7 @@ def summary(
 
 def show_nessus_tool_suggestions(nessus_file: Path) -> None:
     """
-    Display suggested tool commands after wizard export completes.
+    Display suggested tool commands after import export completes.
 
     Args:
         nessus_file: Path to the original .nessus file
@@ -2665,29 +2665,38 @@ def show_nessus_tool_suggestions(nessus_file: Path) -> None:
     info("Tip: Copy these commands to run them in your terminal.")
 
 
-@app.command(
-    help="Wizard: export plugin files from a .nessus scan and optionally launch review."
-)
-def wizard(
+@app.command(name="import", help="Import .nessus file and export plugin host lists")
+def import_scan(
     nessus: Path = typer.Argument(
         ..., exists=True, readable=True, help="Path to a .nessus file"
     ),
-    out_dir: Path = typer.Option(
-        Path("./nessus_plugin_hosts"),
+    out_dir: Optional[Path] = typer.Option(
+        None,
         "--out-dir",
         "-o",
-        help="Export output directory",
+        help="Export output directory (default: ~/.mundane/scans/<scan_name>)",
     ),
     review: bool = typer.Option(
         False, "--review", help="Launch interactive review after export"
     ),
 ) -> None:
     """
-    Export plugin files from .nessus scan to organized directory structure.
+    Import .nessus file and export plugin host lists to organized directory.
+
+    Auto-detects scan name from .nessus file and exports to ~/.mundane/scans/<scan_name>
+    unless --out-dir is specified.
 
     Optionally launch interactive review after export completes.
     """
-    from mundane_pkg.nessus_export import export_nessus_plugins
+    from mundane_pkg.nessus_export import export_nessus_plugins, extract_scan_name_from_nessus
+    from mundane_pkg.constants import SCANS_ROOT
+
+    # Auto-detect scan name if out_dir not provided
+    if out_dir is None:
+        scan_name = extract_scan_name_from_nessus(nessus)
+        out_dir = SCANS_ROOT / scan_name
+        info(f"Using scan name: {scan_name}")
+        info(f"Export directory: {out_dir}")
 
     # Run export
     header("Exporting plugin host files")

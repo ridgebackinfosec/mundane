@@ -48,9 +48,9 @@ def get_session_file_path(scan_dir: Path) -> Path:
         scan_dir: Scan directory path
 
     Returns:
-        Path to .mundane_session.json file
+        Path to .session.json file
     """
-    return scan_dir / ".mundane_session.json"
+    return scan_dir / ".session.json"
 
 
 def save_session(

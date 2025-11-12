@@ -15,7 +15,7 @@ def _get_results_root() -> Path:
     """Get results root directory with backward compatibility for env vars.
 
     Checks MUNDANE_RESULTS_ROOT first (new), then NPH_RESULTS_ROOT (deprecated),
-    then falls back to default 'mundane_artifacts'.
+    then falls back to default '~/.mundane/artifacts'.
 
     Returns:
         Path to results root directory
@@ -34,11 +34,14 @@ def _get_results_root() -> Path:
         )
         return Path(os.environ["NPH_RESULTS_ROOT"])
 
-    # Default
-    return Path("mundane_artifacts")
+    # Default: ~/.mundane/artifacts
+    return Path.home() / ".mundane" / "artifacts"
 
 RESULTS_ROOT: Path = _get_results_root()
-"""Root directory for mundane artifacts and results output."""
+"""Root directory for tool artifacts and results output."""
+
+SCANS_ROOT: Path = Path.home() / ".mundane" / "scans"
+"""Root directory for scan exports (plugin host lists)."""
 
 REVIEW_PREFIX: str = "REVIEW_COMPLETE-"
 """Prefix added to filenames that have been reviewed."""

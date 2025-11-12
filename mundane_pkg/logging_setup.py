@@ -49,7 +49,7 @@ def init_logger() -> None:
     """Initialize the logging system based on environment configuration.
 
     Configures file logging with:
-    - Log path from MUNDANE_LOG env var (default: ~/mundane.log)
+    - Log path from MUNDANE_LOG env var (default: ~/.mundane/mundane.log)
     - Log level from MUNDANE_DEBUG env var (DEBUG if set, else INFO)
     - Rotation at 1 MB with 3 file retention (loguru only)
 
@@ -58,7 +58,7 @@ def init_logger() -> None:
     """
     global LOGURU_AVAILABLE
     log_path = os.environ.get("MUNDANE_LOG") or str(
-        Path.home() / "mundane.log"
+        Path.home() / ".mundane" / "mundane.log"
     )
     debug = env_truthy("MUNDANE_DEBUG", False)
     level = "DEBUG" if debug else "INFO"

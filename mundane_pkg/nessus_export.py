@@ -148,6 +148,48 @@ def sanitize_filename(name: str, max_len: int = 80) -> str:
     return safe
 
 
+def extract_scan_name_from_nessus(nessus_file: Path) -> str:
+    """Extract scan name from .nessus XML file.
+
+    Tries to extract the Report[@name] attribute from the XML. If not found
+    or if parsing fails, falls back to using the .nessus filename stem.
+    The result is sanitized for use as a directory name.
+
+    Args:
+        nessus_file: Path to .nessus XML file
+
+    Returns:
+        Sanitized scan name suitable for use as a directory name
+
+    Example:
+        >>> extract_scan_name_from_nessus(Path("GOAD.nessus"))
+        'GOAD'
+        >>> # If Report name="Internal Scan 2024" in XML
+        >>> extract_scan_name_from_nessus(Path("scan.nessus"))
+        'Internal_Scan_2024'
+    """
+    try:
+        # Try to extract Report name attribute from XML
+        tree = ET.parse(nessus_file)
+        root = tree.getroot()
+
+        # Find <Report name="..."> element
+        report_elem = root.find("Report")
+        if report_elem is not None:
+            scan_name = report_elem.get("name")
+            if scan_name:
+                log_info(f"Extracted scan name from Report element: {scan_name}")
+                return sanitize_filename(scan_name)
+
+    except Exception as e:
+        log_error(f"Failed to parse .nessus file for scan name: {e}")
+
+    # Fallback to filename stem
+    fallback = nessus_file.stem
+    log_info(f"Using filename stem as scan name: {fallback}")
+    return sanitize_filename(fallback)
+
+
 def truthy(text: Optional[str]) -> bool:
     """Convert XML text content to boolean.
 

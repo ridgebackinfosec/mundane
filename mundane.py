@@ -532,13 +532,9 @@ def show_scan_summary(scan_dir: Path, top_ports_n: int = DEFAULT_TOP_PORTS) -> N
             combo_sig_counter[sig] += 1
             progress.advance(task)
 
-    # File Statistics Table
+    # File Statistics - Inline Display
     from rich.table import Table
     from rich import box
-
-    file_table = Table(show_header=True, header_style="bold cyan", box=box.SIMPLE, title="File Statistics", title_style="bold blue")
-    file_table.add_column("Metric", style="cyan")
-    file_table.add_column("Count", justify="right", style="yellow")
 
     # Calculate reviewed percentage and color code
     review_pct = (reviewed_files / total_files * 100) if total_files > 0 else 0
@@ -549,12 +545,17 @@ def show_scan_summary(scan_dir: Path, top_ports_n: int = DEFAULT_TOP_PORTS) -> N
     else:
         review_color = "red"
 
-    file_table.add_row("Total Files", str(total_files))
-    file_table.add_row("Reviewed", f"[{review_color}]{reviewed_files} ({review_pct:.1f}%)[/{review_color}]")
-    file_table.add_row("Empty", str(empties))
-    file_table.add_row("Malformed Tokens", str(malformed_total))
+    # Build inline file stats with conditional display
+    file_stats_parts = [
+        f"[cyan]Files:[/cyan] {total_files} total",
+        f"[cyan]Reviewed:[/cyan] [{review_color}]{reviewed_files} ({review_pct:.1f}%)[/{review_color}]"
+    ]
+    if empties > 0:
+        file_stats_parts.append(f"[cyan]Empty:[/cyan] {empties}")
+    if malformed_total > 0:
+        file_stats_parts.append(f"[cyan]Malformed:[/cyan] {malformed_total}")
 
-    _console_global.print(file_table)
+    _console_global.print(" │ ".join(file_stats_parts))
     print()  # Blank line
 
     # Host & Port Analysis Table
@@ -577,21 +578,7 @@ def show_scan_summary(scan_dir: Path, top_ports_n: int = DEFAULT_TOP_PORTS) -> N
         analysis_table.add_row("  └─ Largest", largest_str)
 
     _console_global.print(analysis_table)
-
-    # Top Ports Table (if ports exist)
-    if ports_counter:
-        print()  # Blank line
-        ports_table = Table(show_header=True, header_style="bold cyan", box=box.SIMPLE, title=f"Top {top_ports_n} Ports", title_style="bold blue")
-        ports_table.add_column("Port", style="cyan", justify="right")
-        ports_table.add_column("Files", justify="right", style="yellow")
-
-        top_ports = ports_counter.most_common(top_ports_n)
-        for port, count in top_ports:
-            ports_table.add_row(str(port), str(count))
-
-        _console_global.print(ports_table)
-
-    print()  # Blank line after all tables
+    print()  # Blank line after table
 
 
 # === Grouped host:ports printer ===

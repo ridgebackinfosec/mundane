@@ -1409,8 +1409,20 @@ def handle_file_list_actions(
         return None, file_filter, reviewed_filter, group_filter, sort_mode, page_idx
 
     if ans == "o":
-        sort_mode = "hosts" if sort_mode == "name" else "name"
-        ok(f"Sorting by {'host count (desc)' if sort_mode=='hosts' else 'name (A↑Z)'}")
+        # Cycle through sort modes: plugin_id -> hosts -> name -> plugin_id
+        if sort_mode == "plugin_id":
+            sort_mode = "hosts"
+        elif sort_mode == "hosts":
+            sort_mode = "name"
+        else:  # name
+            sort_mode = "plugin_id"
+
+        sort_label = {
+            "plugin_id": "Plugin ID ↑",
+            "hosts": "Host count ↓",
+            "name": "Name A↑Z"
+        }.get(sort_mode, "Plugin ID ↑")
+        ok(f"Sorting by {sort_label}")
 
         # Pre-load host counts AFTER switching to hosts mode
         if sort_mode == "hosts" and get_counts_for and file_parse_cache is not None:
@@ -1870,7 +1882,7 @@ def browse_file_list(
     file_filter = ""
     reviewed_filter = ""
     group_filter: Optional[Tuple[int, set]] = None
-    sort_mode = "name"
+    sort_mode = "plugin_id"  # Default sort by plugin ID
     file_parse_cache: Dict[Path, Tuple[int, str]] = {}
     page_size = default_page_size()
     page_idx = 0
@@ -1920,7 +1932,20 @@ def browse_file_list(
                 candidates,
                 key=lambda p: (-get_counts_for(p)[0], natural_key(p.name)),
             )
-        else:
+        elif sort_mode == "plugin_id":
+            # Sort by plugin ID (numeric), fallback to name for files without plugin IDs
+            from mundane_pkg.parsing import extract_plugin_id_from_filename
+            def plugin_id_sort_key(p: Path) -> tuple:
+                plugin_id_str = extract_plugin_id_from_filename(p.name)
+                if plugin_id_str:
+                    try:
+                        return (0, int(plugin_id_str), "")  # Valid plugin ID
+                    except ValueError:
+                        pass
+                # No valid plugin ID - sort these last alphabetically
+                return (1, 999999999, p.name)
+            display = sorted(candidates, key=plugin_id_sort_key)
+        else:  # name
             display = sorted(candidates, key=lambda p: natural_key(p.name))
 
         total_pages = (
@@ -1947,9 +1972,12 @@ def browse_file_list(
                     f" | Group filter: #{group_filter[0]} "
                     f"({len(group_filter[1])})"
                 )
-            status += (
-                f" | Sort: {'Host count ↓' if sort_mode=='hosts' else 'Name A↑Z'}"
-            )
+            sort_label = {
+                "plugin_id": "Plugin ID ↑",
+                "hosts": "Host count ↓",
+                "name": "Name A↑Z"
+            }.get(sort_mode, "Plugin ID ↑")
+            status += f" | Sort: {sort_label}"
             status += f" | Page: {page_idx+1}/{total_pages}"
             print(status)
 

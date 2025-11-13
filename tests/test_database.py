@@ -178,15 +178,15 @@ class TestForeignKeyConstraints:
 
         # Insert plugin
         temp_db.execute(
-            "INSERT INTO plugins (plugin_id, plugin_name, severity_int) VALUES (?, ?, ?)",
-            (12345, "Test Plugin", 2)
+            "INSERT INTO plugins (plugin_id, plugin_name, severity_int, severity_label) VALUES (?, ?, ?, ?)",
+            (12345, "Test Plugin", 2, "High")
         )
 
         # Insert plugin file
         temp_db.execute(
-            """INSERT INTO plugin_files (scan_id, plugin_id, file_path)
-               VALUES (?, ?, ?)""",
-            (scan_id, 12345, "/tmp/test/plugin.txt")
+            """INSERT INTO plugin_files (scan_id, plugin_id, file_path, severity_dir)
+               VALUES (?, ?, ?, ?)""",
+            (scan_id, 12345, "/tmp/test/plugin.txt", "2_high")
         )
 
         temp_db.commit()

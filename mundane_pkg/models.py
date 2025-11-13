@@ -309,6 +309,21 @@ class PluginFile:
         return self.file_id
 
     @classmethod
+    def get_by_id(cls, file_id: int, conn: Optional[sqlite3.Connection] = None) -> Optional[PluginFile]:
+        """Retrieve plugin file by ID.
+
+        Args:
+            file_id: Plugin file ID
+            conn: Database connection
+
+        Returns:
+            PluginFile instance or None if not found
+        """
+        with db_transaction(conn) as c:
+            row = query_one(c, "SELECT * FROM plugin_files WHERE file_id = ?", (file_id,))
+            return cls.from_row(row) if row else None
+
+    @classmethod
     def get_by_path(cls, file_path: str, conn: Optional[sqlite3.Connection] = None) -> Optional[PluginFile]:
         """Retrieve plugin file by path.
 

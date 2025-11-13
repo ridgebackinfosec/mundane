@@ -488,6 +488,9 @@ class TestModelRelationships:
         temp_db.execute("DELETE FROM tool_executions WHERE execution_id = ?", (exec_id,))
         temp_db.commit()
 
-        # Artifact should be gone
-        cursor = temp_db.execute("SELECT COUNT(*) as count FROM artifacts")
-        assert cursor.fetchone()["count"] == 0
+        # Artifact should still exist but execution_id should be NULL (ON DELETE SET NULL)
+        cursor = temp_db.execute("SELECT COUNT(*) as count FROM artifacts WHERE artifact_path = ?", ("/tmp/scan.xml",))
+        assert cursor.fetchone()["count"] == 1
+
+        cursor = temp_db.execute("SELECT execution_id FROM artifacts WHERE artifact_path = ?", ("/tmp/scan.xml",))
+        assert cursor.fetchone()["execution_id"] is None

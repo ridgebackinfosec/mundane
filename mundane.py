@@ -1397,8 +1397,8 @@ def handle_file_list_actions(
         return None, file_filter, reviewed_filter, group_filter, sort_mode, page_idx
 
     if ans == "f":
-        info("Filter help: Enter any text to match filenames (case-insensitive)")
-        info("Examples: 'apache' matches 'Apache_2.4', 'ssl' matches 'SSL_Certificate'")
+        info("Filter help: Enter any text to match plugin names (case-insensitive)")
+        info("Examples: 'apache' matches 'Apache HTTP Server', 'ssl' matches 'SSL Certificate'")
         file_filter = input("Enter substring to filter by (or press Enter for none): ").strip()
         page_idx = 0
         return None, file_filter, reviewed_filter, group_filter, sort_mode, page_idx
@@ -1744,7 +1744,7 @@ def handle_file_list_actions(
 
 
 def browse_workflow_groups(
-    scan_dir: Path,
+    scan: Any,  # Scan object
     workflow_groups: Dict[str, List[Tuple[Path, Path]]],
     args: types.SimpleNamespace,
     use_sudo: bool,
@@ -1760,7 +1760,7 @@ def browse_workflow_groups(
     then shows files for that workflow.
 
     Args:
-        scan_dir: Scan directory path
+        scan: Scan database object
         workflow_groups: Dict mapping workflow_name -> list of (file, severity_dir) tuples
         args: Command-line arguments
         use_sudo: Whether sudo is available
@@ -1769,6 +1769,7 @@ def browse_workflow_groups(
         completed_total: List of completed filenames
         workflow_mapper: WorkflowMapper instance
     """
+    scan_dir = Path(scan.export_root) / scan.scan_name
     if not workflow_groups:
         warn("No files with mapped workflows found.")
         return
@@ -1821,21 +1822,21 @@ def browse_workflow_groups(
         workflow_idx = int(ans) - 1
         workflow_name, workflow_files = workflow_list[workflow_idx]
 
-        # Get the workflow object for display
-        # Take the plugin ID from the first file
-        first_file = workflow_files[0][0]
-        plugin_id = extract_plugin_id_from_filename(first_file.name)
-        workflow_obj = workflow_mapper.get_workflow(plugin_id) if plugin_id else None
+        # Extract plugin IDs from workflow files
+        plugin_ids = []
+        for file, _ in workflow_files:
+            plugin_id_str = extract_plugin_id_from_filename(file.name)
+            if plugin_id_str:
+                try:
+                    plugin_ids.append(int(plugin_id_str))
+                except ValueError:
+                    pass
 
-        # Create files getter for this workflow
-        def workflow_files_getter() -> List[Tuple[Path, Path]]:
-            return workflow_files.copy()
-
-        # Browse files for this workflow
+        # Browse files for this workflow using database query filtered by plugin IDs
         browse_file_list(
-            scan_dir,
-            workflow_files[0][1],  # Use severity dir from first file
-            workflow_files_getter,
+            scan,
+            workflow_files[0][1] if workflow_files else None,  # Use severity dir from first file
+            None,  # No severity filter
             f"Workflow: {workflow_name}",
             args,
             use_sudo,
@@ -1844,6 +1845,7 @@ def browse_workflow_groups(
             completed_total,
             is_msf_mode=True,  # Show severity labels
             workflow_mapper=workflow_mapper,
+            plugin_ids_filter=plugin_ids if plugin_ids else None,
         )
 
 
@@ -1851,9 +1853,9 @@ def browse_workflow_groups(
 
 
 def browse_file_list(
-    scan_dir: Path,
-    sev_dir: Path,
-    files_getter: Callable[[], List[Tuple[Path, Path]]],
+    scan: Any,  # Scan object
+    sev_dir: Optional[Path],
+    severity_dir_filter: Optional[str],
     severity_label: str,
     args: types.SimpleNamespace,
     use_sudo: bool,
@@ -1862,14 +1864,16 @@ def browse_file_list(
     completed_total: List[str],
     is_msf_mode: bool = False,
     workflow_mapper: Optional[WorkflowMapper] = None,
+    has_metasploit_filter: Optional[bool] = None,
+    plugin_ids_filter: Optional[list[int]] = None,
 ) -> None:
     """
     Browse and interact with file list (unified for severity and MSF modes).
 
     Args:
-        scan_dir: Scan directory
-        sev_dir: Severity directory (placeholder for MSF mode)
-        files_getter: Function returning list of (file, severity_dir) tuples
+        scan: Scan database object
+        sev_dir: Severity directory for file operations (optional, derived if needed)
+        severity_dir_filter: Severity directory filter for database query (e.g., "3_High")
         severity_label: Display label for the severity
         workflow_mapper: Optional workflow mapper for plugin workflows
         args: Command-line arguments
@@ -1878,7 +1882,11 @@ def browse_file_list(
         reviewed_total: List to track reviewed files
         completed_total: List to track completed files
         is_msf_mode: If True, display severity labels in reviewed list
+        has_metasploit_filter: Optional filter for metasploit plugins
+        plugin_ids_filter: Optional list of specific plugin IDs to include
     """
+    from mundane_pkg.models import PluginFile, Scan
+
     file_filter = ""
     reviewed_filter = ""
     group_filter: Optional[Tuple[int, set]] = None
@@ -1886,6 +1894,9 @@ def browse_file_list(
     file_parse_cache: Dict[Path, Tuple[int, str]] = {}
     page_size = default_page_size()
     page_idx = 0
+
+    # Derive scan_dir from scan object
+    scan_dir = Path(scan.export_root) / scan.scan_name
 
     def get_counts_for(path: Path) -> Tuple[int, str]:
         """Get cached host/port counts for a file."""
@@ -1901,52 +1912,41 @@ def browse_file_list(
         return stats
 
     while True:
-        # Get files
-        file_tuples = files_getter()
-        sev_map = {file: sev for (file, sev) in file_tuples}
-        files = [file for (file, _sev) in file_tuples if file.suffix.lower() == ".txt"]
+        # Query database for files with plugin info
+        all_records = PluginFile.get_by_scan_with_plugin(
+            scan_id=scan.scan_id,
+            severity_dir=severity_dir_filter,
+            has_metasploit=has_metasploit_filter,
+            plugin_ids=plugin_ids_filter,
+        )
 
+        # Separate reviewed and unreviewed based on review_state from database
         reviewed = [
-            file
-            for file in files
-            if file.name.lower().startswith(
-                (
-                    "review_complete",
-                    "review-complete",
-                    "review_complete-",
-                    "review-complete-",
-                )
-            )
+            (pf, p) for (pf, p) in all_records if pf.review_state == "completed"
         ]
-        unreviewed = [file for file in files if file not in reviewed]
+        unreviewed = [
+            (pf, p) for (pf, p) in all_records if pf.review_state != "completed"
+        ]
 
+        # Apply file filter (plugin name search)
         candidates = [
-            unreview
-            for unreview in unreviewed
-            if (file_filter.lower() in unreview.name.lower())
-            and (group_filter is None or unreview.name in group_filter[1])
+            (pf, p)
+            for (pf, p) in unreviewed
+            if (file_filter.lower() in p.plugin_name.lower())
+            and (group_filter is None or Path(pf.file_path).name in group_filter[1])
         ]
 
+        # Apply sorting
         if sort_mode == "hosts":
             display = sorted(
                 candidates,
-                key=lambda p: (-get_counts_for(p)[0], natural_key(p.name)),
+                key=lambda record: (-get_counts_for(Path(record[0].file_path))[0], natural_key(Path(record[0].file_path).name)),
             )
         elif sort_mode == "plugin_id":
-            # Sort by plugin ID (numeric), fallback to name for files without plugin IDs
-            from mundane_pkg.parsing import extract_plugin_id_from_filename
-            def plugin_id_sort_key(p: Path) -> tuple:
-                plugin_id_str = extract_plugin_id_from_filename(p.name)
-                if plugin_id_str:
-                    try:
-                        return (0, int(plugin_id_str), "")  # Valid plugin ID
-                    except ValueError:
-                        pass
-                # No valid plugin ID - sort these last alphabetically
-                return (1, 999999999, p.name)
-            display = sorted(candidates, key=plugin_id_sort_key)
+            # Sort by plugin ID (numeric ascending)
+            display = sorted(candidates, key=lambda record: record[1].plugin_id)
         else:  # name
-            display = sorted(candidates, key=lambda p: natural_key(p.name))
+            display = sorted(candidates, key=lambda record: natural_key(record[1].plugin_name))
 
         total_pages = (
             max(1, math.ceil(len(display) / page_size)) if page_size > 0 else 1
@@ -1983,7 +1983,7 @@ def browse_file_list(
 
             render_file_list_table(
                 page_items, sort_mode, get_counts_for, row_offset=start,
-                sev_map=sev_map if is_msf_mode else None
+                show_severity=is_msf_mode
             )
 
             can_next = page_idx + 1 < total_pages
@@ -2014,7 +2014,7 @@ def browse_file_list(
             page_idx,
             total_pages,
             reviewed,
-            sev_map if is_msf_mode else None,
+            None,  # sev_map no longer used
             get_counts_for,
             file_parse_cache,
         )
@@ -2045,28 +2045,31 @@ def browse_file_list(
                 task = progress.add_task(
                     "Marking files as REVIEW_COMPLETE...", total=len(candidates)
                 )
-                for file in candidates:
-                    newp = rename_review_complete(file)
-                    if newp != file or is_reviewed_filename(newp.name):
+                for plugin_file, plugin in candidates:
+                    file_path = Path(plugin_file.file_path)
+                    newp = rename_review_complete(file_path)
+                    if newp != file_path or is_reviewed_filename(newp.name):
                         renamed += 1
                         completed_total.append(newp.name)
                     progress.advance(task)
             ok(f"Summary: {renamed} renamed, {len(candidates)-renamed} skipped.")
             continue
         elif action_type == "file_selected":
-            # Determine which file was selected
+            # Determine which record was selected
             if ans == "":
-                chosen = page_items[0]
+                chosen_record = page_items[0]
             else:
                 global_idx = int(ans) - 1
-                chosen = display[global_idx]
+                chosen_record = display[global_idx]
 
-            # Get the correct severity dir for this file
-            chosen_sev_dir = sev_map[chosen] if is_msf_mode else sev_dir
+            # Extract file path and severity dir from record
+            plugin_file, plugin = chosen_record
+            chosen_path = Path(plugin_file.file_path)
+            chosen_sev_dir = scan_dir / plugin_file.severity_dir if is_msf_mode else sev_dir
 
             # Process the file
             process_single_file(
-                chosen,
+                chosen_path,
                 scan_dir,
                 chosen_sev_dir,
                 args,
@@ -2548,40 +2551,20 @@ def main(args: types.SimpleNamespace) -> None:
             # === Multiple severities selected (or mix of severities + MSF) ===
             if len(severity_indices) > 1 or (len(severity_indices) >= 1 and msf_in_selection):
                 selected_sev_dirs = [severities[idx - 1] for idx in severity_indices]
-                
+
                 # Build combined label
                 sev_labels = [pretty_severity_label(sev.name) for sev in selected_sev_dirs]
                 if msf_in_selection:
                     sev_labels.append("Metasploit Module")
-                
-                combined_label = " + ".join(sev_labels)
-                
-                def multi_files_getter() -> List[Tuple[Path, Path]]:
-                    """Get files from multiple selected severity directories."""
-                    multi_files = []
-                    
-                    # Add files from selected severity directories
-                    for sev_dir in selected_sev_dirs:
-                        for file in list_files(sev_dir):
-                            if file.suffix.lower() == ".txt":
-                                multi_files.append((file, sev_dir))
-                    
-                    # Add MSF files if selected
-                    if msf_in_selection:
-                        for severity_dir in severities:
-                            for file in list_files(severity_dir):
-                                if (
-                                    file.suffix.lower() == ".txt"
-                                    and file.name.endswith("-MSF.txt")
-                                ):
-                                    multi_files.append((file, severity_dir))
-                    
-                    return multi_files
 
+                combined_label = " + ".join(sev_labels)
+
+                # For multi-severity selection, query all files and filter in-memory
+                # This is acceptable since the dataset is already filtered by scan_id
                 browse_file_list(
-                    scan_dir,
-                    selected_sev_dirs[0] if selected_sev_dirs else severities[0],  # Placeholder
-                    multi_files_getter,
+                    selected_scan,
+                    selected_sev_dirs[0] if selected_sev_dirs else None,
+                    None,  # No severity filter - query all to allow multi-severity
                     combined_label,
                     args,
                     use_sudo,
@@ -2597,19 +2580,13 @@ def main(args: types.SimpleNamespace) -> None:
                 choice_idx = severity_indices[0]
                 sev_dir = severities[choice_idx - 1]
 
-                def files_getter() -> List[Tuple[Path, Path]]:
-                    """Get files for normal severity directory."""
-                    files = [
-                        file
-                        for file in list_files(sev_dir)
-                        if file.suffix.lower() == ".txt"
-                    ]
-                    return [(file, sev_dir) for file in files]
+                # Use severity directory name as filter (e.g., "3_High")
+                severity_dir_filter = sev_dir.name
 
                 browse_file_list(
-                    scan_dir,
+                    selected_scan,
                     sev_dir,
-                    files_getter,
+                    severity_dir_filter,
                     pretty_severity_label(sev_dir.name),
                     args,
                     use_sudo,
@@ -2622,22 +2599,11 @@ def main(args: types.SimpleNamespace) -> None:
                 
             # === Metasploit Module only ===
             elif msf_in_selection:
-                def msf_files_getter() -> List[Tuple[Path, Path]]:
-                    """Get MSF files from all severity directories."""
-                    msf_files = []
-                    for severity_dir in severities:
-                        for file in list_files(severity_dir):
-                            if (
-                                file.suffix.lower() == ".txt"
-                                and file.name.endswith("-MSF.txt")
-                            ):
-                                msf_files.append((file, severity_dir))
-                    return msf_files
-
+                # Query database for metasploit plugins across all severities
                 browse_file_list(
-                    scan_dir,
-                    severities[0],  # Placeholder, won't be used
-                    msf_files_getter,
+                    selected_scan,
+                    None,  # No single severity dir
+                    None,  # No severity filter
                     "Metasploit Module",
                     args,
                     use_sudo,
@@ -2646,6 +2612,7 @@ def main(args: types.SimpleNamespace) -> None:
                     completed_total,
                     is_msf_mode=True,
                     workflow_mapper=workflow_mapper,
+                    has_metasploit_filter=True,
                 )
 
             # === Workflow Mapped only ===
@@ -2654,7 +2621,7 @@ def main(args: types.SimpleNamespace) -> None:
                 workflow_groups = group_files_by_workflow(workflow_files_for_count, workflow_mapper)
 
                 browse_workflow_groups(
-                    scan_dir,
+                    selected_scan,
                     workflow_groups,
                     args,
                     use_sudo,

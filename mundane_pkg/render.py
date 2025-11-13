@@ -20,8 +20,6 @@ from .ansi import colorize_severity_label, fmt_action, info, warn
 from .constants import SEVERITY_COLORS
 from .fs import default_page_size, is_reviewed_filename, list_files, pretty_severity_label
 from .logging_setup import log_timing
-from .models import Plugin
-from .parsing import extract_plugin_id_from_filename
 
 
 _console_global = Console()
@@ -167,21 +165,23 @@ def render_severity_table(
 
 
 def render_file_list_table(
-    display: list[Path],
+    display: list[tuple[Any, Any]],
     sort_mode: str,
     get_counts_for: Any,
     row_offset: int = 0,
-    sev_map: Optional[dict[Path, Path]] = None,
+    show_severity: bool = False,
 ) -> None:
-    """Render a paginated file list table with optional host counts and severity.
+    """Render a paginated file list table with plugin info from database.
 
     Args:
-        display: List of file paths to display on this page
+        display: List of (PluginFile, Plugin) tuples to display on this page
         sort_mode: Current sort mode ("hosts", "name", or "plugin_id")
-        get_counts_for: Function to get (host_count, ports_str) for a file
+        get_counts_for: Function to get (host_count, ports_str) for a file path
         row_offset: Starting row number for pagination
-        sev_map: Optional mapping of file paths to severity directories
+        show_severity: Whether to show severity column (for MSF mode)
     """
+    from pathlib import Path
+
     table = Table(
         title=None, box=box.SIMPLE, show_lines=False, pad_edge=False
     )
@@ -190,44 +190,29 @@ def render_file_list_table(
     table.add_column("Name", overflow="fold")
     if sort_mode == "hosts":
         table.add_column("Hosts", justify="right", no_wrap=True, max_width=8)
-    if sev_map:
+    if show_severity:
         table.add_column("Severity", justify="left", no_wrap=True, max_width=15)
 
-    for i, file_path in enumerate(display, 1):
+    for i, (plugin_file, plugin) in enumerate(display, 1):
         row_number = row_offset + i
 
-        # Extract plugin ID and get plugin name from database
-        plugin_id_str = extract_plugin_id_from_filename(file_path.name)
-        plugin_name = "Unknown"
-
-        if plugin_id_str:
-            try:
-                plugin_id = int(plugin_id_str)
-                plugin = Plugin.get_by_id(plugin_id)
-                if plugin and plugin.plugin_name:
-                    plugin_name = plugin.plugin_name
-            except (ValueError, Exception):
-                # If plugin_id extraction or conversion fails, use Unknown
-                pass
-        else:
-            # No plugin ID found in filename, fallback to showing filename
-            plugin_id_str = "?"
-            plugin_name = file_path.name
+        # Use plugin data directly from database
+        plugin_id_str = str(plugin.plugin_id)
+        plugin_name = plugin.plugin_name or "Unknown"
 
         row_data = [str(row_number), plugin_id_str, plugin_name]
 
         if sort_mode == "hosts":
+            # Convert file_path string to Path for get_counts_for
+            file_path = Path(plugin_file.file_path)
             host_count, _ports_str = get_counts_for(file_path)
             row_data.append(str(host_count))
 
-        if sev_map and file_path in sev_map:
-            sev_dir = sev_map[file_path]
-            sev_label = pretty_severity_label(sev_dir.name)
+        if show_severity:
+            # Get severity from plugin_file.severity_dir (e.g., "3_High")
+            sev_label = pretty_severity_label(plugin_file.severity_dir)
             sev_colored = severity_cell(sev_label)
             row_data.append(sev_colored)
-        elif sev_map:
-            # File in sev_map but not found - show unknown
-            row_data.append("Unknown")
 
         table.add_row(*row_data)
 

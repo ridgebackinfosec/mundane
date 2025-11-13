@@ -468,6 +468,7 @@ cat {TCP_IPS} | xargs -I{} sh -c 'echo {}; nmap -Pn -p {PORTS} {}'
 
 ## Architecture notes (Phases 1–6)
 
+- **Database-first file listing**: File browsing queries the database directly using `Scan → PluginFiles → Plugins` relationships, eliminating filesystem walks and per-file database lookups. Review state tracked in database `review_state` column, synchronized with filename prefixes.
 - **Canonical parsing**: one parser creates a `ParsedHostsPorts` model (stable host order, unique sorted ports, explicit `host:port` detection) with a small in‑process cache.
 - **Data vs render separation**: `build_compare_data()` and `build_coverage_data()` compute pure data; rendering wrappers keep Rich output unchanged.
 - **Tool registry**: `ToolSpec` (`builder: Callable[[dict], tuple[Any, dict]]`) with entries for `nmap` and `netexec`; legacy builders remain for backward compatibility.

@@ -380,6 +380,116 @@ class PluginFile:
 
         self.save(conn)
 
+    @classmethod
+    def get_by_scan_with_plugin(
+        cls,
+        scan_id: int,
+        severity_dir: Optional[str] = None,
+        review_state: Optional[str] = None,
+        plugin_name_filter: Optional[str] = None,
+        has_metasploit: Optional[bool] = None,
+        plugin_ids: Optional[list[int]] = None,
+        conn: Optional[sqlite3.Connection] = None
+    ) -> list[tuple[PluginFile, Plugin]]:
+        """Retrieve plugin files with plugin info for a scan.
+
+        Args:
+            scan_id: Scan ID to filter by
+            severity_dir: Optional severity directory filter (e.g., "3_High")
+            review_state: Optional review state filter ('pending', 'completed', etc.)
+            plugin_name_filter: Optional case-insensitive substring to match plugin names
+            has_metasploit: Optional filter for metasploit plugins
+            plugin_ids: Optional list of specific plugin IDs to include
+            conn: Database connection
+
+        Returns:
+            List of (PluginFile, Plugin) tuples
+        """
+        with db_transaction(conn) as c:
+            # Build query with JOIN
+            query = """
+                SELECT
+                    pf.file_id, pf.scan_id, pf.plugin_id, pf.file_path, pf.severity_dir,
+                    pf.review_state, pf.reviewed_at, pf.reviewed_by, pf.review_notes,
+                    pf.host_count, pf.port_count, pf.file_created_at, pf.file_modified_at,
+                    pf.last_parsed_at,
+                    p.plugin_id as p_plugin_id, p.plugin_name, p.severity_int, p.severity_label,
+                    p.has_metasploit, p.cvss3_score, p.cvss2_score, p.cves,
+                    p.plugin_url, p.metadata_fetched_at
+                FROM plugin_files pf
+                INNER JOIN plugins p ON pf.plugin_id = p.plugin_id
+                WHERE pf.scan_id = ?
+            """
+            params: list[Any] = [scan_id]
+
+            # Add optional filters
+            if severity_dir is not None:
+                query += " AND pf.severity_dir = ?"
+                params.append(severity_dir)
+
+            if review_state is not None:
+                query += " AND pf.review_state = ?"
+                params.append(review_state)
+
+            if plugin_name_filter is not None:
+                query += " AND p.plugin_name LIKE ?"
+                params.append(f"%{plugin_name_filter}%")
+
+            if has_metasploit is not None:
+                query += " AND p.has_metasploit = ?"
+                params.append(1 if has_metasploit else 0)
+
+            if plugin_ids is not None and len(plugin_ids) > 0:
+                placeholders = ",".join("?" * len(plugin_ids))
+                query += f" AND pf.plugin_id IN ({placeholders})"
+                params.extend(plugin_ids)
+
+            # Order by plugin_id for consistent results
+            query += " ORDER BY p.plugin_id ASC"
+
+            rows = query_all(c, query, tuple(params))
+
+            results = []
+            for row in rows:
+                # Create PluginFile from row (columns 0-13)
+                plugin_file = cls(
+                    file_id=row[0],
+                    scan_id=row[1],
+                    plugin_id=row[2],
+                    file_path=row[3],
+                    severity_dir=row[4],
+                    review_state=row[5],
+                    reviewed_at=row[6],
+                    reviewed_by=row[7],
+                    review_notes=row[8],
+                    host_count=row[9],
+                    port_count=row[10],
+                    file_created_at=row[11],
+                    file_modified_at=row[12],
+                    last_parsed_at=row[13]
+                )
+
+                # Create Plugin from row (columns 14-23)
+                cves_json = row[21]
+                cves = json.loads(cves_json) if cves_json else None
+
+                plugin = Plugin(
+                    plugin_id=row[14],
+                    plugin_name=row[15],
+                    severity_int=row[16],
+                    severity_label=row[17],
+                    has_metasploit=bool(row[18]),
+                    cvss3_score=row[19],
+                    cvss2_score=row[20],
+                    cves=cves,
+                    plugin_url=row[22],
+                    metadata_fetched_at=row[23]
+                )
+
+                results.append((plugin_file, plugin))
+
+            return results
+
 
 # ========== Model: ToolExecution ==========
 

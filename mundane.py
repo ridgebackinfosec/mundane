@@ -1331,16 +1331,16 @@ ActionResult = Tuple[Optional[str], str, str, Optional[Tuple[int, set]], str, in
 
 def handle_file_list_actions(
     ans: str,
-    candidates: List[Path],
-    page_items: List[Path],
-    display: List[Path],
+    candidates: List[Any],  # List of (PluginFile, Plugin) tuples
+    page_items: List[Any],  # List of (PluginFile, Plugin) tuples
+    display: List[Any],  # List of (PluginFile, Plugin) tuples
     file_filter: str,
     reviewed_filter: str,
     group_filter: Optional[Tuple[int, set]],
     sort_mode: str,
     page_idx: int,
     total_pages: int,
-    reviewed: List[Path],
+    reviewed: List[Any],  # List of (PluginFile, Plugin) tuples
     sev_map: Optional[Dict[Path, Path]] = None,
     get_counts_for: Optional[Callable[[Path], Tuple[int, str]]] = None,
     file_parse_cache: Optional[Dict[Path, Tuple[int, str]]] = None,
@@ -1350,22 +1350,22 @@ def handle_file_list_actions(
 
     Args:
         ans: User input command
-        candidates: Filtered candidate files
-        page_items: Files on current page
-        display: All files to display (after sort)
+        candidates: Filtered candidate records (PluginFile, Plugin) tuples
+        page_items: Records on current page
+        display: All records to display (after sort)
         file_filter: Current file filter string
         reviewed_filter: Current reviewed filter string
         group_filter: Optional group filter tuple (index, filenames)
-        sort_mode: Current sort mode ("name" or "hosts")
+        sort_mode: Current sort mode ("plugin_id", "hosts", or "name")
         page_idx: Current page index
         total_pages: Total number of pages
-        reviewed: List of reviewed files
-        sev_map: Map of file to severity dir (for MSF mode)
-        get_counts_for: Function to get host counts
-        file_parse_cache: Cache of parsed file data
+        reviewed: List of reviewed records
+        sev_map: Map of file to severity dir (deprecated, unused)
+        get_counts_for: Function to get host counts for a Path
+        file_parse_cache: Cache of parsed file data (Path -> counts)
 
     Returns:
-        Tuple of (action_type, file_filter, reviewed_filter, 
+        Tuple of (action_type, file_filter, reviewed_filter,
                  group_filter, sort_mode, page_idx)
         action_type: None (continue), "back", "file_selected", "help", "mark_all"
     """
@@ -1426,7 +1426,9 @@ def handle_file_list_actions(
 
         # Pre-load host counts AFTER switching to hosts mode
         if sort_mode == "hosts" and get_counts_for and file_parse_cache is not None:
-            missing = [p for p in candidates if p not in file_parse_cache]
+            # Extract Path objects from (PluginFile, Plugin) tuples
+            candidate_paths = [Path(pf.file_path) for pf, p in candidates]
+            missing = [path for path in candidate_paths if path not in file_parse_cache]
             if missing:
                 with Progress(
                     SpinnerColumn(style="cyan"),
@@ -1455,18 +1457,20 @@ def handle_file_list_actions(
         header("Reviewed files (read-only)")
         print(f"Current filter: '{reviewed_filter or '*'}'")
         filtered_reviewed = [
-            rev
-            for rev in reviewed
-            if (reviewed_filter.lower() in rev.name.lower())
+            (pf, p)
+            for (pf, p) in reviewed
+            if (reviewed_filter.lower() in p.plugin_name.lower())
         ]
 
-        for idx, file in enumerate(filtered_reviewed, 1):
-            if sev_map:  # MSF mode with severity labels
-                sev_label = pretty_severity_label(sev_map[file].name)
+        for idx, (plugin_file, plugin) in enumerate(filtered_reviewed, 1):
+            file_name = Path(plugin_file.file_path).name
+            if sev_map:  # MSF mode with severity labels (deprecated)
+                # Use severity_dir from plugin_file instead of sev_map
+                sev_label = pretty_severity_label(plugin_file.severity_dir)
                 sev_col = colorize_severity_label(sev_label)
-                print(f"[{idx}] {fmt_reviewed(file.name)}  — {sev_col}")
+                print(f"[{idx}] {fmt_reviewed(file_name)}  — {sev_col}")
             else:
-                print(f"[{idx}] {fmt_reviewed(file.name)}")
+                print(f"[{idx}] {fmt_reviewed(file_name)}")
 
         print(fmt_action("[?] Help  [U] Undo review-complete  [F] Filter  [C] Clear filter  [B] Back"))
 
@@ -1536,7 +1540,8 @@ def handle_file_list_actions(
                     )
 
             # Undo each file (lists will be regenerated on next loop)
-            for file_path in files_to_undo:
+            for plugin_file, plugin in files_to_undo:
+                file_path = Path(plugin_file.file_path)
                 undo_review_complete(file_path)
 
             return (
@@ -1593,7 +1598,9 @@ def handle_file_list_actions(
                 page_idx,
             )
 
-        bulk_extract_cves_for_files(candidates)
+        # Extract Path objects from (PluginFile, Plugin) tuples
+        candidate_paths = [Path(pf.file_path) for pf, p in candidates]
+        bulk_extract_cves_for_files(candidate_paths)
         return None, file_filter, reviewed_filter, group_filter, sort_mode, page_idx
 
     if ans == "m":
@@ -1649,7 +1656,9 @@ def handle_file_list_actions(
                 page_idx,
             )
 
-        groups = compare_filtered(candidates)
+        # Extract Path objects from (PluginFile, Plugin) tuples
+        candidate_paths = [Path(pf.file_path) for pf, p in candidates]
+        groups = compare_filtered(candidate_paths)
         if groups:
             visible = min(VISIBLE_GROUPS, len(groups))
             opts = " | ".join(f"g{i+1}" for i in range(visible))
@@ -1679,7 +1688,9 @@ def handle_file_list_actions(
                 page_idx,
             )
 
-        groups = analyze_inclusions(candidates)
+        # Extract Path objects from (PluginFile, Plugin) tuples
+        candidate_paths = [Path(pf.file_path) for pf, p in candidates]
+        groups = analyze_inclusions(candidate_paths)
         if groups:
             visible = min(VISIBLE_GROUPS, len(groups))
             opts = " | ".join(f"g{i+1}" for i in range(visible))

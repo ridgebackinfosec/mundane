@@ -2244,7 +2244,7 @@ def main(args: types.SimpleNamespace) -> None:
     # If no export_root specified, use database scan selection
     if export_root is None:
         from mundane_pkg.models import Scan
-        from mundane_pkg.database import USE_DATABASE
+        from mundane_pkg.session import USE_DATABASE
         from datetime import datetime
 
         if not USE_DATABASE:
@@ -2728,7 +2728,7 @@ def review(
         raise typer.Exit(1)
 
     args = types.SimpleNamespace(
-        export_root=str(export_root),
+        export_root=export_root,
         no_tools=no_tools,
         custom_workflows=custom_workflows,
         custom_workflows_only=custom_workflows_only,

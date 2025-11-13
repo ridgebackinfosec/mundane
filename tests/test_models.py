@@ -64,6 +64,49 @@ class TestScanModel:
         assert retrieved.scan_id == scan_id
         assert retrieved.scan_name == "test_scan"
 
+    def test_scan_get_all_empty(self, temp_db):
+        """Test get_all returns empty list when no scans."""
+        scans = Scan.get_all(temp_db)
+        assert scans == []
+
+    def test_scan_get_all_orders_by_last_reviewed(self, temp_db):
+        """Test get_all returns scans ordered by last_reviewed_at DESC."""
+        from mundane_pkg.models import now_iso
+        from datetime import datetime, timedelta
+
+        # Create 3 scans with different last_reviewed_at
+        scan1 = Scan(scan_name="old_scan", export_root="/tmp/old")
+        scan1_id = scan1.save(temp_db)
+
+        scan2 = Scan(scan_name="recent_scan", export_root="/tmp/recent")
+        scan2_id = scan2.save(temp_db)
+
+        scan3 = Scan(scan_name="never_reviewed", export_root="/tmp/never")
+        scan3_id = scan3.save(temp_db)
+
+        # Update last_reviewed_at for scan1 and scan2
+        old_time = (datetime.now() - timedelta(days=7)).isoformat()
+        recent_time = (datetime.now() - timedelta(hours=1)).isoformat()
+
+        temp_db.execute(
+            "UPDATE scans SET last_reviewed_at = ? WHERE scan_id = ?",
+            (old_time, scan1_id)
+        )
+        temp_db.execute(
+            "UPDATE scans SET last_reviewed_at = ? WHERE scan_id = ?",
+            (recent_time, scan2_id)
+        )
+        temp_db.commit()
+
+        # Get all scans
+        scans = Scan.get_all(temp_db)
+
+        # Should be ordered: recent_scan, old_scan, never_reviewed (NULLS LAST)
+        assert len(scans) == 3
+        assert scans[0].scan_name == "recent_scan"
+        assert scans[1].scan_name == "old_scan"
+        assert scans[2].scan_name == "never_reviewed"
+
     def test_scan_update_existing(self, temp_db):
         """Test updating existing scan."""
         scan = Scan(scan_name="test_scan", export_root="/tmp")

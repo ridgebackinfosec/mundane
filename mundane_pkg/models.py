@@ -128,6 +128,28 @@ class Scan:
             row = query_one(c, "SELECT * FROM scans WHERE scan_id = ?", (scan_id,))
             return cls.from_row(row) if row else None
 
+    @classmethod
+    def get_all(cls, conn: Optional[sqlite3.Connection] = None) -> list[Scan]:
+        """Retrieve all scans ordered by last reviewed (most recent first).
+
+        Scans with NULL last_reviewed_at appear last, ordered by created_at DESC.
+
+        Args:
+            conn: Database connection
+
+        Returns:
+            List of Scan instances (may be empty)
+        """
+        with db_transaction(conn) as c:
+            rows = query_all(
+                c,
+                """
+                SELECT * FROM scans
+                ORDER BY last_reviewed_at DESC NULLS LAST, created_at DESC
+                """
+            )
+            return [cls.from_row(row) for row in rows]
+
 
 # ========== Model: Plugin ==========
 

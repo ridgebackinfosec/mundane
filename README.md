@@ -249,9 +249,18 @@ python mundane.py import scan.nessus --out-dir ./custom_location
 ```
 
 ### 2) Review exports interactively
+
+**Option 1: Quick start (uses database scan selector)**
+```bash
+python mundane.py review
+```
+Displays a list of available scans from the database. Select the scan you want to review.
+
+**Option 2: Direct path (traditional method)**
 ```bash
 python mundane.py review --export-root ~/.mundane/scans/<scan_name>
 ```
+Jump directly to reviewing a specific scan directory.
 
 ---
 

@@ -532,46 +532,73 @@ def show_scan_summary(scan_dir: Path, top_ports_n: int = DEFAULT_TOP_PORTS) -> N
             combo_sig_counter[sig] += 1
             progress.advance(task)
 
-    info(
-        f"{cyan_label('Files:')} {total_files}  |  "
-        f"{cyan_label('Reviewed:')} {reviewed_files}  |  "
-        f"{cyan_label('Empty:')} {empties}  |  "
-        f"{cyan_label('Malformed tokens:')} {malformed_total}"
-    )
+    # File Statistics Table
+    from rich.table import Table
+    from rich import box
 
-    info(
-        f"{cyan_label('Hosts:')} unique={len(unique_hosts)}  "
-        f"({cyan_label('IPv4:')} {len(ipv4_set)} | "
-        f"{cyan_label('IPv6:')} {len(ipv6_set)})"
-    )
+    file_table = Table(show_header=True, header_style="bold cyan", box=box.SIMPLE, title="File Statistics", title_style="bold blue")
+    file_table.add_column("Metric", style="cyan")
+    file_table.add_column("Count", justify="right", style="yellow")
 
-    if unique_hosts:
-        sample = ", ".join(list(sorted(unique_hosts))[:5])
-        ellipsis = " ..." if len(unique_hosts) > 5 else ""
-        info(f"  {cyan_label('Example:')} {sample}{ellipsis}")
+    # Calculate reviewed percentage and color code
+    review_pct = (reviewed_files / total_files * 100) if total_files > 0 else 0
+    if review_pct > 75:
+        review_color = "green"
+    elif review_pct >= 25:
+        review_color = "yellow"
+    else:
+        review_color = "red"
+
+    file_table.add_row("Total Files", str(total_files))
+    file_table.add_row("Reviewed", f"[{review_color}]{reviewed_files} ({review_pct:.1f}%)[/{review_color}]")
+    file_table.add_row("Empty", str(empties))
+    file_table.add_row("Malformed Tokens", str(malformed_total))
+
+    _console_global.print(file_table)
+    print()  # Blank line
+
+    # Host & Port Analysis Table
+    analysis_table = Table(show_header=True, header_style="bold cyan", box=box.SIMPLE, title="Host & Port Analysis", title_style="bold blue")
+    analysis_table.add_column("Metric", style="cyan")
+    analysis_table.add_column("Value", justify="right", style="yellow")
+
+    analysis_table.add_row("Unique Hosts", str(len(unique_hosts)))
+    analysis_table.add_row("  └─ IPv4", str(len(ipv4_set)))
+    analysis_table.add_row("  └─ IPv6", str(len(ipv6_set)))
 
     port_set = set(ports_counter.keys())
-    info(f"{cyan_label('Ports:')} unique={len(port_set)}")
-
-    if ports_counter:
-        top_ports = ports_counter.most_common(top_ports_n)
-        tp_str = ", ".join(f"{port} ({count} files)" for port, count in top_ports)
-        info(f"  {cyan_label(f'Top {top_ports_n}:')} {tp_str}")
+    analysis_table.add_row("Unique Ports", str(len(port_set)))
 
     multi_clusters = [count for count in combo_sig_counter.values() if count > 1]
-    info(
-        f"{cyan_label('Identical host:port groups across all files:')} "
-        f"{len(multi_clusters)}"
-    )
-
+    analysis_table.add_row("Host:Port Clusters", str(len(multi_clusters)))
     if multi_clusters:
         sizes = sorted(multi_clusters, reverse=True)[:3]
-        info(
-            "  "
-            + cyan_label("Largest clusters:")
-            + " "
-            + ", ".join(f"{size} files" for size in sizes)
-        )
+        largest_str = ", ".join(f"{size} files" for size in sizes)
+        analysis_table.add_row("  └─ Largest", largest_str)
+
+    _console_global.print(analysis_table)
+
+    # Show host sample below tables
+    if unique_hosts:
+        print()  # Blank line
+        sample = ", ".join(list(sorted(unique_hosts))[:5])
+        ellipsis = " ..." if len(unique_hosts) > 5 else ""
+        info(f"{cyan_label('Sample Hosts:')} {sample}{ellipsis}")
+
+    # Top Ports Table (if ports exist)
+    if ports_counter:
+        print()  # Blank line
+        ports_table = Table(show_header=True, header_style="bold cyan", box=box.SIMPLE, title=f"Top {top_ports_n} Ports", title_style="bold blue")
+        ports_table.add_column("Port", style="cyan", justify="right")
+        ports_table.add_column("Files", justify="right", style="yellow")
+
+        top_ports = ports_counter.most_common(top_ports_n)
+        for port, count in top_ports:
+            ports_table.add_row(str(port), str(count))
+
+        _console_global.print(ports_table)
+
+    print()  # Blank line after all tables
 
 
 # === Grouped host:ports printer ===
@@ -2200,12 +2227,13 @@ def main(args: types.SimpleNamespace) -> None:
             "some scan types (e.g., UDP) may fail."
         )
 
-    export_root = Path(args.export_root)
-    if not export_root.exists():
+    export_root = Path(args.export_root) if args.export_root else None
+    if export_root and not export_root.exists():
         err(f"Export root not found: {export_root}")
         sys.exit(1)
 
-    ok(f"Using export root: {export_root.resolve()}")
+    if export_root:
+        ok(f"Using export root: {export_root.resolve()}")
     if args.no_tools:
         info("(no-tools mode: tool prompts disabled for this session)")
 
@@ -2213,42 +2241,92 @@ def main(args: types.SimpleNamespace) -> None:
     completed_total: List[str] = []
     skipped_total: List[str] = []
 
-    # Scan loop
-    while True:
-        scans = list_dirs(export_root)
-        if not scans:
-            err("No scan directories found.")
+    # If no export_root specified, use database scan selection
+    if export_root is None:
+        from mundane_pkg.models import Scan
+        from mundane_pkg.database import USE_DATABASE
+        from datetime import datetime
+
+        if not USE_DATABASE:
+            err("Database is disabled. Please specify --export-root or enable database.")
             return
 
-        header("Select a scan")
-        render_scan_table(scans)
+        # Get all scans from database
+        try:
+            all_scans = Scan.get_all()
+        except Exception as e:
+            err(f"Failed to query scans from database: {e}")
+            return
+
+        if not all_scans:
+            err("No scans found in database.")
+            info("Import a scan first: mundane import <nessus_file>")
+            return
+
+        # Display scan selection menu
+        header("Available Scans")
+        from rich.table import Table
+        from rich import box
+
+        scan_table = Table(show_header=True, header_style="bold cyan", box=box.SIMPLE)
+        scan_table.add_column("#", style="cyan", justify="right")
+        scan_table.add_column("Scan Name", style="yellow")
+        scan_table.add_column("Last Reviewed", style="magenta")
+
+        for idx, scan in enumerate(all_scans, 1):
+            last_reviewed = "never"
+            if scan.last_reviewed_at:
+                try:
+                    dt = datetime.fromisoformat(scan.last_reviewed_at)
+                    now = datetime.now()
+                    delta = now - dt
+                    if delta.days == 0:
+                        if delta.seconds < 3600:
+                            mins = delta.seconds // 60
+                            last_reviewed = f"{mins} min{'s' if mins != 1 else ''} ago"
+                        else:
+                            hours = delta.seconds // 3600
+                            last_reviewed = f"{hours} hour{'s' if hours != 1 else ''} ago"
+                    elif delta.days == 1:
+                        last_reviewed = "yesterday"
+                    elif delta.days < 7:
+                        last_reviewed = f"{delta.days} days ago"
+                    else:
+                        last_reviewed = dt.strftime("%Y-%m-%d")
+                except Exception:
+                    last_reviewed = scan.last_reviewed_at[:10]  # Just date
+
+            scan_table.add_row(str(idx), scan.scan_name, last_reviewed)
+
+        _console_global.print(scan_table)
         print(fmt_action("[Q] Quit"))
 
         try:
-            ans = input("Choose: ").strip().lower()
+            ans = input("Choose scan: ").strip().lower()
         except KeyboardInterrupt:
             warn("\nInterrupted — exiting.")
             return
 
         if ans in ("x", "exit", "q", "quit"):
-            # Confirmation if files were reviewed this session
-            if completed_total:
-                try:
-                    confirm = yesno(
-                        f"You marked {len(completed_total)} file(s) as reviewed this session. Exit?",
-                        default="n"
-                    )
-                    if not confirm:
-                        continue
-                except KeyboardInterrupt:
-                    continue
-            break
+            return
 
-        if not ans.isdigit() or not (1 <= int(ans) <= len(scans)):
-            warn(f"Invalid choice. Please enter 1-{len(scans)} or [Q]uit.")
-            continue
+        if not ans.isdigit() or not (1 <= int(ans) <= len(all_scans)):
+            warn(f"Invalid choice. Please enter 1-{len(all_scans)} or [Q]uit.")
+            return
 
-        scan_dir = scans[int(ans) - 1]
+        selected_scan = all_scans[int(ans) - 1]
+        export_root = Path(selected_scan.export_root)
+        scan_dir = export_root / selected_scan.scan_name
+
+        if not scan_dir.exists():
+            err(f"Scan directory not found: {scan_dir}")
+            info("The scan may have been moved or deleted.")
+            return
+
+        # Skip the scan loop, go directly to reviewing this scan
+        ok(f"Selected: {selected_scan.scan_name}")
+        # Don't wrap in scan loop - jump directly to single scan review
+        # We'll handle this by jumping to the session check and severity loop
 
         # Check for existing session
         previous_session = load_session(scan_dir)
@@ -2257,22 +2335,99 @@ def main(args: types.SimpleNamespace) -> None:
             session_date = datetime.fromisoformat(previous_session.session_start)
             header("Previous Session Found")
             info(f"Session started: {session_date.strftime('%Y-%m-%d %H:%M:%S')}")
-            info(f"Reviewed: {len(previous_session.reviewed_files)}")
-            info(f"Completed: {len(previous_session.completed_files)}")
-            info(f"Skipped: {len(previous_session.skipped_files)}")
-
+            info(f"Reviewed: {len(previous_session.reviewed_files)} files")
+            info(f"Completed: {len(previous_session.completed_files)} files")
+            info(f"Skipped: {len(previous_session.skipped_files)} files")
             try:
-                resume = yesno("\nResume previous session?", default="y")
+                resume = yesno("Resume this session?", default="y")
             except KeyboardInterrupt:
-                resume = False
+                warn("\nInterrupted — exiting.")
+                return
 
             if resume:
-                # Restore session state
                 reviewed_total = previous_session.reviewed_files.copy()
                 completed_total = previous_session.completed_files.copy()
                 skipped_total = previous_session.skipped_files.copy()
-                session_start_time = session_date
-                ok("Session resumed.")
+            else:
+                # Fresh session
+                pass
+        else:
+            # No previous session - start fresh
+            pass
+
+        # Continue to severity loop (line ~2281+)
+        # We'll mark this with a goto-style approach by setting a flag
+        _single_scan_mode = True
+        _selected_scan_dir = scan_dir
+    else:
+        _single_scan_mode = False
+        _selected_scan_dir = None
+
+    # Scan loop (only used when export_root is explicitly provided)
+    while True:
+        # Skip scan selection if already selected from database
+        if _single_scan_mode:
+            scan_dir = _selected_scan_dir
+            # Don't reset flag - we'll break after reviewing this one scan
+        else:
+            scans = list_dirs(export_root)
+            if not scans:
+                err("No scan directories found.")
+                return
+
+            header("Select a scan")
+            render_scan_table(scans)
+            print(fmt_action("[Q] Quit"))
+
+            try:
+                ans = input("Choose: ").strip().lower()
+            except KeyboardInterrupt:
+                warn("\nInterrupted — exiting.")
+                return
+
+            if ans in ("x", "exit", "q", "quit"):
+                # Confirmation if files were reviewed this session
+                if completed_total:
+                    try:
+                        confirm = yesno(
+                            f"You marked {len(completed_total)} file(s) as reviewed this session. Exit?",
+                            default="n"
+                        )
+                        if not confirm:
+                            continue
+                    except KeyboardInterrupt:
+                        continue
+                break
+
+            if not ans.isdigit() or not (1 <= int(ans) <= len(scans)):
+                warn(f"Invalid choice. Please enter 1-{len(scans)} or [Q]uit.")
+                continue
+
+            scan_dir = scans[int(ans) - 1]
+
+            # Check for existing session
+            previous_session = load_session(scan_dir)
+            if previous_session:
+                from datetime import datetime
+                session_date = datetime.fromisoformat(previous_session.session_start)
+                header("Previous Session Found")
+                info(f"Session started: {session_date.strftime('%Y-%m-%d %H:%M:%S')}")
+                info(f"Reviewed: {len(previous_session.reviewed_files)}")
+                info(f"Completed: {len(previous_session.completed_files)}")
+                info(f"Skipped: {len(previous_session.skipped_files)}")
+
+                try:
+                    resume = yesno("\nResume previous session?", default="y")
+                except KeyboardInterrupt:
+                    resume = False
+
+                if resume:
+                    # Restore session state
+                    reviewed_total = previous_session.reviewed_files.copy()
+                    completed_total = previous_session.completed_files.copy()
+                    skipped_total = previous_session.skipped_files.copy()
+                    session_start_time = session_date
+                    ok("Session resumed.")
             else:
                 # Start fresh session - delete old session file
                 delete_session(scan_dir)
@@ -2498,6 +2653,10 @@ def main(args: types.SimpleNamespace) -> None:
                     workflow_mapper,
                 )
 
+        # If single scan mode (DB-selected), exit scan loop after reviewing
+        if _single_scan_mode:
+            break
+
     # Save session before showing summary
     if reviewed_total or completed_total or skipped_total:
         save_session(
@@ -2544,8 +2703,8 @@ def _root() -> None:
 
 @app.command(help="Interactive review of findings.")
 def review(
-    export_root: Path = typer.Option(
-        Path("./nessus_plugin_hosts"), "--export-root", "-r", help="Scan exports root."
+    export_root: Optional[Path] = typer.Option(
+        None, "--export-root", "-r", help="Scan root (optional; uses database if not specified)."
     ),
     no_tools: bool = typer.Option(
         False, "--no-tools", help="Disable tool prompts (review-only)."
@@ -2709,10 +2868,33 @@ def import_scan(
             include_ports=True
         )
 
-        ok(f"Export complete: {result.plugins_exported} plugins, {result.total_hosts} hosts")
-        info(f"Files written under: {out_dir.resolve()}")
-        info("Next step:")
-        info(f"  mundane review --export-root {out_dir}")
+        ok(f"Export complete: {result.plugins_exported} plugins exported from {result.total_hosts} hosts")
+
+        # Display severity breakdown
+        if result.severities:
+            from rich.table import Table
+            from rich import box
+            from mundane_pkg.render import severity_cell
+            from mundane_pkg.nessus_export import severity_label_from_int
+
+            print()  # Blank line before table
+            info("Severity Breakdown:")
+            sev_table = Table(show_header=True, header_style="bold cyan", box=box.SIMPLE)
+            sev_table.add_column("Severity", style="cyan")
+            sev_table.add_column("Plugins", justify="right", style="yellow")
+
+            # Sort by severity (highest first: 4->0)
+            for sev_int in sorted(result.severities.keys(), reverse=True):
+                count = result.severities[sev_int]
+                if count > 0:  # Only show non-zero severities
+                    sev_label = severity_label_from_int(sev_int)
+                    sev_table.add_row(severity_cell(sev_label), str(count))
+
+            _console_global.print(sev_table)
+
+        print()  # Blank line after table
+        info(f"Files written to: {out_dir.resolve()}")
+        info("Next: mundane review")
 
     except Exception as e:
         err(f"Export failed: {e}")

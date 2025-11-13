@@ -2913,6 +2913,7 @@ def import_scan(
         result = export_nessus_plugins(
             nessus_file=nessus,
             output_dir=out_dir,
+            scan_name=scan_name,
             include_ports=True
         )
 

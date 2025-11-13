@@ -327,6 +327,7 @@ def export_nessus_plugins(
     nessus_file: Path,
     output_dir: Path,
     *,
+    scan_name: Optional[str] = None,
     include_ports: bool = True,
     use_database: bool = True
 ) -> ExportResult:
@@ -351,6 +352,7 @@ def export_nessus_plugins(
     Args:
         nessus_file: Path to .nessus XML file to parse
         output_dir: Root directory for export output
+        scan_name: Optional scan name (defaults to nessus_file.stem if not provided)
         include_ports: Whether to include port numbers in host listings (default: True)
         use_database: Whether to write metadata to database (default: True)
 
@@ -373,12 +375,14 @@ def export_nessus_plugins(
         return ExportResult(
             plugins_exported=0,
             total_hosts=0,
-            scan_name=nessus_file.stem,
+            scan_name=scan_name or nessus_file.stem,
             severities={}
         )
 
     # Prepare export directory structure
-    scan_name = sanitize_filename(nessus_file.stem)
+    # Use provided scan_name or fall back to sanitized file stem
+    if scan_name is None:
+        scan_name = sanitize_filename(nessus_file.stem)
     base_scan_dir = output_dir / scan_name
 
     # Sort plugins: severity descending, then plugin ID ascending

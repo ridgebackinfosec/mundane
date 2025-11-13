@@ -2138,11 +2138,7 @@ def show_session_statistics(
             print(f"  - {name}")
         print()
 
-    if completed_total:
-        info(f"Marked complete ({len(completed_total)}):")
-        for name in completed_total:
-            print(f"  - {fmt_reviewed(name)}")
-        print()
+    # Completed files tracked internally but not displayed
 
     if skipped_total:
         info(f"Skipped (empty) ({len(skipped_total)}):")
@@ -2849,6 +2845,63 @@ def import_scan(
         out_dir = SCANS_ROOT / scan_name
         info(f"Using scan name: {scan_name}")
         info(f"Export directory: {out_dir}")
+    else:
+        # Extract scan name from explicit out_dir for duplicate checking
+        scan_name = out_dir.name
+
+    # Check for duplicate imports
+    from mundane_pkg.database import compute_file_hash
+    from mundane_pkg.models import Scan
+
+    new_file_hash = compute_file_hash(nessus)
+    existing_scan = Scan.get_by_name(scan_name)
+
+    if existing_scan:
+        # Check if it's the identical file
+        if existing_scan.nessus_file_hash == new_file_hash:
+            ok(f"Scan '{scan_name}' already imported (identical file). Skipping.")
+            if review:
+                warn("Launching review of existing scan instead...")
+                args = types.SimpleNamespace(export_root=str(out_dir), no_tools=False)
+                try:
+                    main(args)
+                except KeyboardInterrupt:
+                    warn("\nInterrupted — returning to shell.")
+            raise typer.Exit(0)
+
+        # Different file, same name - prompt user
+        warn(f"A scan named '{scan_name}' already exists.")
+        if existing_scan.created_at:
+            warn(f"Existing: imported on {existing_scan.created_at}")
+        warn(f"New file: {nessus.name}")
+        print()
+
+        choices = [
+            "1. Overwrite existing scan",
+            "2. Import with new name (add suffix)",
+            "3. Cancel import"
+        ]
+        for choice in choices:
+            print(f"  {choice}")
+
+        ans = input("\nChoice [1-3]: ").strip()
+
+        if ans == "1":
+            info("Overwriting existing scan...")
+        elif ans == "2":
+            # Find unique suffix
+            counter = 2
+            new_scan_name = f"{scan_name}_{counter}"
+            while Scan.get_by_name(new_scan_name):
+                counter += 1
+                new_scan_name = f"{scan_name}_{counter}"
+
+            scan_name = new_scan_name
+            out_dir = out_dir.parent / scan_name
+            info(f"Importing as: {scan_name}")
+        else:
+            info("Import cancelled.")
+            raise typer.Exit(0)
 
     # Run export
     header("Exporting plugin host files")

@@ -578,13 +578,6 @@ def show_scan_summary(scan_dir: Path, top_ports_n: int = DEFAULT_TOP_PORTS) -> N
 
     _console_global.print(analysis_table)
 
-    # Show host sample below tables
-    if unique_hosts:
-        print()  # Blank line
-        sample = ", ".join(list(sorted(unique_hosts))[:5])
-        ellipsis = " ..." if len(unique_hosts) > 5 else ""
-        info(f"{cyan_label('Sample Hosts:')} {sample}{ellipsis}")
-
     # Top Ports Table (if ports exist)
     if ports_counter:
         print()  # Blank line
@@ -2436,6 +2429,9 @@ def main(args: types.SimpleNamespace) -> None:
         # Overview immediately after selecting scan
         show_scan_summary(scan_dir)
 
+        # Track if user chose to go back (for single-scan mode)
+        user_went_back = False
+
         # Severity loop
         while True:
             from mundane_pkg import breadcrumb
@@ -2511,9 +2507,13 @@ def main(args: types.SimpleNamespace) -> None:
                 ans = input("Choose: ").strip().lower()
             except KeyboardInterrupt:
                 warn("\nInterrupted — returning to scan menu.")
+                user_went_back = True
                 break
 
-            if ans in ("b", "back", "q"):
+            if ans in ("b", "back"):
+                user_went_back = True
+                break
+            elif ans == "q":
                 break
 
             options_count = len(severities) + (1 if has_msf else 0) + (1 if has_workflows else 0)
@@ -2653,9 +2653,15 @@ def main(args: types.SimpleNamespace) -> None:
                     workflow_mapper,
                 )
 
-        # If single scan mode (DB-selected), exit scan loop after reviewing
+        # If single scan mode (DB-selected), handle based on user action
         if _single_scan_mode:
-            break
+            if user_went_back:
+                # User chose to go back - reset single scan mode and continue to scan selection
+                _single_scan_mode = False
+                continue
+            else:
+                # User finished reviewing (or quit) - exit scan loop
+                break
 
     # Save session before showing summary
     if reviewed_total or completed_total or skipped_total:
@@ -2868,7 +2874,7 @@ def import_scan(
             include_ports=True
         )
 
-        ok(f"Export complete: {result.plugins_exported} plugins exported from {result.total_hosts} hosts")
+        ok(f"Export complete: {result.plugins_exported} plugins exported")
 
         # Display severity breakdown
         if result.severities:

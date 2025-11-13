@@ -194,6 +194,12 @@ def _db_save_session(
 
             if row:
                 scan_id = row["scan_id"]
+                # Update last_reviewed_at for existing scan
+                from .models import now_iso
+                conn.execute(
+                    "UPDATE scans SET last_reviewed_at = ? WHERE scan_id = ?",
+                    (now_iso(), scan_id)
+                )
             else:
                 # Create scan entry
                 scan = Scan(

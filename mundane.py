@@ -2839,15 +2839,17 @@ def import_scan(
     from mundane_pkg.nessus_export import export_nessus_plugins, extract_scan_name_from_nessus
     from mundane_pkg.constants import SCANS_ROOT
 
-    # Auto-detect scan name if out_dir not provided
+    # Always extract scan name from .nessus file for consistency with database
+    scan_name = extract_scan_name_from_nessus(nessus)
+
+    # Determine output directory
     if out_dir is None:
-        scan_name = extract_scan_name_from_nessus(nessus)
         out_dir = SCANS_ROOT / scan_name
         info(f"Using scan name: {scan_name}")
         info(f"Export directory: {out_dir}")
     else:
-        # Extract scan name from explicit out_dir for duplicate checking
-        scan_name = out_dir.name
+        info(f"Using scan name: {scan_name}")
+        info(f"Export directory: {out_dir} (custom location)")
 
     # Check for duplicate imports
     from mundane_pkg.database import compute_file_hash

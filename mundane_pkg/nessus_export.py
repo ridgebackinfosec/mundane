@@ -479,6 +479,10 @@ def _write_to_database(
             existing_scan = Scan.get_by_name(scan_name, conn)
             if existing_scan:
                 scan.scan_id = existing_scan.scan_id
+                # Preserve original metadata when updating (prevents hash mismatch on re-import)
+                scan.created_at = existing_scan.created_at
+                scan.nessus_file_hash = existing_scan.nessus_file_hash
+                scan.nessus_file_path = existing_scan.nessus_file_path
                 log_info(f"Updating existing scan: {scan_name}")
             else:
                 log_info(f"Creating new scan: {scan_name}")

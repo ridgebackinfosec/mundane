@@ -265,7 +265,7 @@ def bulk_extract_cves_for_files(files: List[Path]) -> None:
     Args:
         files: List of plugin file paths to extract CVEs from
     """
-    from mundane_pkg.tools import _fetch_html, _extract_cves_from_html
+    from mundane_pkg.cve_operations import fetch_and_store_cves
 
     header("CVE Extraction for Filtered Files")
     info(f"Extracting CVEs from {len(files)} file(s)...\n")
@@ -287,11 +287,9 @@ def bulk_extract_cves_for_files(files: List[Path]) -> None:
                 progress.advance(task)
                 continue
 
-            plugin_url = f"{PLUGIN_DETAILS_BASE}{plugin_id}"
-
             try:
-                html = _fetch_html(plugin_url)
-                cves = _extract_cves_from_html(html)
+                # Fetch and store CVEs (uses cache if available)
+                cves = fetch_and_store_cves(int(plugin_id))
                 if cves:
                     results[file_path.name] = cves
             except Exception:
@@ -490,12 +488,20 @@ def show_scan_summary(
     """
     header(f"Scan Overview — {scan_dir.name}")
 
-    severities = list_dirs(scan_dir)
-    all_files = []
-    for severity in severities:
-        all_files.extend(
-            [file for file in list_files(severity) if file.suffix.lower() == ".txt"]
-        )
+    # Database-first: Query plugin files instead of walking filesystem
+    if scan_id is not None:
+        from mundane_pkg.models import PluginFile
+        plugin_files_db = PluginFile.get_by_scan_with_plugin(scan_id)
+        all_files = [Path(pf.file_path) for pf, _ in plugin_files_db]
+        severities = sorted(set(pf.severity_dir for pf, _ in plugin_files_db))
+    else:
+        # Fallback to filesystem if no scan_id (legacy mode)
+        severities = list_dirs(scan_dir)
+        all_files = []
+        for severity in severities:
+            all_files.extend(
+                [file for file in list_files(severity) if file.suffix.lower() == ".txt"]
+            )
 
     total_files, reviewed_files = count_reviewed_in_scan(scan_dir, scan_id=scan_id)
 
@@ -734,23 +740,32 @@ def handle_file_view(chosen: Path, plugin_url: Optional[str] = None, workflow_ma
 
         # Handle CVE info option
         if action_choice in ("e", "cve"):
-            if not plugin_url:
-                warn("No plugin URL available for CVE extraction.")
+            # Get plugin ID from filename
+            plugin_id = _plugin_id_from_filename(chosen)
+            if not plugin_id:
+                warn("Cannot extract plugin ID from filename.")
                 continue
 
-            from mundane_pkg.tools import _fetch_html, _extract_cves_from_html
+            from mundane_pkg.cve_operations import fetch_and_store_cves, has_cached_cves
 
-            # Fetch and extract CVEs
+            # Fetch and store CVEs
             try:
                 header("CVE Information")
-                info("Fetching plugin page...")
-                html = _fetch_html(plugin_url)
-                cves = _extract_cves_from_html(html)
+
+                # Check if we have cached CVEs
+                is_cached = has_cached_cves(int(plugin_id))
+                if is_cached:
+                    info("Using cached CVEs from database...")
+                else:
+                    info("Fetching plugin page from Tenable...")
+
+                cves = fetch_and_store_cves(int(plugin_id))
 
                 if cves:
-                    info(f"Found {len(cves)} CVE(s):")
+                    source = "(cached)" if is_cached else "(fetched & stored)"
+                    info(f"Found {len(cves)} CVE(s) {source}:")
                     for cve in cves:
-                        info(f"{cve}")
+                        info(f"  {cve}")
                 else:
                     warn("No CVEs found on plugin page.")
             except Exception as exc:

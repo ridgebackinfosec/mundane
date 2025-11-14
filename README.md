@@ -271,10 +271,13 @@ Jump directly to reviewing a specific scan directory.
 - **Paged views** with `[N]ext`, `[P]rev`, `[B]ack` navigation.
 - **Grouped view** (`host:port,port`) or raw file view.
 - **Clipboard copy** for any file or command.
-- **CVE extraction** - View CVE identifiers for plugins:
+- **CVE extraction & persistence** - View and cache CVE identifiers for plugins:
   - Individual file view: Press `[E]` to fetch CVEs for the current plugin
   - Bulk extraction: Press `[E]` in file list to extract CVEs for all filtered files
   - Choose between separated-by-file or combined list display
+  - **Automatic caching**: CVEs stored in database for offline access
+  - Subsequent requests use cached data (faster, no network required)
+  - Cached CVEs indicated with "(cached)" label when displayed
 - **Metasploit module search** - Search for relevant Metasploit modules by CVE or description:
   - Automatically extracts CVEs and exploit descriptions from plugin pages
   - Generates `msfconsole` search commands (simplified - single command per term)
@@ -468,7 +471,30 @@ cat {TCP_IPS} | xargs -I{} sh -c 'echo {}; nmap -Pn -p {PORTS} {}'
 
 ## Architecture notes (Phases 1–6)
 
-- **Database-first file listing**: File browsing queries the database directly using `Scan → PluginFiles → Plugins` relationships, eliminating filesystem walks and per-file database lookups. Review state tracked in database `review_state` column, synchronized with filename prefixes.
+### Database-First Design
+
+Mundane prioritizes the SQLite database for all operations, minimizing filesystem dependencies:
+
+- **File browsing**: Queries database directly using `Scan → PluginFiles → Plugins` relationships
+  - Eliminates filesystem walks during review
+  - No per-file database lookups (single JOIN query)
+  - All metadata available immediately from database
+
+- **Review state tracking**: Managed in `review_state` column, synchronized with filename prefixes
+  - Database is source of truth
+  - Filesystem names updated to reflect database state
+  - Enables cross-scan queries and analytics
+
+- **CVE persistence**: CVEs fetched from Tenable are cached in database
+  - Stored as JSON array in `plugins.cves` column
+  - `metadata_fetched_at` timestamp tracks when CVEs were retrieved
+  - Automatic cache lookup before fetching (avoids redundant requests)
+  - Enables offline CVE reference and historical tracking
+
+- **Schema reference**: See `schema.sql` for complete table definitions and `docs/DATABASE.md` for detailed documentation
+
+### Core Architecture Patterns
+
 - **Canonical parsing**: one parser creates a `ParsedHostsPorts` model (stable host order, unique sorted ports, explicit `host:port` detection) with a small in‑process cache.
 - **Data vs render separation**: `build_compare_data()` and `build_coverage_data()` compute pure data; rendering wrappers keep Rich output unchanged.
 - **Tool registry**: `ToolSpec` (`builder: Callable[[dict], tuple[Any, dict]]`) with entries for `nmap` and `netexec`; legacy builders remain for backward compatibility.

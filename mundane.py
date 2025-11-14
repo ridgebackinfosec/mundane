@@ -58,6 +58,7 @@ from mundane_pkg import (
     show_reviewed_help,
     menu_pager,
     severity_cell,
+    severity_style,
     pretty_severity_label,
     list_files,
     default_page_size,
@@ -110,14 +111,19 @@ import subprocess
 import tempfile
 import types
 from collections import Counter
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from mundane_pkg.models import Plugin
 
 # === Third-party imports ===
 import typer
 from rich import box
 from rich.console import Console
+from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.table import Table
+from rich.text import Text
 from rich.traceback import install as rich_tb_install
 
 # Create a console for the interactive flow
@@ -1216,6 +1222,7 @@ def run_tool_workflow(
 
 def process_single_file(
     chosen: Path,
+    plugin: Plugin,
     scan_dir: Path,
     sev_dir: Path,
     args: types.SimpleNamespace,
@@ -1251,31 +1258,63 @@ def process_single_file(
 
     hosts, ports_str = parse_hosts_ports(tokens)
 
-    header("Preview")
-    if show_severity:
-        info(f"File: {chosen.name}  — {pretty_severity_label(sev_dir.name)}")
-    else:
-        info(f"File: {chosen.name}")
+    # Build Rich Panel preview
+    content = Text()
 
+    # Check for Metasploit module
+    is_msf = chosen.name.lower().endswith("-msf.txt")
+
+    # Add centered MSF indicator below title if applicable
+    if is_msf:
+        content.append("⚡ Metasploit module available!", style="bold red")
+        content.append("\n\n")  # Blank line after MSF indicator
+
+    # File
+    content.append("File: ", style="cyan")
+    content.append(f"{chosen.name}\n", style="yellow")
+
+    # Severity
+    content.append("Severity: ", style="cyan")
+    sev_label = pretty_severity_label(sev_dir.name)
+    content.append(f"{sev_label}\n", style=severity_style(sev_label))
+
+    # Plugin Details (URL)
+    plugin_url = None
     pd_line = _plugin_details_line(chosen)
     if pd_line:
-        info(pd_line)
         try:
             match = re.search(r"(https?://[^\s)\]\}>,;]+)", pd_line)
             plugin_url = match.group(1) if match else None
+            if plugin_url:
+                content.append("Plugin Details: ", style="cyan")
+                content.append(f"{plugin_url}\n", style="blue underline")
         except Exception:
-            plugin_url = None
+            pass
 
-        if chosen.name.lower().endswith("-msf.txt") and plugin_url:
-            from mundane_pkg import tools as _tools
+    # Unique hosts
+    content.append("Unique hosts: ", style="cyan")
+    content.append(f"{len(hosts)}\n", style="yellow")
 
-            _tools.show_msf_available(plugin_url)
-
-    info(f"Hosts parsed: {len(hosts)}")
+    # Example host
     if hosts:
-        info(f"Example host: {hosts[0]}")
+        content.append("Example host: ", style="cyan")
+        content.append(f"{hosts[0]}\n", style="yellow")
+
+    # Ports detected
     if ports_str:
-        info(f"Ports detected: {ports_str}")
+        content.append("Ports detected: ", style="cyan")
+        content.append(f"{ports_str}", style="yellow")
+
+    # Create panel with plugin name as title
+    panel = Panel(
+        content,
+        title=f"[bold cyan]{plugin.plugin_name}[/]",
+        title_align="center" if is_msf else "left",
+        border_style="cyan"
+    )
+
+    _console_global.print()  # Blank line before panel
+    _console_global.print(panel)
 
     # View file
     handle_file_view(chosen, plugin_url=plugin_url, workflow_mapper=workflow_mapper)
@@ -2082,6 +2121,7 @@ def browse_file_list(
             # Process the file
             process_single_file(
                 chosen_path,
+                plugin,
                 scan_dir,
                 chosen_sev_dir,
                 args,

@@ -16,13 +16,31 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from .ansi import colorize_severity_label, fmt_action, info, warn
+from .ansi import C, colorize_severity_label, fmt_action, info, warn
 from .constants import SEVERITY_COLORS
 from .fs import default_page_size, is_reviewed_filename, list_files, pretty_severity_label
 from .logging_setup import log_timing
 
 
 _console_global = Console()
+
+
+def print_action_menu(actions: list[tuple[str, str]]) -> None:
+    """Print action menu with Rich Text formatting.
+
+    Args:
+        actions: List of (key, description) tuples.
+                Examples: [("V", "View file"), ("B", "Back")]
+    """
+    action_text = Text()
+    for i, (key, desc) in enumerate(actions):
+        if i > 0:
+            action_text.append(" / ", style=None)
+        action_text.append(f"[{key}] ", style="cyan")
+        action_text.append(desc, style=None)
+
+    print(f"{C.CYAN}>> {C.RESET}", end="")
+    _console_global.print(action_text)
 
 
 # ===================================================================
@@ -65,7 +83,7 @@ def menu_pager(text: str, page_size: Optional[int] = None) -> None:
         print("─" * 80)
         print("\n".join(chunk))
         print("─" * 80)
-        print(fmt_action("[N] Next page / [P] Prev page / [B] Back"))
+        print_action_menu([("N", "Next page"), ("P", "Prev page"), ("B", "Back")])
         try:
             answer = input("Action: ").strip().lower()
         except KeyboardInterrupt:

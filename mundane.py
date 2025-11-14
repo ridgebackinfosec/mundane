@@ -469,13 +469,18 @@ def choose_from_list(
 # === Scan overview helpers ===
 
 
-def show_scan_summary(scan_dir: Path, top_ports_n: int = DEFAULT_TOP_PORTS) -> None:
+def show_scan_summary(
+    scan_dir: Path,
+    top_ports_n: int = DEFAULT_TOP_PORTS,
+    scan_id: Optional[int] = None
+) -> None:
     """
     Display comprehensive scan overview with host/port statistics.
 
     Args:
         scan_dir: Scan directory to analyze
         top_ports_n: Number of top ports to display
+        scan_id: Optional scan ID for database queries
     """
     header(f"Scan Overview — {scan_dir.name}")
 
@@ -486,7 +491,7 @@ def show_scan_summary(scan_dir: Path, top_ports_n: int = DEFAULT_TOP_PORTS) -> N
             [file for file in list_files(severity) if file.suffix.lower() == ".txt"]
         )
 
-    total_files, reviewed_files = count_reviewed_in_scan(scan_dir)
+    total_files, reviewed_files = count_reviewed_in_scan(scan_dir, scan_id=scan_id)
 
     unique_hosts = set()
     ipv4_set = set()
@@ -2100,6 +2105,7 @@ def show_session_statistics(
     completed_total: list[str],
     skipped_total: list[str],
     scan_dir: Path,
+    scan_id: Optional[int] = None,
 ) -> None:
     """
     Display rich session statistics at the end of a review session.
@@ -2110,6 +2116,7 @@ def show_session_statistics(
         completed_total: List of marked complete files
         skipped_total: List of skipped (empty) files
         scan_dir: Scan directory for severity analysis
+        scan_id: Optional scan ID for database queries
     """
     from datetime import datetime
     from rich.table import Table
@@ -2144,17 +2151,38 @@ def show_session_statistics(
     if completed_total:
         severity_counts = {}
 
-        # Walk through scan directory to find severity levels
-        for sev_dir in scan_dir.iterdir():
-            if not sev_dir.is_dir():
-                continue
-            sev_label = pretty_severity_label(sev_dir.name)
-            count = sum(1 for name in completed_total if any(
-                (sev_dir / fname).exists() or (sev_dir / f"REVIEW_COMPLETE-{fname}").exists()
-                for fname in [name, name.replace("REVIEW_COMPLETE-", "")]
-            ))
-            if count > 0:
-                severity_counts[sev_label] = count
+        # Use database if available, otherwise fall back to filesystem
+        if scan_id is not None:
+            from mundane_pkg.models import PluginFile
+            from mundane_pkg.database import db_transaction, query_all
+
+            # Query database for completed files grouped by severity
+            with db_transaction() as conn:
+                rows = query_all(
+                    conn,
+                    """
+                    SELECT severity_dir, COUNT(*) as count
+                    FROM plugin_files
+                    WHERE scan_id = ? AND review_state = 'completed'
+                    GROUP BY severity_dir
+                    """,
+                    (scan_id,)
+                )
+                for row in rows:
+                    sev_label = pretty_severity_label(row[0])
+                    severity_counts[sev_label] = row[1]
+        else:
+            # Fallback to filesystem walk
+            for sev_dir in scan_dir.iterdir():
+                if not sev_dir.is_dir():
+                    continue
+                sev_label = pretty_severity_label(sev_dir.name)
+                count = sum(1 for name in completed_total if any(
+                    (sev_dir / fname).exists() or (sev_dir / f"REVIEW_COMPLETE-{fname}").exists()
+                    for fname in [name, name.replace("REVIEW_COMPLETE-", "")]
+                ))
+                if count > 0:
+                    severity_counts[sev_label] = count
 
         if severity_counts:
             sev_table = Table(show_header=True, header_style="bold cyan")
@@ -2448,7 +2476,9 @@ def main(args: types.SimpleNamespace) -> None:
                 ok("Starting fresh session.")
 
         # Overview immediately after selecting scan
-        show_scan_summary(scan_dir)
+        # Pass scan_id if available (database mode)
+        scan_id_for_summary = selected_scan.scan_id if 'selected_scan' in locals() else None
+        show_scan_summary(scan_dir, scan_id=scan_id_for_summary)
 
         # Track if user chose to go back (for single-scan mode)
         user_went_back = False
@@ -2520,7 +2550,7 @@ def main(args: types.SimpleNamespace) -> None:
                 else None
             )
 
-            render_severity_table(severities, msf_summary=msf_summary, workflow_summary=workflow_summary)
+            render_severity_table(severities, msf_summary=msf_summary, workflow_summary=workflow_summary, scan_id=selected_scan.scan_id)
 
             print(fmt_action("[B] Back"))
             info("Tip: Multi-select is supported (e.g., 1-3 or 1,3,5)")
@@ -2663,12 +2693,15 @@ def main(args: types.SimpleNamespace) -> None:
     if reviewed_total or completed_total or skipped_total:
         # Note: scan_dir is defined only if user entered a scan
         # Since we have reviewed/completed/skipped files, scan_dir must be defined
+        # Pass scan_id if available (database mode)
+        scan_id_for_stats = selected_scan.scan_id if 'selected_scan' in locals() else None
         show_session_statistics(
             session_start_time,
             reviewed_total,
             completed_total,
             skipped_total,
             scan_dir,
+            scan_id=scan_id_for_stats,
         )
 
         # Clean up session file after successful completion

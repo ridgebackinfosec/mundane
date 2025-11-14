@@ -110,6 +110,7 @@ def render_severity_table(
     severities: list[Path],
     msf_summary: Optional[tuple[int, int, int, int]] = None,
     workflow_summary: Optional[tuple[int, int, int, int]] = None,
+    scan_id: Optional[int] = None,
 ) -> None:
     """Render a table of severity levels with review progress percentages.
 
@@ -119,6 +120,7 @@ def render_severity_table(
             for Metasploit modules row
         workflow_summary: Optional tuple of (index, unreviewed, reviewed, total)
             for Workflow Mapped row
+        scan_id: Optional scan ID for database queries (if None, falls back to filesystem)
     """
     table = Table(
         title=None, box=box.SIMPLE, show_lines=False, pad_edge=False
@@ -131,7 +133,7 @@ def render_severity_table(
     table.add_column("Total", justify="right", no_wrap=True, max_width=8)
 
     for i, severity_dir in enumerate(severities, 1):
-        unreviewed, reviewed, total = count_severity_files(severity_dir)
+        unreviewed, reviewed, total = count_severity_files(severity_dir, scan_id=scan_id)
         label = pretty_severity_label(severity_dir.name)
         table.add_row(
             str(i),
@@ -188,8 +190,8 @@ def render_file_list_table(
     table.add_column("#", justify="right", no_wrap=True, max_width=5)
     table.add_column("Plugin ID", justify="right", no_wrap=True, max_width=10)
     table.add_column("Name", overflow="fold")
-    if sort_mode == "hosts":
-        table.add_column("Hosts", justify="right", no_wrap=True, max_width=8)
+    # Always show host count column
+    table.add_column("Hosts", justify="right", no_wrap=True, max_width=8)
     if show_severity:
         table.add_column("Severity", justify="left", no_wrap=True, max_width=15)
 
@@ -202,11 +204,11 @@ def render_file_list_table(
 
         row_data = [str(row_number), plugin_id_str, plugin_name]
 
-        if sort_mode == "hosts":
-            # Convert file_path string to Path for get_counts_for
-            file_path = Path(plugin_file.file_path)
-            host_count, _ports_str = get_counts_for(file_path)
-            row_data.append(str(host_count))
+        # Always retrieve and show host count
+        # Convert file_path string to Path for get_counts_for
+        file_path = Path(plugin_file.file_path)
+        host_count, _ports_str = get_counts_for(file_path)
+        row_data.append(str(host_count))
 
         if show_severity:
             # Get severity from plugin_file.severity_dir (e.g., "3_High")
@@ -494,15 +496,26 @@ def join_actions_texts(items: list[Text]) -> Text:
     return output
 
 
-def count_severity_files(directory: Path) -> tuple[int, int, int]:
+def count_severity_files(
+    directory: Path,
+    scan_id: Optional[int] = None
+) -> tuple[int, int, int]:
     """Count unreviewed, reviewed, and total files in a severity directory.
 
     Args:
         directory: Severity directory path
+        scan_id: Optional scan ID for database queries (if None, falls back to filesystem)
 
     Returns:
         Tuple of (unreviewed_count, reviewed_count, total_count)
     """
+    # If scan_id provided, use database
+    if scan_id is not None:
+        from .models import PluginFile
+        severity_dir_name = directory.name
+        return PluginFile.count_by_scan_severity(scan_id, severity_dir_name)
+
+    # Fallback to filesystem
     files = [f for f in list_files(directory) if f.suffix.lower() == ".txt"]
     reviewed = [f for f in files if is_reviewed_filename(f.name)]
     unreviewed = [f for f in files if f not in reviewed]

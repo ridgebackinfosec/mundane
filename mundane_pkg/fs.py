@@ -10,6 +10,7 @@ import re
 import shutil
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 from rich.console import Console
 from rich.progress import (
@@ -142,11 +143,12 @@ def rename_review_complete(path: Path) -> Path:
         return path
     new = path.with_name(prefix + name)
     try:
+        old_path = path  # Save old path before rename
         path.rename(new)
         ok(f"Renamed to {new.name}")
 
-        # Update database
-        _db_update_review_state(new, "completed")
+        # Update database with both new path and review state
+        _db_update_review_state(new, "completed", old_path=old_path)
 
         return new
     except Exception as e:
@@ -173,11 +175,12 @@ def undo_review_complete(path: Path) -> Path:
     new_name = name[len(prefix):]
     new = path.with_name(new_name)
     try:
+        old_path = path  # Save old path before rename
         path.rename(new)
         ok(f"Removed review complete marker: {new.name}")
 
-        # Update database
-        _db_update_review_state(new, "pending")
+        # Update database with both new path and review state
+        _db_update_review_state(new, "pending", old_path=old_path)
 
         return new
     except Exception as e:
@@ -290,12 +293,13 @@ def write_work_files(
 
 # ========== Database Integration (Internal Helper) ==========
 
-def _db_update_review_state(file_path: Path, new_state: str) -> None:
+def _db_update_review_state(file_path: Path, new_state: str, old_path: Optional[Path] = None) -> None:
     """Update review state in database if enabled (internal helper).
 
     Args:
-        file_path: Path to the plugin file
+        file_path: Path to the plugin file (new path if renamed)
         new_state: New review state ('pending', 'reviewed', 'completed', 'skipped')
+        old_path: Original path before rename (if file was renamed)
     """
     try:
         import os
@@ -310,9 +314,16 @@ def _db_update_review_state(file_path: Path, new_state: str) -> None:
 
         # Try to find and update file in database
         with db_transaction() as conn:
-            plugin_file = PluginFile.get_by_path(str(file_path.resolve()), conn)
+            # If file was renamed, look up by old path first
+            lookup_path = str(old_path.resolve()) if old_path else str(file_path.resolve())
+            plugin_file = PluginFile.get_by_path(lookup_path, conn)
 
             if plugin_file:
+                # Update file path if it changed
+                if old_path and old_path != file_path:
+                    plugin_file.file_path = str(file_path.resolve())
+
+                # Update review state
                 plugin_file.update_review_state(new_state, conn=conn)
 
     except Exception:

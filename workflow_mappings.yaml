@@ -76,8 +76,12 @@ workflows:
     steps:
       - title: "Check request and response types"
         commands:
-          - "nping --icmp-type 13 IP_address"
+          - "hping3 IP_address --icmp --icmp-ts -V"
         notes: "You're looking to see if the ICMP timestamp request was coded as message type 13 and the subsequent timestamp response was coded as message type 14"
 
+      - title: "Now convert an hping3's IMCP timestamp response into human readable time using https://github.com/DefensiveOrigins/icmp-timestamp."
+        commands:
+          - "bash icmp-timestamp.sh -O <Originate timestamp> -R <Recieve timestamp> -T <Transmit timestamp>"
     references:
       - "https://www.tenable.com/plugins/nessus/10114"
+      - "https://github.com/DefensiveOrigins/icmp-timestamp"

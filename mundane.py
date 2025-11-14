@@ -714,10 +714,9 @@ def handle_file_view(chosen: Path, plugin_url: Optional[str] = None, workflow_ma
     while True:
         # Step 1: Ask if user wants to view, copy, see CVE info, or see workflow
         workflow_option = " / [W] Workflow" if has_workflow else ""
+        print(fmt_action(f"[V] View file / [E] CVE info / [C] Copy to clipboard{workflow_option} / [Enter] Continue"))
         try:
-            action_choice = input(
-                f"\n[V] View file / [E] CVE info / [C] Copy to clipboard{workflow_option} / [Enter] Continue: "
-            ).strip().lower()
+            action_choice = input("Choose action: ").strip().lower()
         except KeyboardInterrupt:
             # User cancelled - just return to continue file processing
             return

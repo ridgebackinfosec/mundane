@@ -62,6 +62,7 @@ class WorkflowMapper:
 
         self.yaml_path = yaml_path
         self.workflows: dict[str, Workflow] = {}
+        self._last_mtime: Optional[float] = None
         self._load_workflows()
 
     def _find_default_yaml(self) -> Path:
@@ -88,14 +89,21 @@ class WorkflowMapper:
         """Load workflows from YAML file."""
         if not self.yaml_path.exists():
             # No workflow file - mapper will be empty
+            self._last_mtime = None
             return
 
         try:
+            # Update modification time
+            self._last_mtime = self.yaml_path.stat().st_mtime
+
             with open(self.yaml_path, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f)
 
             if not data or "workflows" not in data:
                 return
+
+            # Clear existing workflows before loading
+            self.workflows.clear()
 
             for workflow_data in data["workflows"]:
                 plugin_id = str(workflow_data.get("plugin_id", ""))
@@ -129,6 +137,26 @@ class WorkflowMapper:
             # Failed to load workflows - mapper will be empty
             log_error(f"Failed to load workflows from {self.yaml_path}: {e}")
 
+    def _check_and_reload(self) -> None:
+        """Check if YAML file has been modified and reload if necessary."""
+        if not self.yaml_path.exists():
+            # File was deleted - clear workflows
+            if self.workflows:
+                self.workflows.clear()
+                self._last_mtime = None
+            return
+
+        try:
+            current_mtime = self.yaml_path.stat().st_mtime
+
+            # Reload if file modified or never loaded
+            if self._last_mtime is None or current_mtime > self._last_mtime:
+                self._load_workflows()
+
+        except Exception as e:
+            # Failed to check mtime - log but don't crash
+            log_error(f"Failed to check modification time for {self.yaml_path}: {e}")
+
     def get_workflow(self, plugin_id: str) -> Optional[Workflow]:
         """
         Get workflow for a plugin ID.
@@ -139,6 +167,7 @@ class WorkflowMapper:
         Returns:
             Workflow object if found, None otherwise
         """
+        self._check_and_reload()
         return self.workflows.get(plugin_id)
 
     def has_workflow(self, plugin_id: str) -> bool:
@@ -151,6 +180,7 @@ class WorkflowMapper:
         Returns:
             True if workflow exists, False otherwise
         """
+        self._check_and_reload()
         return plugin_id in self.workflows
 
     def get_all_plugin_ids(self) -> list[str]:

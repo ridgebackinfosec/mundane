@@ -2257,7 +2257,7 @@ def main(args: types.SimpleNamespace) -> None:
 
     # If no export_root specified, use database scan selection
     if export_root is None:
-        from mundane_pkg.models import Scan
+        from mundane_pkg.models import Scan, PluginFile
         from mundane_pkg.session import USE_DATABASE
         from datetime import datetime
 

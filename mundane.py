@@ -713,8 +713,24 @@ def handle_file_view(chosen: Path, plugin_url: Optional[str] = None, workflow_ma
     # Loop to allow multiple actions on the same file
     while True:
         # Step 1: Ask if user wants to view, copy, see CVE info, or see workflow
-        workflow_option = " / [W] Workflow" if has_workflow else ""
-        print(fmt_action(f"[V] View file / [E] CVE info / [C] Copy to clipboard{workflow_option} / [Enter] Continue"))
+        from rich.text import Text
+        action_text = Text()
+        action_text.append("[V] ", style="cyan")
+        action_text.append("View file / ", style=None)
+        action_text.append("[E] ", style="cyan")
+        action_text.append("CVE info / ", style=None)
+        action_text.append("[C] ", style="cyan")
+        action_text.append("Copy to clipboard", style=None)
+        if has_workflow:
+            action_text.append(" / ", style=None)
+            action_text.append("[W] ", style="cyan")
+            action_text.append("Workflow", style=None)
+        action_text.append(" / ", style=None)
+        action_text.append("[Enter] ", style="cyan")
+        action_text.append("Continue", style=None)
+
+        print(f"{C.CYAN}>> {C.RESET}", end="")
+        _console.print(action_text)
         try:
             action_choice = input("Choose action: ").strip().lower()
         except KeyboardInterrupt:

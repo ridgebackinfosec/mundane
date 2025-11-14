@@ -2267,14 +2267,7 @@ def show_session_statistics(
             console.print(sev_table)
             print()
 
-    # File lists (collapsed by default, show on demand)
-    if reviewed_total:
-        info(f"Reviewed files ({len(reviewed_total)}):")
-        for name in reviewed_total:
-            print(f"  - {name}")
-        print()
-
-    # Completed files tracked internally but not displayed
+    # File lists tracked internally but not displayed
 
     if skipped_total:
         info(f"Skipped (empty) ({len(skipped_total)}):")

@@ -1222,7 +1222,7 @@ def run_tool_workflow(
 
 def process_single_file(
     chosen: Path,
-    plugin: Plugin,
+    plugin: "Plugin",
     scan_dir: Path,
     sev_dir: Path,
     args: types.SimpleNamespace,

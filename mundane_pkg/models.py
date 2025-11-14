@@ -490,6 +490,81 @@ class PluginFile:
 
             return results
 
+    @classmethod
+    def count_by_scan_severity(
+        cls,
+        scan_id: int,
+        severity_dir: str,
+        conn: Optional[sqlite3.Connection] = None
+    ) -> tuple[int, int, int]:
+        """Count files in a severity directory by review state.
+
+        Args:
+            scan_id: Scan ID to count files for
+            severity_dir: Severity directory (e.g., "3_High")
+            conn: Database connection
+
+        Returns:
+            Tuple of (unreviewed_count, reviewed_count, total_count)
+            where reviewed means review_state == 'completed'
+        """
+        with db_transaction(conn) as c:
+            # Count total files in this severity
+            total_row = query_one(
+                c,
+                "SELECT COUNT(*) FROM plugin_files WHERE scan_id = ? AND severity_dir = ?",
+                (scan_id, severity_dir)
+            )
+            total_count = total_row[0] if total_row else 0
+
+            # Count reviewed files (review_state = 'completed')
+            reviewed_row = query_one(
+                c,
+                "SELECT COUNT(*) FROM plugin_files WHERE scan_id = ? AND severity_dir = ? AND review_state = 'completed'",
+                (scan_id, severity_dir)
+            )
+            reviewed_count = reviewed_row[0] if reviewed_row else 0
+
+            # Calculate unreviewed
+            unreviewed_count = total_count - reviewed_count
+
+            return unreviewed_count, reviewed_count, total_count
+
+    @classmethod
+    def count_by_scan(
+        cls,
+        scan_id: int,
+        conn: Optional[sqlite3.Connection] = None
+    ) -> tuple[int, int]:
+        """Count total and reviewed files across all severities for a scan.
+
+        Args:
+            scan_id: Scan ID to count files for
+            conn: Database connection
+
+        Returns:
+            Tuple of (total_files, reviewed_files)
+            where reviewed means review_state == 'completed'
+        """
+        with db_transaction(conn) as c:
+            # Count total files
+            total_row = query_one(
+                c,
+                "SELECT COUNT(*) FROM plugin_files WHERE scan_id = ?",
+                (scan_id,)
+            )
+            total_count = total_row[0] if total_row else 0
+
+            # Count reviewed files (review_state = 'completed')
+            reviewed_row = query_one(
+                c,
+                "SELECT COUNT(*) FROM plugin_files WHERE scan_id = ? AND review_state = 'completed'",
+                (scan_id,)
+            )
+            reviewed_count = reviewed_row[0] if reviewed_row else 0
+
+            return total_count, reviewed_count
+
 
 # ========== Model: ToolExecution ==========
 

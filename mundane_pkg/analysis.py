@@ -8,6 +8,7 @@ scan statistics.
 import re
 from collections import defaultdict
 from pathlib import Path
+from typing import Optional
 
 from rich import box
 from rich.console import Console
@@ -293,15 +294,25 @@ def natural_key(s: str) -> list[int | str]:
     ]
 
 
-def count_reviewed_in_scan(scan_dir: Path) -> tuple[int, int]:
+def count_reviewed_in_scan(
+    scan_dir: Path,
+    scan_id: Optional[int] = None
+) -> tuple[int, int]:
     """Count total and reviewed files in a scan directory.
 
     Args:
         scan_dir: Path to the scan directory
+        scan_id: Optional scan ID for database queries (if None, falls back to filesystem)
 
     Returns:
         Tuple of (total_files, reviewed_files)
     """
+    # If scan_id provided, use database
+    if scan_id is not None:
+        from .models import PluginFile
+        return PluginFile.count_by_scan(scan_id)
+
+    # Fallback to filesystem
     total_files = 0
     reviewed_files = 0
     for severity_dir in list_dirs(scan_dir):

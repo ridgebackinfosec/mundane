@@ -1309,7 +1309,7 @@ def process_single_file(
     panel = Panel(
         content,
         title=f"[bold cyan]{plugin.plugin_name}[/]",
-        title_align="center" if is_msf else "left",
+        title_align="center",
         border_style="cyan"
     )
 

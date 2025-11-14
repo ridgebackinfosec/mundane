@@ -1756,7 +1756,7 @@ def handle_file_list_actions(
 
 def browse_workflow_groups(
     scan: Any,  # Scan object
-    workflow_groups: Dict[str, List[Tuple[Path, Path]]],
+    workflow_groups: Dict[str, List[Tuple[Any, Any]]],
     args: types.SimpleNamespace,
     use_sudo: bool,
     skipped_total: List[str],
@@ -1772,7 +1772,7 @@ def browse_workflow_groups(
 
     Args:
         scan: Scan database object
-        workflow_groups: Dict mapping workflow_name -> list of (file, severity_dir) tuples
+        workflow_groups: Dict mapping workflow_name -> list of (PluginFile, Plugin) tuples
         args: Command-line arguments
         use_sudo: Whether sudo is available
         skipped_total: List of skipped filenames
@@ -1802,7 +1802,8 @@ def browse_workflow_groups(
 
         for idx, (workflow_name, files) in enumerate(workflow_list, start=1):
             total = len(files)
-            reviewed = sum(1 for (file, _) in files if is_reviewed_filename(file.name))
+            # Use database review_state instead of filename checking
+            reviewed = sum(1 for (pf, _p) in files if pf.review_state == "completed")
             unreviewed = total - reviewed
 
             table.add_row(
@@ -1833,20 +1834,15 @@ def browse_workflow_groups(
         workflow_idx = int(ans) - 1
         workflow_name, workflow_files = workflow_list[workflow_idx]
 
-        # Extract plugin IDs from workflow files
+        # Extract plugin IDs from database records instead of filenames
         plugin_ids = []
-        for file, _ in workflow_files:
-            plugin_id_str = extract_plugin_id_from_filename(file.name)
-            if plugin_id_str:
-                try:
-                    plugin_ids.append(int(plugin_id_str))
-                except ValueError:
-                    pass
+        for plugin_file, plugin in workflow_files:
+            plugin_ids.append(plugin.plugin_id)
 
         # Browse files for this workflow using database query filtered by plugin IDs
         browse_file_list(
             scan,
-            workflow_files[0][1] if workflow_files else None,  # Use severity dir from first file
+            None,  # No specific severity dir (workflow may span multiple severities)
             None,  # No severity filter
             f"Workflow: {workflow_name}",
             args,
@@ -2474,19 +2470,18 @@ def main(args: types.SimpleNamespace) -> None:
 
             severities = sorted(severities, key=sev_key)
 
-            # Metasploit Module virtual group (menu counts)
-            msf_files_for_count = []
-            for severity_dir in severities:
-                for file in list_files(severity_dir):
-                    if file.suffix.lower() == ".txt" and file.name.endswith("-MSF.txt"):
-                        msf_files_for_count.append((file, severity_dir))
+            # Metasploit Module virtual group (menu counts) - query from database
+            msf_files = PluginFile.get_by_scan_with_plugin(
+                scan_id=selected_scan.scan_id,
+                has_metasploit=True
+            )
 
-            has_msf = len(msf_files_for_count) > 0
-            msf_total = len(msf_files_for_count)
+            has_msf = len(msf_files) > 0
+            msf_total = len(msf_files)
             msf_reviewed = sum(
                 1
-                for (file, _sd) in msf_files_for_count
-                if is_reviewed_filename(file.name)
+                for (pf, _p) in msf_files
+                if pf.review_state == "completed"
             )
             msf_unrev = msf_total - msf_reviewed
 
@@ -2496,21 +2491,23 @@ def main(args: types.SimpleNamespace) -> None:
                 else None
             )
 
-            # Workflow Mapped virtual group (menu counts)
-            workflow_files_for_count = []
-            for severity_dir in severities:
-                for file in list_files(severity_dir):
-                    if file.suffix.lower() == ".txt":
-                        plugin_id = extract_plugin_id_from_filename(file.name)
-                        if plugin_id and workflow_mapper.has_workflow(plugin_id):
-                            workflow_files_for_count.append((file, severity_dir))
+            # Workflow Mapped virtual group (menu counts) - query from database
+            workflow_plugin_ids = workflow_mapper.get_all_plugin_ids()
+            if workflow_plugin_ids:
+                workflow_plugin_ids_int = [int(pid) for pid in workflow_plugin_ids if pid.isdigit()]
+                workflow_files = PluginFile.get_by_scan_with_plugin(
+                    scan_id=selected_scan.scan_id,
+                    plugin_ids=workflow_plugin_ids_int
+                )
+            else:
+                workflow_files = []
 
-            has_workflows = len(workflow_files_for_count) > 0
-            workflow_total = len(workflow_files_for_count)
+            has_workflows = len(workflow_files) > 0
+            workflow_total = len(workflow_files)
             workflow_reviewed = sum(
                 1
-                for (file, _sd) in workflow_files_for_count
-                if is_reviewed_filename(file.name)
+                for (pf, _p) in workflow_files
+                if pf.review_state == "completed"
             )
             workflow_unrev = workflow_total - workflow_reviewed
 
@@ -2628,8 +2625,8 @@ def main(args: types.SimpleNamespace) -> None:
 
             # === Workflow Mapped only ===
             elif workflow_in_selection:
-                # Group files by workflow name
-                workflow_groups = group_files_by_workflow(workflow_files_for_count, workflow_mapper)
+                # Group files by workflow name using database records
+                workflow_groups = group_files_by_workflow(workflow_files, workflow_mapper)
 
                 browse_workflow_groups(
                     selected_scan,

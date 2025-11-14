@@ -10,7 +10,7 @@ import ipaddress
 import re
 from collections import defaultdict
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from .fs import read_text_lines
 from .logging_setup import log_timing
@@ -367,33 +367,34 @@ def extract_plugin_id_from_filename(name_or_path) -> Optional[str]:
     return match.group(1) if match else None
 
 
-def group_files_by_workflow(files: list[tuple[Path, Path]], workflow_mapper: "WorkflowMapper") -> dict[str, list[tuple[Path, Path]]]:
+def group_files_by_workflow(files: list[tuple[Any, Any]], workflow_mapper: "WorkflowMapper") -> dict[str, list[tuple[Any, Any]]]:
     """
     Group files by their workflow name.
 
     Args:
-        files: List of (file_path, severity_dir) tuples
+        files: List of (PluginFile, Plugin) tuples from database query
         workflow_mapper: WorkflowMapper instance
 
     Returns:
-        Dict mapping workflow_name -> list of (file, severity_dir) tuples
+        Dict mapping workflow_name -> list of (PluginFile, Plugin) tuples
         Files without workflows are excluded.
 
     Example:
-        >>> files = [(Path("57608.txt"), Path("3_High")), ...]
+        >>> # With database tuples:
+        >>> files = [(PluginFile(...), Plugin(...)), ...]
         >>> groups = group_files_by_workflow(files, mapper)
         >>> groups
-        {"SMB Signing Not Required": [(Path("57608.txt"), Path("3_High"))], ...}
+        {"SMB Signing Not Required": [(PluginFile(...), Plugin(...)), ...], ...}
     """
     from collections import defaultdict
 
     groups = defaultdict(list)
 
-    for file, severity_dir in files:
-        plugin_id = extract_plugin_id_from_filename(file.name)
-        if plugin_id:
-            workflow = workflow_mapper.get_workflow(plugin_id)
-            if workflow:
-                groups[workflow.workflow_name].append((file, severity_dir))
+    for plugin_file, plugin in files:
+        # Get plugin ID from database record instead of filename parsing
+        plugin_id = str(plugin.plugin_id)
+        workflow = workflow_mapper.get_workflow(plugin_id)
+        if workflow:
+            groups[workflow.workflow_name].append((plugin_file, plugin))
 
     return dict(groups)

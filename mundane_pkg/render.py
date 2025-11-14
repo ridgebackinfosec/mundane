@@ -326,7 +326,7 @@ def render_actions_footer(
     Args:
         group_applied: Whether a group filter is currently active
         candidates_count: Number of files matching current filter
-        sort_mode: Current sort mode ("hosts" or "name")
+        sort_mode: Current sort mode ("plugin_id", "hosts", or "name")
         can_next: Whether next page is available
         can_prev: Whether previous page is available
     """
@@ -338,11 +338,18 @@ def render_actions_footer(
             key_text("?", "Help"),
         ]
     )
+    # Determine sort label for display
+    sort_label = {
+        "plugin_id": "Plugin ID",
+        "hosts": "Hosts",
+        "name": "Name"
+    }.get(sort_mode, "Name")
+
     right_row1 = join_actions_texts(
         [
             key_text("F", "Filter"),
             key_text("C", "Clear filter"),
-            key_text("O", f"Sort: {'Hosts' if sort_mode=='hosts' else 'Name'}"),
+            key_text("O", f"Sort: {sort_label}"),
         ]
     )
 

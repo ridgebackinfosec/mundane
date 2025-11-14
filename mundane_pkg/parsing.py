@@ -391,6 +391,10 @@ def group_files_by_workflow(files: list[tuple[Any, Any]], workflow_mapper: "Work
     groups = defaultdict(list)
 
     for plugin_file, plugin in files:
+        # Skip entries with missing plugin data (defensive check)
+        if plugin is None:
+            continue
+        
         # Get plugin ID from database record instead of filename parsing
         plugin_id = str(plugin.plugin_id)
         workflow = workflow_mapper.get_workflow(plugin_id)

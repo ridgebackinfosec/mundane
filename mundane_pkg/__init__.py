@@ -28,7 +28,7 @@ from .parsing import (
 from .render import (
     render_scan_table, render_severity_table, render_file_list_table,
     render_compare_tables, render_actions_footer, show_actions_help,
-    show_reviewed_help, menu_pager, severity_cell,
+    show_reviewed_help, menu_pager, severity_cell, severity_style,
 )
 from .fs import (
     list_dirs, list_files, read_text_lines, safe_print_file,

@@ -449,3 +449,67 @@ class TestLogArtifactsForNmap:
         row = cursor.fetchone()
         stored_metadata = json.loads(row["metadata"]) if row["metadata"] else None
         assert stored_metadata == metadata_dict
+
+
+class TestCommandAvailability:
+    """Tests for command availability checking functions."""
+
+    def test_require_cmd_available(self):
+        """Test require_cmd with an available command."""
+        from mundane_pkg.ops import require_cmd
+
+        # Python should always be available in test environment
+        require_cmd("python")  # Should not raise
+
+    def test_require_cmd_unavailable(self):
+        """Test require_cmd with unavailable command."""
+        from mundane_pkg.ops import require_cmd
+
+        # This should exit
+        with pytest.raises(SystemExit) as exc_info:
+            require_cmd("this-command-definitely-does-not-exist-12345")
+
+        assert exc_info.value.code == 1
+
+    def test_resolve_cmd_first_available(self):
+        """Test resolve_cmd returns first available command."""
+        from mundane_pkg.ops import resolve_cmd
+
+        # Python should be available, fake command won't be
+        result = resolve_cmd(["python", "fake-command-xyz"])
+        assert result == "python"
+
+    def test_resolve_cmd_second_available(self):
+        """Test resolve_cmd returns second when first unavailable."""
+        from mundane_pkg.ops import resolve_cmd
+
+        result = resolve_cmd(["fake-command-xyz", "python"])
+        assert result == "python"
+
+    def test_resolve_cmd_none_available(self):
+        """Test resolve_cmd returns None when no commands available."""
+        from mundane_pkg.ops import resolve_cmd
+
+        result = resolve_cmd(["fake-cmd-1", "fake-cmd-2", "fake-cmd-3"])
+        assert result is None
+
+    def test_resolve_cmd_empty_list(self):
+        """Test resolve_cmd with empty list."""
+        from mundane_pkg.ops import resolve_cmd
+
+        result = resolve_cmd([])
+        assert result is None
+
+    def test_root_or_sudo_available(self):
+        """Test checking for root/sudo availability."""
+        from mundane_pkg.ops import root_or_sudo_available
+        import shutil
+
+        result = root_or_sudo_available()
+
+        # Result depends on system, but should be bool
+        assert isinstance(result, bool)
+
+        # If sudo is available via which, function should return True
+        if shutil.which("sudo"):
+            assert result is True

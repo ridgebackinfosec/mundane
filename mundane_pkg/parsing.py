@@ -223,11 +223,37 @@ def parse_for_overview(
     Returns:
         Tuple of (hosts, ports, combos, had_explicit, malformed_count)
     """
-    hosts = []
-    ports = set()
-    combos = defaultdict(set)
+    hosts: list[str] = []
+    ports: set[str] = set()
+    combos: dict[str, set[str]] = defaultdict(set)
     malformed = 0
-    text = path.read_text(encoding="utf-8", errors="ignore")
+
+    # --- Handle "review-complete" renames / missing files gracefully ---
+    real_path = path
+
+    if not real_path.exists():
+        # If the file was renamed to something like
+        # "review-complete_<original_name>.txt", try to find it.
+        candidates = [
+            p
+            for p in real_path.parent.glob(f"*{real_path.name}")
+            if p.is_file()
+        ]
+
+        if candidates:
+            # Prefer a file that clearly looks like a review-complete variant,
+            # otherwise just take the first match.
+            review_candidates = [
+                p for p in candidates
+                if "review" in p.name.lower() and "complete" in p.name.lower()
+            ]
+            real_path = review_candidates[0] if review_candidates else candidates[0]
+        else:
+            # Nothing to parse; treat as "no data" instead of crashing.
+            return hosts, ports, combos, False, malformed
+
+    text = real_path.read_text(encoding="utf-8", errors="ignore")
+
     for raw in text.splitlines():
         line = raw.strip()
         if not line:
@@ -241,8 +267,11 @@ def parse_for_overview(
             if port:
                 ports.add(port)
                 combos[host].add(port)
+
+    # De-duplicate hosts while preserving order
     hosts = list(dict.fromkeys(hosts))
     had_explicit = any(combos[h] for h in combos)
+
     return hosts, ports, combos, had_explicit, malformed
 
 

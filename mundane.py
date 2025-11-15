@@ -170,6 +170,24 @@ def yesno(prompt: str, default: str = "y") -> bool:
         warn("Please answer 'y' or 'n'.")
 
 
+def print_action_menu(actions: list[tuple[str, str]]) -> None:
+    """Print action menu with Rich Text formatting.
+
+    Args:
+        actions: List of (key, description) tuples.
+                Examples: [("V", "View file"), ("B", "Back")]
+    """
+    action_text = Text()
+    for i, (key, desc) in enumerate(actions):
+        if i > 0:
+            action_text.append(" / ", style=None)
+        action_text.append(f"[{key}] ", style="cyan")
+        action_text.append(desc, style=None)
+
+    print(f"{C.CYAN}>> {C.RESET}", end="")
+    _console_global.print(action_text)
+
+
 # === File viewing helpers ===
 
 
@@ -439,9 +457,9 @@ def choose_from_list(
         print(f"[{index}] {item}")
 
     if allow_back:
-        print(fmt_action("[B] Back"))
+        print_action_menu([("B", "Back")])
     if allow_exit:
-        print(fmt_action("[Q] Quit"))
+        print_action_menu([("Q", "Quit")])
 
     while True:
         try:
@@ -1546,7 +1564,13 @@ def handle_file_list_actions(
             else:
                 print(f"[{idx}] {fmt_reviewed(file_name)}")
 
-        print(fmt_action("[?] Help  [U] Undo review-complete  [F] Filter  [C] Clear filter  [B] Back"))
+        print_action_menu([
+            ("?", "Help"),
+            ("U", "Undo review-complete"),
+            ("F", "Filter"),
+            ("C", "Clear filter"),
+            ("B", "Back")
+        ])
 
         try:
             choice = input("Action or [B]ack: ").strip().lower()
@@ -1889,7 +1913,7 @@ def browse_workflow_groups(
             )
 
         _console_global.print(table)
-        print(fmt_action("[B] Back"))
+        print_action_menu([("B", "Back")])
 
         try:
             ans = input("Choose workflow: ").strip().lower()
@@ -2267,14 +2291,7 @@ def show_session_statistics(
             console.print(sev_table)
             print()
 
-    # File lists (collapsed by default, show on demand)
-    if reviewed_total:
-        info(f"Reviewed files ({len(reviewed_total)}):")
-        for name in reviewed_total:
-            print(f"  - {name}")
-        print()
-
-    # Completed files tracked internally but not displayed
+    # File lists tracked internally but not displayed
 
     if skipped_total:
         info(f"Skipped (empty) ({len(skipped_total)}):")
@@ -2411,7 +2428,7 @@ def main(args: types.SimpleNamespace) -> None:
             scan_table.add_row(str(idx), scan.scan_name, last_reviewed)
 
         _console_global.print(scan_table)
-        print(fmt_action("[Q] Quit"))
+        print_action_menu([("Q", "Quit")])
 
         try:
             ans = input("Choose scan: ").strip().lower()
@@ -2489,7 +2506,7 @@ def main(args: types.SimpleNamespace) -> None:
 
             header("Select a scan")
             render_scan_table(scans)
-            print(fmt_action("[Q] Quit"))
+            print_action_menu([("Q", "Quit")])
 
             try:
                 ans = input("Choose: ").strip().lower()
@@ -2622,7 +2639,7 @@ def main(args: types.SimpleNamespace) -> None:
 
             render_severity_table(severities, msf_summary=msf_summary, workflow_summary=workflow_summary, scan_id=selected_scan.scan_id)
 
-            print(fmt_action("[B] Back"))
+            print_action_menu([("B", "Back")])
             info("Tip: Multi-select is supported (e.g., 1-3 or 1,3,5)")
 
             try:

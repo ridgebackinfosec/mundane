@@ -17,10 +17,12 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 import pyperclip
+from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.prompt import Prompt
+from rich.text import Text
 
-from .ansi import fmt_action, header, info, ok, warn
+from .ansi import C, fmt_action, header, info, ok, warn
 from .constants import (
     NETEXEC_PROTOCOLS,
     NSE_PROFILES,
@@ -39,6 +41,27 @@ except ImportError:
     BeautifulSoup = None  # type: ignore
     Tag = None  # type: ignore
     METASPLOIT_DEPS_AVAILABLE = False
+
+
+_console = Console()
+
+
+def print_action_menu(actions: list[tuple[str, str]]) -> None:
+    """Print action menu with Rich Text formatting.
+
+    Args:
+        actions: List of (key, description) tuples.
+                Examples: [("V", "View file"), ("B", "Back")]
+    """
+    action_text = Text()
+    for i, (key, desc) in enumerate(actions):
+        if i > 0:
+            action_text.append(" / ", style=None)
+        action_text.append(f"[{key}] ", style="cyan")
+        action_text.append(desc, style=None)
+
+    print(f"{C.CYAN}>> {C.RESET}", end="")
+    _console.print(action_text)
 
 
 # Constants
@@ -67,8 +90,7 @@ def choose_nse_profile() -> tuple[list[str], bool]:
     for index, (name, description, scripts, _) in enumerate(NSE_PROFILES, 1):
         print(f"[{index}] {name} - {description}")
         info(f"    Scripts: {', '.join(scripts)}")
-    print(fmt_action("[N] None (no NSE profile)"))
-    print(fmt_action("[B] Back"))
+    print_action_menu([("N", "None (no NSE profile)"), ("B", "Back")])
 
     while True:
         try:
@@ -216,7 +238,7 @@ def choose_tool() -> Optional[str]:
         else:
             print(f"[{index}] {tool.name}")
 
-    print(fmt_action("[B] Back"))
+    print_action_menu([("B", "Back")])
 
     # Default to first tool (nmap by convention)
     default_tool = available_tools[0] if available_tools else None
@@ -259,7 +281,7 @@ def choose_netexec_protocol() -> Optional[str]:
     header("NetExec: choose protocol")
     for index, protocol in enumerate(NETEXEC_PROTOCOLS, 1):
         print(f"[{index}] {protocol}")
-    print(fmt_action("[B] Back"))
+    print_action_menu([("B", "Back")])
     print("(Press Enter for 'smb')")
     
     while True:
@@ -348,9 +370,11 @@ def command_review_menu(cmd_list_or_str: list[str] | str) -> str:
     
     print(cmd_str)
     print()
-    print(fmt_action("[1] Run now"))
-    print(fmt_action("[2] Copy command to clipboard (don't run)"))
-    print(fmt_action("[B] Back"))
+    print_action_menu([
+        ("1", "Run now"),
+        ("2", "Copy command to clipboard (don't run)"),
+        ("B", "Back")
+    ])
 
     while True:
         try:

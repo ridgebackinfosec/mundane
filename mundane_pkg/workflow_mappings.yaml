@@ -26,6 +26,22 @@
 version: "1.0"
 
 workflows:
+  - plugin_id: "40984"
+    workflow_name: "Investigat Browsable Web Directories"
+    description: "Check for any filenames and content with confidential data."
+    steps:
+      - title: "Use wget to recursively download the contents of the browsable web directories and their subfolders"
+        commands:
+          - "wget -nc -r -l inf -i browsable.urls"
+        
+      - title: "Dig through the content with Trufflehog"
+        commands:
+          - "trufflehog filesystem --json \"browsable\" browsable | tee trufflehog.json"
+
+    references:
+      - "https://www.tenable.com/plugins/nessus/40984"
+      - "https://www.blackhillsinfosec.com/rooting-for-secrets-with-trufflehog/"
+
   - plugin_id: "10759"
     workflow_name: "Web Server HTTP Header Internal IP Disclosure"
     description: "Occurs when a web server includes internal IP addresses in HTTP response headers, unintentionally exposing internal network details that can aid attackers in mapping or targeting internal infrastructure."
@@ -85,3 +101,83 @@ workflows:
     references:
       - "https://www.tenable.com/plugins/nessus/10114"
       - "https://github.com/DefensiveOrigins/icmp-timestamp"
+
+  - plugin_id: "41028"
+    workflow_name: "SNMP Default Community Strings"
+    description: "Default SNMP community string usage could allow for configuration read through SNMP queries and possibly a full SNMP MIB tree walk."
+    steps:
+      - title: "Enumerate SNMP info against the internal scope"
+        commands:
+          - "sudo nmap -sU -sV -p161 -T4 --script \"snmp* and not snmp-brute\" IP_address"
+      
+      - title: "Specifically use snmp-brute to verify this issue and to check for additional commonly used SNMP community strings"
+        commands:
+          - "sudo nmap -sU -sV -p161 -T4 --script snmp-brute IP_address"
+
+      - title: "Also available to use..."
+        commands:
+          - "msfconsole -q -x 'use auxiliary/scanner/snmp/snmp_login'"
+          - "https://github.com/trailofbits/onesixtyone"
+          - "https://github.com/net-snmp/net-snmp"
+
+    references:
+      - "https://www.tenable.com/plugins/nessus/41028"
+      - "https://www.blackhillsinfosec.com/snmp-strings-attached/"
+      - "https://github.com/trailofbits/onesixtyone"
+      - "https://github.com/net-snmp/net-snmp"
+
+  - plugin_id: "20007,104743,157288"
+    workflow_name: "Deprecated SSL/TLS Encryption"
+    description: "Deprecated encryption protocol versions should be removed from support unless absolutely necessary."
+    steps:
+      - title: "Enumerate the supported encryption protocol versions and alogorithims."
+        commands:
+          - "sudo nmap -A --script=ssl-enum-ciphers,ssl-cert,ssl-date IP_address"
+        otes: "SSLv2, SSLv3, and TLSv1.0 are all considered deprecated and should not be supported anymore. TLSv1.1 is also outdated but not of terrible concern."
+
+    references:
+      - "https://www.tenable.com/plugins/nessus/20007"
+      - "https://www.tenable.com/plugins/nessus/104743"
+      - "https://www.tenable.com/plugins/nessus/157288"
+      - "https://www.blackhillsinfosec.com/testing-tls-and-certificates/"
+
+  - plugin_id: "42263"
+    workflow_name: "Unencrypted Telnet Server"
+    description: "The primary risk posed by unencrypted network protocols is that an attacker can eavesdrop on communication and extract any information in it, such as confidential data and credentials."
+    steps:
+      - title: "Verify Telnet usage."
+        commands:
+          - "sudo nmap -A -p 23 IP_address"
+
+      - title: "Intercept cleartext traffic for proof-of-concept."
+        commands:
+          - "tcpdump tcp port 23 and dst IP_address and src 0.0.0.0 -i eth0 -w telnet.pcap -tttt"
+          - "telnet IP_address 23"
+        notes: "Start up tcpdump to capture packets then trigger a telnet connect. Enter any credentials you want. We're just trying to prove the capturing."
+
+      - title: "Wireshark Analysis"
+        notes: "Open the pcap file in Wireshark and find where the cleartext creds were captured. Screenshot it and put it in your report."
+
+    references:
+      - "https://www.tenable.com/plugins/nessus/42263"
+
+  - plugin_id: "187315"
+    workflow_name: "Terrapin Weakness"
+    description: "SSH vulnerability that could permit MITM style attacks"
+    steps:
+      - title: "Copy the POC Python script (https://github.com/ronf/asyncssh/security/advisories/GHSA-hfmc-7525-mj55).
+      
+      - title: "In the POC script, replace the PROXY_IP variable with your systems IP on the network and replace the SERVER_IP variable with your target."
+
+      - title: "Run the POC script & connect to the proxy server you started"
+        commands:
+          - "python terrapin-poc.py"
+          - "ssh root@IP_address -p 2222"
+        notes: "In the Python script output, a successful exploitation is evident when the two SSH output lines below are missing.\n\ndebug1: SSH2_MSG_EXT_INFO received\ndebug1: kex_input_ext_info: server-sig-algs=<rsa-sha2-256,rsa-sha2-512>"
+
+
+    references:
+      - "https://www.tenable.com/plugins/nessus/187315"
+      - "https://github.com/ronf/asyncssh/security/advisories/GHSA-hfmc-7525-mj55"
+      - "https://nvd.nist.gov/vuln/detail/CVE-2023-48795"
+      - "https://terrapin-attack.com/"

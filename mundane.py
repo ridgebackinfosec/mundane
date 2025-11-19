@@ -2442,12 +2442,7 @@ def main(args: types.SimpleNamespace) -> None:
     # If no export_root specified, use database scan selection
     if export_root is None:
         from mundane_pkg.models import Scan, PluginFile
-        from mundane_pkg.session import USE_DATABASE
         from datetime import datetime
-
-        if not USE_DATABASE:
-            err("Database is disabled. Please specify --export-root or enable database.")
-            return
 
         # Get all scans from database
         try:

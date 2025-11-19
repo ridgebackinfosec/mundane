@@ -20,13 +20,7 @@ from mundane_pkg.session import (
 @pytest.fixture(autouse=True)
 def ensure_db_enabled(monkeypatch, temp_db):
     """Ensure database is enabled and use temp_db for all tests."""
-    monkeypatch.setenv("MUNDANE_USE_DB", "1")
-    monkeypatch.setenv("MUNDANE_DB_ONLY", "0")
-
-    # Force reload of USE_DATABASE variable
-    import mundane_pkg.session
     import mundane_pkg.database
-    monkeypatch.setattr(mundane_pkg.session, "USE_DATABASE", True)
 
     # Monkeypatch get_connection to return our temp_db
     # Create a wrapper that prevents the connection from being closed

@@ -133,7 +133,7 @@ workflows:
       - title: "Enumerate the supported encryption protocol versions and alogorithims."
         commands:
           - "sudo nmap -A --script=ssl-enum-ciphers,ssl-cert,ssl-date IP_address"
-        otes: "SSLv2, SSLv3, and TLSv1.0 are all considered deprecated and should not be supported anymore. TLSv1.1 is also outdated but not of terrible concern."
+        notes: "SSLv2, SSLv3, and TLSv1.0 are all considered deprecated and should not be supported anymore. TLSv1.1 is also outdated but not of terrible concern."
 
     references:
       - "https://www.tenable.com/plugins/nessus/20007"
@@ -165,8 +165,8 @@ workflows:
     workflow_name: "Terrapin Weakness"
     description: "SSH vulnerability that could permit MITM style attacks"
     steps:
-      - title: "Copy the POC Python script (https://github.com/ronf/asyncssh/security/advisories/GHSA-hfmc-7525-mj55).
-      
+      - title: "Copy the POC Python script (https://github.com/ronf/asyncssh/security/advisories/GHSA-hfmc-7525-mj55)."
+
       - title: "In the POC script, replace the PROXY_IP variable with your systems IP on the network and replace the SERVER_IP variable with your target."
 
       - title: "Run the POC script & connect to the proxy server you started"

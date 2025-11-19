@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional
 import yaml
 
+from .ansi import warn
 from .logging_setup import log_error
 
 
@@ -133,9 +134,19 @@ class WorkflowMapper:
                     if pid:  # Skip empty strings
                         self.workflows[pid] = workflow
 
+        except yaml.YAMLError as e:
+            # YAML syntax error - specific handling
+            log_error(f"YAML syntax error in {self.yaml_path}: {e}")
+            warn(f"Failed to parse workflow YAML: {self.yaml_path.name}")
+            warn(f"Syntax error: {str(e).splitlines()[0] if str(e) else 'Invalid YAML format'}")
+            warn("Please check YAML syntax and try again.")
+        except FileNotFoundError:
+            # File not found - this is OK, just means no workflows
+            log_error(f"Workflow file not found: {self.yaml_path}")
         except Exception as e:
-            # Failed to load workflows - mapper will be empty
-            log_error(f"Failed to load workflows from {self.yaml_path}: {e}")
+            # Unexpected error
+            log_error(f"Unexpected error loading workflows from {self.yaml_path}: {e}")
+            warn(f"Failed to load workflows from {self.yaml_path.name}")
 
     def _check_and_reload(self) -> None:
         """Check if YAML file has been modified and reload if necessary."""
@@ -256,7 +267,17 @@ class WorkflowMapper:
                 # Count this workflow definition as loaded
                 workflows_loaded += 1
 
+        except yaml.YAMLError as e:
+            # YAML syntax error - specific handling
+            log_error(f"YAML syntax error in {yaml_path}: {e}")
+            warn(f"Failed to parse additional workflow YAML: {yaml_path.name}")
+            warn(f"Syntax error: {str(e).splitlines()[0] if str(e) else 'Invalid YAML format'}")
+        except FileNotFoundError:
+            # File not found
+            log_error(f"Additional workflow file not found: {yaml_path}")
         except Exception as e:
-            log_error(f"Failed to load additional workflows from {yaml_path}: {e}")
+            # Unexpected error
+            log_error(f"Unexpected error loading additional workflows from {yaml_path}: {e}")
+            warn(f"Failed to load additional workflows from {yaml_path.name}")
 
         return workflows_loaded

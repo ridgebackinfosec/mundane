@@ -2539,9 +2539,10 @@ def main(args: types.SimpleNamespace) -> None:
         err("  mundane review")
         return
 
-        # Dead code below (will be removed in future cleanup):
-        _single_scan_mode = False
-        _selected_scan_dir = None
+    # =========================================================================
+    # DEAD CODE BELOW - Unreachable due to return statement above
+    # TODO: Remove in future version (kept temporarily for reference)
+    # =========================================================================
 
     # Scan loop (only used when export_root is explicitly provided)
     while True:

@@ -2519,6 +2519,17 @@ def main(args: types.SimpleNamespace) -> None:
         _single_scan_mode = True
         _selected_scan_dir = scan_dir
     else:
+        # Filesystem mode is deprecated - require database mode
+        err("The --export-root flag is deprecated for 'review' mode.")
+        err("")
+        err("Please import your scan into the database first:")
+        err(f"  mundane import <nessus_file> --export-root {export_root}")
+        err("")
+        err("Then run review without --export-root:")
+        err("  mundane review")
+        return
+
+        # Dead code below (will be removed in future cleanup):
         _single_scan_mode = False
         _selected_scan_dir = None
 

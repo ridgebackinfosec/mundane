@@ -1,14 +1,10 @@
 """Session persistence for mundane review sessions.
 
-Supports dual-mode operation: writes to both SQLite database (primary) and
-JSON file (backup) for backward compatibility during transition.
+Database-only mode: all session state stored in SQLite database.
 """
 
-import json
-import os
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
 from typing import Optional
 
 from .logging_setup import log_error, log_info
@@ -19,195 +15,168 @@ class SessionState:
     """
     Represents the state of a mundane review session.
 
+    In database-only mode, file lists are replaced with counts queried
+    from the plugin_files table review_state field.
+
     Attributes:
-        scan_dir: Path to scan directory
+        scan_name: Name of the scan (for display)
         session_start: ISO format timestamp of session start
-        reviewed_files: List of reviewed (not marked complete) filenames
-        completed_files: List of marked complete filenames
-        skipped_files: List of skipped (empty) filenames
+        reviewed_count: Count of reviewed (not marked complete) files
+        completed_count: Count of marked complete files
+        skipped_count: Count of skipped (empty) files
         tool_executions: Count of tool executions
         cve_extractions: Count of CVE extractions performed
-        last_updated: ISO format timestamp of last update
     """
 
-    scan_dir: str
+    scan_name: str
     session_start: str
-    reviewed_files: list[str]
-    completed_files: list[str]
-    skipped_files: list[str]
+    reviewed_count: int
+    completed_count: int
+    skipped_count: int
     tool_executions: int
     cve_extractions: int
-    last_updated: str
-
-
-def get_session_file_path(scan_dir: Path) -> Path:
-    """
-    Get the path to the session file for a scan directory.
-
-    Args:
-        scan_dir: Scan directory path
-
-    Returns:
-        Path to .session.json file
-    """
-    return scan_dir / ".session.json"
 
 
 def save_session(
-    scan_dir: Path,
+    scan_id: int,
     session_start: datetime,
-    reviewed_files: list[str],
-    completed_files: list[str],
-    skipped_files: list[str],
+    reviewed_count: int = 0,
+    completed_count: int = 0,
+    skipped_count: int = 0,
     tool_executions: int = 0,
     cve_extractions: int = 0,
-) -> None:
+) -> Optional[int]:
     """
-    Save session state (dual-mode: database + JSON backup).
-
-    Writes to database first (if enabled), then JSON file for backward compatibility.
+    Save session state to database.
 
     Args:
-        scan_dir: Scan directory path
+        scan_id: Scan ID
         session_start: Session start datetime
-        reviewed_files: List of reviewed filenames
-        completed_files: List of completed filenames
-        skipped_files: List of skipped filenames
+        reviewed_count: Count of reviewed files
+        completed_count: Count of completed files
+        skipped_count: Count of skipped files
         tool_executions: Count of tool executions
         cve_extractions: Count of CVE extractions
+
+    Returns:
+        session_id if successful, None otherwise
     """
-    # Save to database (primary)
     session_id = _db_save_session(
-        scan_dir, session_start, reviewed_files, completed_files,
-        skipped_files, tool_executions, cve_extractions
+        scan_id, session_start, reviewed_count, completed_count,
+        skipped_count, tool_executions, cve_extractions
     )
 
     if session_id:
         log_info(f"Session saved to database (ID: {session_id})")
 
-    # Save to JSON (backup/fallback)
-    session_file = get_session_file_path(scan_dir)
-
-    state = SessionState(
-        scan_dir=str(scan_dir),
-        session_start=session_start.isoformat(),
-        reviewed_files=reviewed_files,
-        completed_files=completed_files,
-        skipped_files=skipped_files,
-        tool_executions=tool_executions,
-        cve_extractions=cve_extractions,
-        last_updated=datetime.now().isoformat(),
-    )
-
-    try:
-        with open(session_file, "w", encoding="utf-8") as f:
-            json.dump(asdict(state), f, indent=2)
-    except Exception as e:
-        # Session persistence is not critical, but log the error for debugging
-        log_error(f"Failed to save session to {session_file}: {e}")
+    return session_id
 
 
-def load_session(scan_dir: Path) -> Optional[SessionState]:
+def load_session(scan_id: int) -> Optional[SessionState]:
     """
-    Load session state from JSON file.
+    Load active session state from database.
+
+    Queries the database for the most recent active session (session_end IS NULL)
+    and retrieves file counts by querying the plugin_files review_state field.
 
     Args:
-        scan_dir: Scan directory path
+        scan_id: Scan ID
 
     Returns:
-        SessionState object if file exists and is valid, None otherwise
+        SessionState object with counts from database, or None if no active session
     """
-    session_file = get_session_file_path(scan_dir)
-
-    if not session_file.exists():
-        return None
-
     try:
-        with open(session_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return SessionState(**data)
-    except Exception:
-        # Invalid or corrupted session file
+        from .database import db_transaction, query_one
+
+        with db_transaction() as conn:
+            # Query active session with file counts
+            row = query_one(
+                conn,
+                """
+                SELECT
+                    s.session_id,
+                    s.session_start,
+                    s.tools_executed,
+                    s.cves_extracted,
+                    sc.scan_name,
+                    COALESCE(SUM(CASE WHEN pf.review_state = 'reviewed' THEN 1 ELSE 0 END), 0) as reviewed_count,
+                    COALESCE(SUM(CASE WHEN pf.review_state = 'completed' THEN 1 ELSE 0 END), 0) as completed_count,
+                    COALESCE(SUM(CASE WHEN pf.review_state = 'skipped' THEN 1 ELSE 0 END), 0) as skipped_count
+                FROM sessions s
+                JOIN scans sc ON s.scan_id = sc.scan_id
+                LEFT JOIN plugin_files pf ON pf.scan_id = s.scan_id
+                WHERE s.scan_id = ? AND s.session_end IS NULL
+                GROUP BY s.session_id, s.session_start, s.tools_executed, s.cves_extracted, sc.scan_name
+                ORDER BY s.session_start DESC
+                LIMIT 1
+                """,
+                (scan_id,)
+            )
+
+            if not row:
+                return None
+
+            return SessionState(
+                scan_name=row["scan_name"],
+                session_start=row["session_start"],
+                reviewed_count=row["reviewed_count"],
+                completed_count=row["completed_count"],
+                skipped_count=row["skipped_count"],
+                tool_executions=row["tools_executed"],
+                cve_extractions=row["cves_extracted"],
+            )
+
+    except Exception as e:
+        log_error(f"Failed to load session from database: {e}")
         return None
 
 
-def delete_session(scan_dir: Path) -> None:
+def delete_session(scan_id: int) -> None:
     """
-    Delete session file and mark database session as ended.
+    Mark database session as ended.
 
     Args:
-        scan_dir: Scan directory path
+        scan_id: Scan ID
     """
-    # End session in database
-    _db_end_session(scan_dir)
-
-    # Delete JSON file
-    session_file = get_session_file_path(scan_dir)
-    try:
-        if session_file.exists():
-            session_file.unlink()
-    except Exception:
-        pass
+    _db_end_session(scan_id)
 
 
-# ========== Database Integration (Dual-Mode Support) ==========
-
-# Check if database should be used (default: yes, unless disabled)
-USE_DATABASE = os.environ.get("MUNDANE_DB_ONLY", "0") != "0" or os.environ.get("MUNDANE_USE_DB", "1") == "1"
+# ========== Database Integration ==========
 
 
 def _db_save_session(
-    scan_dir: Path,
+    scan_id: int,
     session_start: datetime,
-    reviewed_files: list[str],
-    completed_files: list[str],
-    skipped_files: list[str],
+    reviewed_count: int,
+    completed_count: int,
+    skipped_count: int,
     tool_executions: int,
     cve_extractions: int,
 ) -> Optional[int]:
     """Save session to database (internal helper).
 
     Args:
-        scan_dir: Scan directory path
+        scan_id: Scan ID
         session_start: Session start datetime
-        reviewed_files: List of reviewed filenames
-        completed_files: List of completed filenames
-        skipped_files: List of skipped filenames
+        reviewed_count: Count of reviewed files
+        completed_count: Count of completed files
+        skipped_count: Count of skipped files
         tool_executions: Tool execution count
         cve_extractions: CVE extraction count
 
     Returns:
         session_id if successful, None otherwise
     """
-    if not USE_DATABASE:
-        return None
-
     try:
         from .database import db_transaction, query_one
-        from .models import Scan
-
-        scan_name = scan_dir.name
+        from .models import now_iso
 
         with db_transaction() as conn:
-            # Get or create scan
-            row = query_one(conn, "SELECT scan_id FROM scans WHERE scan_name = ?", (scan_name,))
-
-            if row:
-                scan_id = row["scan_id"]
-                # Update last_reviewed_at for existing scan
-                from .models import now_iso
-                conn.execute(
-                    "UPDATE scans SET last_reviewed_at = ? WHERE scan_id = ?",
-                    (now_iso(), scan_id)
-                )
-            else:
-                # Create scan entry
-                scan = Scan(
-                    scan_name=scan_name,
-                    export_root=str(scan_dir.parent),
-                    created_at=session_start.isoformat()
-                )
-                scan_id = scan.save(conn)
+            # Update last_reviewed_at for scan
+            conn.execute(
+                "UPDATE scans SET last_reviewed_at = ? WHERE scan_id = ?",
+                (now_iso(), scan_id)
+            )
 
             # Check for active session
             row = query_one(
@@ -226,7 +195,7 @@ def _db_save_session(
                         tools_executed=?, cves_extracted=?
                     WHERE session_id=?
                     """,
-                    (len(reviewed_files), len(completed_files), len(skipped_files),
+                    (reviewed_count, completed_count, skipped_count,
                      tool_executions, cve_extractions, session_id)
                 )
             else:
@@ -238,8 +207,8 @@ def _db_save_session(
                         files_skipped, tools_executed, cves_extracted
                     ) VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (scan_id, session_start.isoformat(), len(reviewed_files),
-                     len(completed_files), len(skipped_files), tool_executions, cve_extractions)
+                    (scan_id, session_start.isoformat(), reviewed_count,
+                     completed_count, skipped_count, tool_executions, cve_extractions)
                 )
                 session_id = cursor.lastrowid
 
@@ -250,28 +219,16 @@ def _db_save_session(
         return None
 
 
-def _db_end_session(scan_dir: Path) -> None:
+def _db_end_session(scan_id: int) -> None:
     """Mark active session as ended in database (internal helper).
 
     Args:
-        scan_dir: Scan directory path
+        scan_id: Scan ID
     """
-    if not USE_DATABASE:
-        return
-
     try:
-        from .database import db_transaction, query_one
-
-        scan_name = scan_dir.name
+        from .database import db_transaction
 
         with db_transaction() as conn:
-            # Find scan
-            row = query_one(conn, "SELECT scan_id FROM scans WHERE scan_name = ?", (scan_name,))
-            if not row:
-                return
-
-            scan_id = row["scan_id"]
-
             # End active session
             now = datetime.now().isoformat()
             conn.execute(

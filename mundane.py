@@ -2517,26 +2517,21 @@ def main(args: types.SimpleNamespace) -> None:
         export_root = Path(selected_scan.export_root)
         scan_dir = export_root / selected_scan.scan_name
 
-        if not scan_dir.exists():
-            err(f"Scan directory not found: {scan_dir}")
-            info("The scan may have been moved or deleted.")
-            return
-
         # Skip the scan loop, go directly to reviewing this scan
         ok(f"Selected: {selected_scan.scan_name}")
         # Don't wrap in scan loop - jump directly to single scan review
         # We'll handle this by jumping to the session check and severity loop
 
         # Check for existing session
-        previous_session = load_session(scan_dir)
+        previous_session = load_session(selected_scan.scan_id)
         if previous_session:
             from datetime import datetime
             session_date = datetime.fromisoformat(previous_session.session_start)
             header("Previous Session Found")
             info(f"Session started: {session_date.strftime('%Y-%m-%d %H:%M:%S')}")
-            info(f"Reviewed: {len(previous_session.reviewed_files)} files")
-            info(f"Completed: {len(previous_session.completed_files)} files")
-            info(f"Skipped: {len(previous_session.skipped_files)} files")
+            info(f"Reviewed: {previous_session.reviewed_count} files")
+            info(f"Completed: {previous_session.completed_count} files")
+            info(f"Skipped: {previous_session.skipped_count} files")
             try:
                 resume = yesno("Resume this session?", default="y")
             except KeyboardInterrupt:
@@ -2544,12 +2539,13 @@ def main(args: types.SimpleNamespace) -> None:
                 return
 
             if resume:
-                reviewed_total = previous_session.reviewed_files.copy()
-                completed_total = previous_session.completed_files.copy()
-                skipped_total = previous_session.skipped_files.copy()
+                # Session start time is restored; file tracking continues from database
+                session_start_time = session_date
+                ok("Session resumed.")
             else:
-                # Fresh session
-                pass
+                # Start fresh session - end the old one
+                delete_session(selected_scan.scan_id)
+                ok("Starting fresh session.")
         else:
             # No previous session - start fresh
             pass
@@ -2852,30 +2848,28 @@ def main(args: types.SimpleNamespace) -> None:
     # Save session before showing summary
     if reviewed_total or completed_total or skipped_total:
         save_session(
-            scan_dir,
+            selected_scan.scan_id,
             session_start_time,
-            reviewed_total,
-            completed_total,
-            skipped_total,
+            reviewed_count=len(reviewed_total),
+            completed_count=len(completed_total),
+            skipped_count=len(skipped_total),
         )
 
     # Session summary with rich statistics (only if work was done)
     if reviewed_total or completed_total or skipped_total:
         # Note: scan_dir is defined only if user entered a scan
         # Since we have reviewed/completed/skipped files, scan_dir must be defined
-        # Pass scan_id if available (database mode)
-        scan_id_for_stats = selected_scan.scan_id if 'selected_scan' in locals() else None
         show_session_statistics(
             session_start_time,
             reviewed_total,
             completed_total,
             skipped_total,
             scan_dir,
-            scan_id=scan_id_for_stats,
+            scan_id=selected_scan.scan_id,
         )
 
-        # Clean up session file after successful completion
-        delete_session(scan_dir)
+        # Clean up session (mark as ended in database)
+        delete_session(selected_scan.scan_id)
 
     ok("Done.")
 

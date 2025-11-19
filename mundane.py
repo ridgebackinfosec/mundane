@@ -2335,7 +2335,17 @@ def main(args: types.SimpleNamespace) -> None:
     Main application entry point for interactive review mode.
 
     Args:
-        args: Command-line arguments namespace with export_root and no_tools
+        args: Command-line arguments namespace containing:
+            - export_root (Optional[Path]): DEPRECATED. Path to export directory.
+              Review mode now requires database. Use 'mundane import' first.
+            - no_tools (bool): Skip tool execution workflow if True.
+            - custom_workflows (Optional[Path]): Custom workflow YAML to supplement defaults.
+            - custom_workflows_only (Optional[Path]): Use only this workflow YAML.
+
+    Note:
+        The --export-root flag has been deprecated for review mode. All review
+        operations now use the database for improved performance and feature support
+        including workflow mapping, Metasploit module detection, and session tracking.
     """
     # Initialize logging
     setup_logging()
@@ -2523,7 +2533,7 @@ def main(args: types.SimpleNamespace) -> None:
         err("The --export-root flag is deprecated for 'review' mode.")
         err("")
         err("Please import your scan into the database first:")
-        err(f"  mundane import <nessus_file> --export-root {export_root}")
+        err(f"  mundane import <nessus_file>")
         err("")
         err("Then run review without --export-root:")
         err("  mundane review")
@@ -2858,7 +2868,7 @@ def _root() -> None:
 @app.command(help="Interactive review of findings.")
 def review(
     export_root: Optional[Path] = typer.Option(
-        None, "--export-root", "-r", help="Scan root (optional; uses database if not specified)."
+        None, "--export-root", "-r", help="DEPRECATED: Scan root (use 'mundane import' instead)."
     ),
     no_tools: bool = typer.Option(
         False, "--no-tools", help="Disable tool prompts (review-only)."
@@ -2875,7 +2885,20 @@ def review(
         help="Use ONLY this workflow YAML (ignores default workflows).",
     ),
 ) -> None:
-    """Run interactive review mode."""
+    """
+    Run interactive review mode with database-driven workflow.
+
+    This command requires scans to be imported into the database first.
+    Use 'mundane import' to import scans before reviewing.
+
+    Note: The --export-root flag has been deprecated. All review operations
+    now require database mode for improved performance and features like
+    workflow mapping, Metasploit module detection, and session tracking.
+
+    Usage:
+        mundane review              # Select from imported scans
+        mundane import scan.nessus  # Import scan first if needed
+    """
     # Validate: can't use both flags
     if custom_workflows and custom_workflows_only:
         err("Cannot use both --custom-workflows and --custom-workflows-only")

@@ -94,98 +94,64 @@ def list_dirs(directory: Path) -> list[Path]:
     )
 
 
-def is_review_complete(path: Path) -> bool:
-    """Check if a file has been marked as review complete.
+def mark_review_complete(plugin_file) -> bool:
+    """Mark a file as review complete in the database.
 
     Args:
-        path: Path to the file to check
+        plugin_file: PluginFile object to mark as completed
 
     Returns:
-        True if filename starts with REVIEW_PREFIX, False otherwise
+        True if successful, False otherwise
     """
-    return path.name.startswith(REVIEW_PREFIX)
-
-
-def is_reviewed_filename(filename: str) -> bool:
-    """Check if a filename has a review completion prefix (any variation).
-
-    Handles various formats:
-    - REVIEW_COMPLETE-filename.txt
-    - review_complete-filename.txt
-    - review-complete-filename.txt
-    (case-insensitive)
-
-    Args:
-        filename: Filename string to check
-
-    Returns:
-        True if filename has review completion prefix, False otherwise
-    """
-    lower = filename.lower()
-    return lower.startswith(("review_complete", "review-complete")) and "-" in filename
-
-
-def rename_review_complete(path: Path) -> Path:
-    """Mark a file as review complete by adding prefix to filename.
-
-    Also updates database review state to 'completed' if database is enabled.
-
-    Args:
-        path: Path to the file to rename
-
-    Returns:
-        Path to the renamed file, or original path if rename failed
-    """
-    name = path.name
-    prefix = REVIEW_PREFIX
-    if is_review_complete(path):
-        warn("Already marked as review complete.")
-        return path
-    new = path.with_name(prefix + name)
     try:
-        old_path = path  # Save old path before rename
-        path.rename(new)
-        ok(f"Renamed to {new.name}")
+        from .database import db_transaction
 
-        # Update database with both new path and review state
-        _db_update_review_state(new, "completed", old_path=old_path)
+        if plugin_file.review_state == "completed":
+            warn("Already marked as review complete.")
+            return False
 
-        return new
+        # Update review state in database
+        with db_transaction() as conn:
+            plugin_file.update_review_state("completed", conn=conn)
+
+        ok(f"Marked as review complete: {Path(plugin_file.file_path).name}")
+        return True
+
     except Exception as e:
-        err(f"Failed to rename: {e}")
-        return path
+        from .logging_setup import log_error
+        log_error(f"Failed to mark file as review complete: {e}")
+        err(f"Failed to mark as review complete: {e}")
+        return False
 
 
-def undo_review_complete(path: Path) -> Path:
-    """Remove review complete prefix from filename.
-
-    Also updates database review state to 'pending' if database is enabled.
+def undo_review_complete(plugin_file) -> bool:
+    """Remove review complete status from the database.
 
     Args:
-        path: Path to the file to undo
+        plugin_file: PluginFile object to mark as pending
 
     Returns:
-        Path to the renamed file, or original path if rename failed
+        True if successful, False otherwise
     """
-    name = path.name
-    prefix = REVIEW_PREFIX
-    if not is_review_complete(path):
-        warn("File is not marked as review complete.")
-        return path
-    new_name = name[len(prefix):]
-    new = path.with_name(new_name)
     try:
-        old_path = path  # Save old path before rename
-        path.rename(new)
-        ok(f"Removed review complete marker: {new.name}")
+        from .database import db_transaction
 
-        # Update database with both new path and review state
-        _db_update_review_state(new, "pending", old_path=old_path)
+        if plugin_file.review_state != "completed":
+            warn("File is not marked as review complete.")
+            return False
 
-        return new
+        # Update review state in database
+        with db_transaction() as conn:
+            plugin_file.update_review_state("pending", conn=conn)
+
+        ok(f"Removed review complete marker: {Path(plugin_file.file_path).name}")
+        return True
+
     except Exception as e:
-        err(f"Failed to rename: {e}")
-        return path
+        from .logging_setup import log_error
+        log_error(f"Failed to undo review complete: {e}")
+        err(f"Failed to undo review complete: {e}")
+        return False
 
 
 def build_results_paths(
@@ -291,41 +257,3 @@ def write_work_files(
     return tcp_ips, udp_ips, tcp_sockets
 
 
-# ========== Database Integration (Internal Helper) ==========
-
-def _db_update_review_state(file_path: Path, new_state: str, old_path: Optional[Path] = None) -> None:
-    """Update review state in database if enabled (internal helper).
-
-    Args:
-        file_path: Path to the plugin file (new path if renamed)
-        new_state: New review state ('pending', 'reviewed', 'completed', 'skipped')
-        old_path: Original path before rename (if file was renamed)
-    """
-    try:
-        import os
-        # Check if database is enabled
-        use_db = os.environ.get("MUNDANE_DB_ONLY", "0") != "0" or os.environ.get("MUNDANE_USE_DB", "1") == "1"
-
-        if not use_db:
-            return
-
-        from .database import db_transaction
-        from .models import PluginFile
-
-        # Try to find and update file in database
-        with db_transaction() as conn:
-            # If file was renamed, look up by old path first
-            lookup_path = str(old_path.resolve()) if old_path else str(file_path.resolve())
-            plugin_file = PluginFile.get_by_path(lookup_path, conn)
-
-            if plugin_file:
-                # Update file path if it changed
-                if old_path and old_path != file_path:
-                    plugin_file.file_path = str(file_path.resolve())
-
-                # Update review state
-                plugin_file.update_review_state(new_state, conn=conn)
-
-    except Exception:
-        # Database update is optional - don't fail if it doesn't work
-        pass

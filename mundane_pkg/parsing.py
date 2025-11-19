@@ -382,17 +382,11 @@ def extract_plugin_id_from_filename(name_or_path) -> Optional[str]:
         >>> extract_plugin_id_from_filename("vulnerability-name-12345.txt")
         "12345"
     """
-    from .fs import is_reviewed_filename
-
     # Handle both Path and str
     if hasattr(name_or_path, 'name'):
         name = name_or_path.name
     else:
         name = str(name_or_path)
-
-    # Strip review prefix if present
-    if is_reviewed_filename(name):
-        name = name.split("-", 1)[1]
 
     # Extract leading numeric plugin ID
     match = re.match(r"^(\d+)", name)

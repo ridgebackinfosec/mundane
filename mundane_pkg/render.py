@@ -18,7 +18,7 @@ from rich.text import Text
 
 from .ansi import C, colorize_severity_label, fmt_action, info, warn
 from .constants import SEVERITY_COLORS
-from .fs import default_page_size, is_reviewed_filename, list_files, pretty_severity_label
+from .fs import default_page_size, list_files, pretty_severity_label
 from .logging_setup import log_timing
 
 
@@ -522,22 +522,21 @@ def count_severity_files(
 
     Args:
         directory: Severity directory path
-        scan_id: Optional scan ID for database queries (if None, falls back to filesystem)
+        scan_id: Optional scan ID for database queries (required for review counts)
 
     Returns:
         Tuple of (unreviewed_count, reviewed_count, total_count)
     """
-    # If scan_id provided, use database
+    # Database is required for review state tracking
     if scan_id is not None:
         from .models import PluginFile
         severity_dir_name = directory.name
         return PluginFile.count_by_scan_severity(scan_id, severity_dir_name)
 
-    # Fallback to filesystem
+    # Fallback: count files but no review state available
     files = [f for f in list_files(directory) if f.suffix.lower() == ".txt"]
-    reviewed = [f for f in files if is_reviewed_filename(f.name)]
-    unreviewed = [f for f in files if f not in reviewed]
-    return len(unreviewed), len(reviewed), len(files)
+    total = len(files)
+    return total, 0, total  # All files treated as unreviewed when no database
 
 
 def severity_cell(label: str) -> Any:

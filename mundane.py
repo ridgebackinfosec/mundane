@@ -492,7 +492,7 @@ def choose_from_list(
 def show_scan_summary(
     scan_dir: Path,
     top_ports_n: int = DEFAULT_TOP_PORTS,
-    scan_id: int = None
+    scan_id: Optional[int] = None
 ) -> None:
     """
     Display comprehensive scan overview with host/port statistics.

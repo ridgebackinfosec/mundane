@@ -788,7 +788,7 @@ def handle_file_view(
         if action_choice in ("m", "mark"):
             from mundane_pkg.fs import rename_review_complete
             try:
-                rename_review_complete(chosen, conn=None)
+                rename_review_complete(chosen)
                 ok(f"Marked as REVIEW_COMPLETE: {chosen.name}")
                 return "mark_complete"
             except Exception as exc:

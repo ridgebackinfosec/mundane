@@ -492,42 +492,34 @@ def choose_from_list(
 def show_scan_summary(
     scan_dir: Path,
     top_ports_n: int = DEFAULT_TOP_PORTS,
-    scan_id: Optional[int] = None
+    scan_id: int = None
 ) -> None:
     """
     Display comprehensive scan overview with host/port statistics.
 
+    Database-only mode: queries all statistics from database.
+
     Args:
-        scan_dir: Scan directory to analyze
+        scan_dir: Scan directory (used for display name only)
         top_ports_n: Number of top ports to display
-        scan_id: Optional scan ID for database queries
+        scan_id: Scan ID (required for database queries)
     """
+    if scan_id is None:
+        err("Database scan_id is required for scan summary")
+        return
+
     header(f"Scan Overview — {scan_dir.name}")
 
-    # Database-first: Query plugin files instead of walking filesystem
-    if scan_id is not None:
-        from mundane_pkg.models import PluginFile
-        plugin_files_db = PluginFile.get_by_scan_with_plugin(scan_id)
-        all_files = [Path(pf.file_path) for pf, _ in plugin_files_db]
-        severities = sorted(set(pf.severity_dir for pf, _ in plugin_files_db))
-    else:
-        # Fallback to filesystem if no scan_id (legacy mode)
-        severities = list_dirs(scan_dir)
-        all_files = []
-        for severity in severities:
-            all_files.extend(
-                [file for file in list_files(severity) if file.suffix.lower() == ".txt"]
-            )
-
     total_files, reviewed_files = count_reviewed_in_scan(scan_dir, scan_id=scan_id)
+
+    # Query all host/port data from database
+    from mundane_pkg.database import db_transaction, query_all
 
     unique_hosts = set()
     ipv4_set = set()
     ipv6_set = set()
     ports_counter: Counter = Counter()
     empties = 0
-    malformed_total = 0
-    combo_sig_counter: Counter = Counter()
 
     with Progress(
         SpinnerColumn(style="cyan"),
@@ -536,34 +528,52 @@ def show_scan_summary(
         console=_console_global,
         transient=True,
     ) as progress:
-        task = progress.add_task(
-            "Parsing files for overview...", total=len(all_files) or 1
-        )
-        for file in all_files:
-            hosts, ports, combos, had_explicit, malformed = parse_for_overview(file)
-            malformed_total += malformed
+        task = progress.add_task("Querying database for overview...", total=None)
 
-            if not hosts:
-                empties += 1
+        with db_transaction() as conn:
+            # Get all host/port combinations for this scan
+            rows = query_all(
+                conn,
+                """
+                SELECT DISTINCT pfh.host, pfh.port, pfh.is_ipv4, pfh.is_ipv6, pfh.file_id
+                FROM plugin_file_hosts pfh
+                JOIN plugin_files pf ON pfh.file_id = pf.file_id
+                WHERE pf.scan_id = ?
+                """,
+                (scan_id,)
+            )
 
-            unique_hosts.update(hosts)
+            # Count files with no hosts (empty files)
+            empty_files = query_all(
+                conn,
+                """
+                SELECT pf.file_id
+                FROM plugin_files pf
+                LEFT JOIN plugin_file_hosts pfh ON pf.file_id = pfh.file_id
+                WHERE pf.scan_id = ? AND pfh.file_id IS NULL
+                """,
+                (scan_id,)
+            )
+            empties = len(empty_files)
 
-            for host in hosts:
-                try:
-                    ip = ipaddress.ip_address(host)
-                    if isinstance(ip, ipaddress.IPv4Address):
-                        ipv4_set.add(host)
-                    elif isinstance(ip, ipaddress.IPv6Address):
-                        ipv6_set.add(host)
-                except Exception:
-                    pass
+        # Process query results
+        for row in rows:
+            host = row["host"]
+            port = row["port"]
+            is_ipv4 = bool(row["is_ipv4"])
+            is_ipv6 = bool(row["is_ipv6"])
 
-            for port in ports:
-                ports_counter[port] += 1
+            unique_hosts.add(host)
 
-            sig = normalize_combos(hosts, ports, combos, had_explicit)
-            combo_sig_counter[sig] += 1
-            progress.advance(task)
+            if is_ipv4:
+                ipv4_set.add(host)
+            elif is_ipv6:
+                ipv6_set.add(host)
+
+            if port is not None:
+                ports_counter[str(port)] += 1
+
+        progress.update(task, completed=True)
 
     # File Statistics - Inline Display
     from rich.table import Table
@@ -585,8 +595,6 @@ def show_scan_summary(
     ]
     if empties > 0:
         file_stats_parts.append(f"[cyan]Empty:[/cyan] {empties}")
-    if malformed_total > 0:
-        file_stats_parts.append(f"[cyan]Malformed:[/cyan] {malformed_total}")
 
     _console_global.print(" │ ".join(file_stats_parts))
     print()  # Blank line
@@ -602,13 +610,6 @@ def show_scan_summary(
 
     port_set = set(ports_counter.keys())
     analysis_table.add_row("Unique Ports", str(len(port_set)))
-
-    multi_clusters = [count for count in combo_sig_counter.values() if count > 1]
-    analysis_table.add_row("Host:Port Clusters", str(len(multi_clusters)))
-    if multi_clusters:
-        sizes = sorted(multi_clusters, reverse=True)[:3]
-        largest_str = ", ".join(f"{size} files" for size in sizes)
-        analysis_table.add_row("  └─ Largest", largest_str)
 
     _console_global.print(analysis_table)
     print()  # Blank line after table
@@ -2510,6 +2511,9 @@ def main(args: types.SimpleNamespace) -> None:
         selected_scan = all_scans[int(ans) - 1]
         export_root = Path(selected_scan.export_root)
         scan_dir = export_root / selected_scan.scan_name
+
+        # Note: scan_dir is a Path object used for display (scan_dir.name) only
+        # In database-only mode, the directory doesn't need to exist
 
         # Skip the scan loop, go directly to reviewing this scan
         ok(f"Selected: {selected_scan.scan_name}")

@@ -188,41 +188,43 @@ def print_action_menu(actions: list[tuple[str, str]]) -> None:
 # === File viewing helpers ===
 
 
-def _file_raw_payload_text(path: Path, max_bytes: int = MAX_FILE_BYTES) -> str:
+def _file_raw_payload_text(plugin_file: "PluginFile") -> str:
     """
-    Read raw file content as text with size limit.
+    Get raw file content from database (all host:port lines).
 
     Args:
-        path: File to read
-        max_bytes: Maximum bytes to read
+        plugin_file: PluginFile database object
 
     Returns:
-        File content as UTF-8 string (with error replacement)
+        File content as UTF-8 string (one host:port per line)
     """
-    with path.open("rb") as file_handle:
-        data = file_handle.read(max_bytes)
-    return data.decode("utf-8", errors="replace")
+    # Get all host:port lines from database
+    lines = plugin_file.get_all_host_port_lines()
+    content = "\n".join(lines)
+    if lines:
+        content += "\n"  # Add trailing newline
+    return content
 
 
-def _file_raw_paged_text(path: Path, max_bytes: int = MAX_FILE_BYTES) -> str:
+def _file_raw_paged_text(plugin_file: "PluginFile") -> str:
     """
-    Prepare raw file content for paged viewing with metadata.
+    Prepare raw file content for paged viewing with metadata from database.
 
     Args:
-        path: File to read
-        max_bytes: Maximum bytes to read
+        plugin_file: PluginFile database object
 
     Returns:
         Formatted string with file info and content
     """
-    if not path.exists():
-        return f"(missing) {path}\n"
+    from pathlib import Path
+    filename = Path(plugin_file.file_path).name
 
-    size = path.stat().st_size
-    lines = [f"Showing: {path} ({size} bytes)"]
-    if size > max_bytes:
-        lines.append(f"File is large; showing first {max_bytes} bytes.")
-    lines.append(_file_raw_payload_text(path, max_bytes))
+    # Get content from database
+    content = _file_raw_payload_text(plugin_file)
+    size_bytes = len(content.encode('utf-8'))
+
+    lines = [f"Showing: {filename} ({size_bytes} bytes from database)"]
+    lines.append(content)
     return "\n".join(lines)
 
 
@@ -642,69 +644,101 @@ def print_grouped_hosts_ports(path: Path) -> None:
         warn(f"Error grouping hosts/ports: {exc}")
 
 
-def _grouped_payload_text(path: Path) -> str:
+def _grouped_payload_text(plugin_file: "PluginFile") -> str:
     """
-    Generate grouped host:port text for copying/viewing.
+    Generate grouped host:port text for copying/viewing from database.
 
     Args:
-        path: Plugin file to parse
+        plugin_file: PluginFile database object
 
     Returns:
         Formatted string with host:port,port,... lines
     """
-    hosts, _ports, combos, _had_explicit = parse_file_hosts_ports_detailed(path)
+    # Get all host:port lines from database
+    lines = plugin_file.get_all_host_port_lines()
+
+    # Group ports by host
+    from collections import defaultdict
+    host_ports = defaultdict(list)
+
+    for line in lines:
+        if ":" in line:
+            # Handle IPv6 with brackets: [host]:port
+            if line.startswith("["):
+                # IPv6 format: [2001:db8::1]:80
+                host_end = line.index("]")
+                host = line[1:host_end]  # Remove brackets
+                port = line[host_end+2:]  # Skip ']:'
+            else:
+                # IPv4 or hostname: host:port
+                host, port = line.rsplit(":", 1)
+            host_ports[host].append(port)
+        else:
+            # No port
+            host_ports[line].append(None)
+
+    # Format output: host:port1,port2,port3 or just host if no ports
     out = []
-    for host in hosts:
-        port_list = (
-            sorted(combos[host], key=lambda x: int(x)) if combos[host] else []
-        )
-        out.append(f"{host}:{','.join(port_list)}" if port_list else host)
+    for host in host_ports.keys():
+        ports = [p for p in host_ports[host] if p is not None]
+        if ports:
+            # Sort ports numerically
+            sorted_ports = sorted(set(ports), key=lambda x: int(x))
+            out.append(f"{host}:{','.join(sorted_ports)}")
+        else:
+            out.append(host)
+
     return "\n".join(out) + ("\n" if out else "")
 
 
-def _grouped_paged_text(path: Path) -> str:
+def _grouped_paged_text(plugin_file: "PluginFile") -> str:
     """
-    Prepare grouped host:port content for paged viewing.
+    Prepare grouped host:port content for paged viewing from database.
 
     Args:
-        path: Plugin file to parse
+        plugin_file: PluginFile database object
 
     Returns:
         Formatted string with header and grouped content
     """
-    body = _grouped_payload_text(path)
-    return f"Grouped view: {path.name}\n{body}"
+    from pathlib import Path
+    body = _grouped_payload_text(plugin_file)
+    filename = Path(plugin_file.file_path).name
+    return f"Grouped view: {filename}\n{body}"
 
 
 # === Hosts-only helpers ===
 
 
-def _hosts_only_payload_text(path: Path) -> str:
+def _hosts_only_payload_text(plugin_file: "PluginFile") -> str:
     """
-    Extract only hosts (IPs or FQDNs) without port information.
+    Extract only hosts (IPs or FQDNs) without port information from database.
 
     Args:
-        path: Plugin file to parse
+        plugin_file: PluginFile database object
 
     Returns:
         One host per line
     """
-    hosts, _ports, _combos, _had_explicit = parse_file_hosts_ports_detailed(path)
+    # Get unique hosts from database (already sorted: IPs first, then hostnames)
+    hosts, _ports_str = plugin_file.get_hosts_and_ports()
     return "\n".join(hosts) + ("\n" if hosts else "")
 
 
-def _hosts_only_paged_text(path: Path) -> str:
+def _hosts_only_paged_text(plugin_file: "PluginFile") -> str:
     """
-    Prepare hosts-only content for paged viewing.
+    Prepare hosts-only content for paged viewing from database.
 
     Args:
-        path: Plugin file to parse
+        plugin_file: PluginFile database object
 
     Returns:
         Formatted string with header and host list
     """
-    body = _hosts_only_payload_text(path)
-    return f"Hosts-only view: {path.name}\n{body}"
+    from pathlib import Path
+    body = _hosts_only_payload_text(plugin_file)
+    filename = Path(plugin_file.file_path).name
+    return f"Hosts-only view: {filename}\n{body}"
 
 
 # === File viewing workflow ===
@@ -872,16 +906,21 @@ def handle_file_view(
         except KeyboardInterrupt:
             return
 
+        # Check if plugin_file is available (database mode)
+        if plugin_file is None:
+            warn("Database not available - cannot view file contents")
+            continue
+
         # Default to grouped
         if format_choice in ("", "g", "grouped"):
-            text = _grouped_paged_text(chosen)
-            payload = _grouped_payload_text(chosen)
+            text = _grouped_paged_text(plugin_file)
+            payload = _grouped_payload_text(plugin_file)
         elif format_choice in ("h", "hosts", "hosts-only"):
-            text = _hosts_only_paged_text(chosen)
-            payload = _hosts_only_payload_text(chosen)
+            text = _hosts_only_paged_text(plugin_file)
+            payload = _hosts_only_payload_text(plugin_file)
         elif format_choice in ("r", "raw"):
-            text = _file_raw_paged_text(chosen)
-            payload = _file_raw_payload_text(chosen)
+            text = _file_raw_paged_text(plugin_file)
+            payload = _file_raw_payload_text(plugin_file)
         else:
             warn("Invalid format choice.")
             continue

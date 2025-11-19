@@ -10,10 +10,13 @@ import ipaddress
 import re
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from .fs import read_text_lines
 from .logging_setup import log_timing
+
+if TYPE_CHECKING:
+    from .workflow_mapper import WorkflowMapper
 
 
 # ====== Scan overview helpers ======

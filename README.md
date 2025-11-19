@@ -22,6 +22,48 @@ A modernized **TUI helper** to review Nessus findings quickly and kick off focus
 
 ---
 
+## Breaking Changes
+
+### Version 1.8.0 - Review Mode Now Requires Database
+
+**The `--export-root` flag has been deprecated for `mundane review`.**
+
+All review operations now use the database for improved performance and feature support. Filesystem-only review mode is no longer supported.
+
+**Migration Guide:**
+
+```bash
+# ❌ Old (deprecated - will show error):
+mundane review --export-root /path/to/scan
+
+# ✅ New (required workflow):
+# Step 1: Import your scan into the database
+mundane import /path/to/scan.nessus --export-root /path/to/scan
+
+# Step 2: Run review without --export-root
+mundane review  # Select scan from database
+```
+
+**Why this change?**
+
+Database mode provides:
+- ✅ Workflow mapping support
+- ✅ Metasploit module detection
+- ✅ Session and progress tracking
+- ✅ Faster file counting and filtering
+- ✅ CVE caching and persistence
+
+**What if I already have exported files?**
+
+Simply import them into the database:
+```bash
+mundane import existing_scan.nessus --export-root /path/to/existing/export
+```
+
+The import command will recognize existing files and update the database without re-exporting.
+
+---
+
 ## Installation
 
 ### Option 1: Install with pipx (recommended)
@@ -141,7 +183,7 @@ Environment variables override config file settings:
 export NPH_RESULTS_ROOT="$HOME/security/scans"
 export MUNDANE_LOG="$PWD/mundane.log"
 export MUNDANE_DEBUG=1
-mundane review --export-root ./nessus_plugin_hosts
+mundane review
 tail -f mundane.log
 ```
 
@@ -228,10 +270,14 @@ python mundane.py import myscan.nessus --review
 #   - Launch the interactive review TUI
 ```
 
-**Already have exported plugin files?** Jump straight to review:
+**Already have exported plugin files?** Import them into the database first:
 
 ```bash
-python mundane.py review --export-root ~/.mundane/scans/<scan_name>
+# Import existing exports
+mundane import your_scan.nessus --export-root ~/.mundane/scans/<scan_name>
+
+# Then review from database
+mundane review
 ```
 
 ### 1) Import plugins from a `.nessus`
@@ -250,17 +296,13 @@ python mundane.py import scan.nessus --out-dir ./custom_location
 
 ### 2) Review exports interactively
 
-**Option 1: Quick start (uses database scan selector)**
+**Database mode (required):**
 ```bash
-python mundane.py review
+mundane review
 ```
 Displays a list of available scans from the database. Select the scan you want to review.
 
-**Option 2: Direct path (traditional method)**
-```bash
-python mundane.py review --export-root ~/.mundane/scans/<scan_name>
-```
-Jump directly to reviewing a specific scan directory.
+**Note:** The `--export-root` flag has been deprecated. All scans must be imported into the database first using `mundane import`.
 
 ---
 
@@ -363,13 +405,11 @@ Control database behavior with these environment variables:
 
 **Examples:**
 ```bash
-# Disable database entirely (legacy mode)
-export MUNDANE_USE_DB=0
-mundane review --export-root ./nessus_plugin_hosts
-
 # Use database-only mode (no JSON session files)
 export MUNDANE_DB_ONLY=1
-mundane review --export-root ./nessus_plugin_hosts
+mundane review
+
+**Note:** Database mode is now required for review. The `MUNDANE_USE_DB=0` legacy mode is no longer supported for review operations.
 ```
 
 **Note**: Dual-mode (default) ensures compatibility with existing workflows while enabling database features.
@@ -382,8 +422,8 @@ mundane review --export-root ./nessus_plugin_hosts
 # Import: export plugin files from a .nessus scan (then optionally review)
 python mundane.py import <scan.nessus> [--out-dir DIR] [--review]
 
-# Interactive review (main workflow)
-python mundane.py review --export-root ~/.mundane/scans/<scan_name> [--no-tools] [--custom-workflows PATH] [--custom-workflows-only PATH]
+# Interactive review (main workflow - requires database)
+mundane review [--no-tools] [--custom-workflows PATH] [--custom-workflows-only PATH]
 
 # Summarize a scan directory
 python mundane.py summary ./nessus_plugin_hosts/<ScanName> [--top-ports 10]
@@ -409,9 +449,9 @@ The `review` command supports custom workflow YAML files to extend or replace th
 
 ### Supplement mode (merge with defaults)
 ```bash
-python mundane.py review --export-root ./nessus_plugin_hosts --custom-workflows my_workflows.yaml
+mundane review --custom-workflows my_workflows.yaml
 # Short form:
-python mundane.py review --export-root ./nessus_plugin_hosts -w my_workflows.yaml
+mundane review -w my_workflows.yaml
 ```
 - Loads bundled workflows from `workflow_mappings.yaml`
 - Merges in custom workflows from specified file
@@ -420,7 +460,7 @@ python mundane.py review --export-root ./nessus_plugin_hosts -w my_workflows.yam
 
 ### Replace mode (ignore defaults)
 ```bash
-python mundane.py review --export-root ./nessus_plugin_hosts --custom-workflows-only my_workflows.yaml
+mundane review --custom-workflows-only my_workflows.yaml
 ```
 - Loads **only** custom workflows from specified file
 - Ignores bundled `workflow_mappings.yaml` entirely

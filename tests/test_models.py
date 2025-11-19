@@ -293,6 +293,263 @@ class TestPluginFileModel:
         retrieved = PluginFile.get_by_id(file_id, temp_db)
         assert retrieved.review_state == "pending"
 
+    def test_get_hosts_and_ports_empty(self, temp_db):
+        """Test get_hosts_and_ports returns empty when no hosts exist."""
+        # Setup
+        scan = Scan(scan_name="test_scan", export_root="/tmp")
+        scan_id = scan.save(temp_db)
+        plugin = Plugin(plugin_id=12345, plugin_name="Test", severity_int=2)
+        plugin.save(temp_db)
+
+        pf = PluginFile(
+            scan_id=scan_id,
+            plugin_id=12345,
+            file_path="/tmp/test/plugin.txt"
+        )
+        file_id = pf.save(temp_db)
+        pf.file_id = file_id
+
+        # Query hosts
+        hosts, ports_str = pf.get_hosts_and_ports(temp_db)
+
+        assert hosts == []
+        assert ports_str == ""
+
+    def test_get_hosts_and_ports_with_data(self, temp_db):
+        """Test get_hosts_and_ports retrieves hosts and ports from database."""
+        # Setup
+        scan = Scan(scan_name="test_scan", export_root="/tmp")
+        scan_id = scan.save(temp_db)
+        plugin = Plugin(plugin_id=12345, plugin_name="Test", severity_int=2)
+        plugin.save(temp_db)
+
+        pf = PluginFile(
+            scan_id=scan_id,
+            plugin_id=12345,
+            file_path="/tmp/test/plugin.txt",
+            host_count=3,
+            port_count=2
+        )
+        file_id = pf.save(temp_db)
+        pf.file_id = file_id
+
+        # Insert test data into plugin_file_hosts
+        temp_db.execute(
+            "INSERT INTO plugin_file_hosts (file_id, host, port, is_ipv4, is_ipv6) VALUES (?, ?, ?, ?, ?)",
+            (file_id, "192.168.1.1", 80, 1, 0)
+        )
+        temp_db.execute(
+            "INSERT INTO plugin_file_hosts (file_id, host, port, is_ipv4, is_ipv6) VALUES (?, ?, ?, ?, ?)",
+            (file_id, "192.168.1.1", 443, 1, 0)
+        )
+        temp_db.execute(
+            "INSERT INTO plugin_file_hosts (file_id, host, port, is_ipv4, is_ipv6) VALUES (?, ?, ?, ?, ?)",
+            (file_id, "192.168.1.2", 80, 1, 0)
+        )
+        temp_db.execute(
+            "INSERT INTO plugin_file_hosts (file_id, host, port, is_ipv4, is_ipv6) VALUES (?, ?, ?, ?, ?)",
+            (file_id, "example.com", 443, 0, 0)
+        )
+        temp_db.commit()
+
+        # Query hosts
+        hosts, ports_str = pf.get_hosts_and_ports(temp_db)
+
+        # Verify hosts (should be unique, IPs first)
+        assert len(hosts) == 3
+        assert "192.168.1.1" in hosts
+        assert "192.168.1.2" in hosts
+        assert "example.com" in hosts
+
+        # IPs should come before hostnames
+        ip_indices = [i for i, h in enumerate(hosts) if h.startswith("192.")]
+        hostname_indices = [i for i, h in enumerate(hosts) if h == "example.com"]
+        assert all(ip_idx < hostname_idx for ip_idx in ip_indices for hostname_idx in hostname_indices)
+
+        # Verify ports (sorted numerically)
+        assert ports_str == "80,443"
+
+    def test_get_hosts_and_ports_ipv6(self, temp_db):
+        """Test get_hosts_and_ports handles IPv6 addresses."""
+        # Setup
+        scan = Scan(scan_name="test_scan", export_root="/tmp")
+        scan_id = scan.save(temp_db)
+        plugin = Plugin(plugin_id=12345, plugin_name="Test", severity_int=2)
+        plugin.save(temp_db)
+
+        pf = PluginFile(
+            scan_id=scan_id,
+            plugin_id=12345,
+            file_path="/tmp/test/plugin.txt"
+        )
+        file_id = pf.save(temp_db)
+        pf.file_id = file_id
+
+        # Insert IPv6 data
+        temp_db.execute(
+            "INSERT INTO plugin_file_hosts (file_id, host, port, is_ipv4, is_ipv6) VALUES (?, ?, ?, ?, ?)",
+            (file_id, "2001:db8::1", 80, 0, 1)
+        )
+        temp_db.execute(
+            "INSERT INTO plugin_file_hosts (file_id, host, port, is_ipv4, is_ipv6) VALUES (?, ?, ?, ?, ?)",
+            (file_id, "192.168.1.1", 80, 1, 0)
+        )
+        temp_db.commit()
+
+        # Query hosts
+        hosts, ports_str = pf.get_hosts_and_ports(temp_db)
+
+        # IPv4 should come first due to ORDER BY is_ipv4 DESC
+        assert len(hosts) == 2
+        assert hosts[0] == "192.168.1.1"
+        assert hosts[1] == "2001:db8::1"
+        assert ports_str == "80"
+
+    def test_get_all_host_port_lines_empty(self, temp_db):
+        """Test get_all_host_port_lines returns empty list when no hosts."""
+        # Setup
+        scan = Scan(scan_name="test_scan", export_root="/tmp")
+        scan_id = scan.save(temp_db)
+        plugin = Plugin(plugin_id=12345, plugin_name="Test", severity_int=2)
+        plugin.save(temp_db)
+
+        pf = PluginFile(
+            scan_id=scan_id,
+            plugin_id=12345,
+            file_path="/tmp/test/plugin.txt"
+        )
+        file_id = pf.save(temp_db)
+        pf.file_id = file_id
+
+        # Query lines
+        lines = pf.get_all_host_port_lines(temp_db)
+
+        assert lines == []
+
+    def test_get_all_host_port_lines_with_data(self, temp_db):
+        """Test get_all_host_port_lines returns formatted host:port strings."""
+        # Setup
+        scan = Scan(scan_name="test_scan", export_root="/tmp")
+        scan_id = scan.save(temp_db)
+        plugin = Plugin(plugin_id=12345, plugin_name="Test", severity_int=2)
+        plugin.save(temp_db)
+
+        pf = PluginFile(
+            scan_id=scan_id,
+            plugin_id=12345,
+            file_path="/tmp/test/plugin.txt"
+        )
+        file_id = pf.save(temp_db)
+        pf.file_id = file_id
+
+        # Insert test data
+        temp_db.execute(
+            "INSERT INTO plugin_file_hosts (file_id, host, port, is_ipv4, is_ipv6) VALUES (?, ?, ?, ?, ?)",
+            (file_id, "192.168.1.1", 80, 1, 0)
+        )
+        temp_db.execute(
+            "INSERT INTO plugin_file_hosts (file_id, host, port, is_ipv4, is_ipv6) VALUES (?, ?, ?, ?, ?)",
+            (file_id, "192.168.1.1", 443, 1, 0)
+        )
+        temp_db.execute(
+            "INSERT INTO plugin_file_hosts (file_id, host, port, is_ipv4, is_ipv6) VALUES (?, ?, ?, ?, ?)",
+            (file_id, "example.com", 80, 0, 0)
+        )
+        temp_db.commit()
+
+        # Query lines
+        lines = pf.get_all_host_port_lines(temp_db)
+
+        # Verify format and sorting
+        assert len(lines) == 3
+        assert "192.168.1.1:80" in lines
+        assert "192.168.1.1:443" in lines
+        assert "example.com:80" in lines
+
+        # IPs should come before hostnames
+        ip_line_indices = [i for i, line in enumerate(lines) if line.startswith("192.")]
+        hostname_line_indices = [i for i, line in enumerate(lines) if line.startswith("example.")]
+        assert all(ip_idx < hostname_idx for ip_idx in ip_line_indices for hostname_idx in hostname_line_indices)
+
+    def test_get_all_host_port_lines_ipv6_bracketed(self, temp_db):
+        """Test get_all_host_port_lines adds brackets to IPv6 addresses."""
+        # Setup
+        scan = Scan(scan_name="test_scan", export_root="/tmp")
+        scan_id = scan.save(temp_db)
+        plugin = Plugin(plugin_id=12345, plugin_name="Test", severity_int=2)
+        plugin.save(temp_db)
+
+        pf = PluginFile(
+            scan_id=scan_id,
+            plugin_id=12345,
+            file_path="/tmp/test/plugin.txt"
+        )
+        file_id = pf.save(temp_db)
+        pf.file_id = file_id
+
+        # Insert IPv6 data (raw, without brackets)
+        temp_db.execute(
+            "INSERT INTO plugin_file_hosts (file_id, host, port, is_ipv4, is_ipv6) VALUES (?, ?, ?, ?, ?)",
+            (file_id, "2001:db8::1", 80, 0, 1)
+        )
+        temp_db.commit()
+
+        # Query lines
+        lines = pf.get_all_host_port_lines(temp_db)
+
+        # Should add brackets for IPv6
+        assert len(lines) == 1
+        assert lines[0] == "[2001:db8::1]:80"
+
+    def test_get_all_host_port_lines_no_port(self, temp_db):
+        """Test get_all_host_port_lines handles entries without ports."""
+        # Setup
+        scan = Scan(scan_name="test_scan", export_root="/tmp")
+        scan_id = scan.save(temp_db)
+        plugin = Plugin(plugin_id=12345, plugin_name="Test", severity_int=2)
+        plugin.save(temp_db)
+
+        pf = PluginFile(
+            scan_id=scan_id,
+            plugin_id=12345,
+            file_path="/tmp/test/plugin.txt"
+        )
+        file_id = pf.save(temp_db)
+        pf.file_id = file_id
+
+        # Insert data without port
+        temp_db.execute(
+            "INSERT INTO plugin_file_hosts (file_id, host, port, is_ipv4, is_ipv6) VALUES (?, ?, ?, ?, ?)",
+            (file_id, "192.168.1.1", None, 1, 0)
+        )
+        temp_db.commit()
+
+        # Query lines
+        lines = pf.get_all_host_port_lines(temp_db)
+
+        # Should just return host without port
+        assert len(lines) == 1
+        assert lines[0] == "192.168.1.1"
+
+    def test_get_hosts_and_ports_no_file_id(self, temp_db):
+        """Test get_hosts_and_ports handles unsaved PluginFile gracefully."""
+        pf = PluginFile()  # No file_id
+
+        hosts, ports_str = pf.get_hosts_and_ports(temp_db)
+
+        # Should return empty results and log error
+        assert hosts == []
+        assert ports_str == ""
+
+    def test_get_all_host_port_lines_no_file_id(self, temp_db):
+        """Test get_all_host_port_lines handles unsaved PluginFile gracefully."""
+        pf = PluginFile()  # No file_id
+
+        lines = pf.get_all_host_port_lines(temp_db)
+
+        # Should return empty list and log error
+        assert lines == []
+
 
 class TestToolExecutionModel:
     """Tests for ToolExecution model."""

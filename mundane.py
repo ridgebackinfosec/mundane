@@ -1357,15 +1357,19 @@ def process_single_file(
         show_severity: Whether to show severity label (for MSF mode)
         workflow_mapper: Optional workflow mapper for plugin workflows
     """
-    lines = read_text_lines(chosen)
-    tokens = [line for line in lines if line.strip()]
+    # Get hosts and ports from database instead of reading file
+    if plugin_file is not None:
+        hosts, ports_str = plugin_file.get_hosts_and_ports()
+    else:
+        # Fallback to file reading if database not available (backward compatibility)
+        lines = read_text_lines(chosen)
+        tokens = [line for line in lines if line.strip()]
+        hosts, ports_str = parse_hosts_ports(tokens) if tokens else ([], "")
 
-    if not tokens:
+    if not hosts:
         info("File is empty (no hosts found). This usually means the vulnerability doesn't affect any hosts.")
         skipped_total.append(chosen.name)
         return
-
-    hosts, ports_str = parse_hosts_ports(tokens)
 
     # Build Rich Panel preview
     content = Text()
@@ -1473,8 +1477,7 @@ def handle_file_list_actions(
     total_pages: int,
     reviewed: List[Any],  # List of (PluginFile, Plugin) tuples
     sev_map: Optional[Dict[Path, Path]] = None,
-    get_counts_for: Optional[Callable[[Path], Tuple[int, str]]] = None,
-    file_parse_cache: Optional[Dict[Path, Tuple[int, str]]] = None,
+    get_counts_for: Optional[Callable[["PluginFile"], Tuple[int, str]]] = None,
 ) -> ActionResult:
     """
     Handle file list actions (filter, sort, navigate, group, etc.).
@@ -1492,8 +1495,7 @@ def handle_file_list_actions(
         total_pages: Total number of pages
         reviewed: List of reviewed records
         sev_map: Map of file to severity dir (deprecated, unused)
-        get_counts_for: Function to get host counts for a Path
-        file_parse_cache: Cache of parsed file data (Path -> counts)
+        get_counts_for: Function to get host counts for a PluginFile (database-driven)
 
     Returns:
         Tuple of (action_type, file_filter, reviewed_filter,
@@ -1555,25 +1557,7 @@ def handle_file_list_actions(
         }.get(sort_mode, "Plugin ID ↑")
         ok(f"Sorting by {sort_label}")
 
-        # Pre-load host counts AFTER switching to hosts mode
-        if sort_mode == "hosts" and get_counts_for and file_parse_cache is not None:
-            # Extract Path objects from (PluginFile, Plugin) tuples
-            candidate_paths = [Path(pf.file_path) for pf, p in candidates]
-            missing = [path for path in candidate_paths if path not in file_parse_cache]
-            if missing:
-                with Progress(
-                    SpinnerColumn(style="cyan"),
-                    TextColumn("[progress.description]{task.description}"),
-                    TimeElapsedColumn(),
-                    console=_console_global,
-                    transient=True,
-                ) as progress:
-                    task = progress.add_task(
-                        "Counting hosts in files...", total=len(missing)
-                    )
-                    for path in missing:
-                        _ = get_counts_for(path)
-                        progress.advance(task)
+        # No need to pre-load host counts - they're already in the database!
 
         page_idx = 0
         return None, file_filter, reviewed_filter, group_filter, sort_mode, page_idx
@@ -2035,25 +2019,23 @@ def browse_file_list(
     reviewed_filter = ""
     group_filter: Optional[Tuple[int, set]] = None
     sort_mode = "plugin_id"  # Default sort by plugin ID
-    file_parse_cache: Dict[Path, Tuple[int, str]] = {}
     page_size = default_page_size()
     page_idx = 0
 
     # Derive scan_dir from scan object
     scan_dir = Path(scan.export_root) / scan.scan_name
 
-    def get_counts_for(path: Path) -> Tuple[int, str]:
-        """Get cached host/port counts for a file."""
-        if path in file_parse_cache:
-            return file_parse_cache[path]
-        try:
-            lines = read_text_lines(path)
-            hosts, ports_str = parse_hosts_ports(lines)
-            stats = (len(hosts), ports_str)
-        except Exception:
-            stats = (0, "")
-        file_parse_cache[path] = stats
-        return stats
+    def get_counts_for(plugin_file: "PluginFile") -> Tuple[int, str]:
+        """Get host/port counts from database.
+
+        Args:
+            plugin_file: PluginFile database object
+
+        Returns:
+            Tuple of (host_count, ports_string) - uses pre-computed database fields
+        """
+        # Use pre-computed counts from database (populated during import)
+        return (plugin_file.host_count or 0, "")
 
     while True:
         # Query database for files with plugin info
@@ -2085,7 +2067,7 @@ def browse_file_list(
         if sort_mode == "hosts":
             display = sorted(
                 candidates,
-                key=lambda record: (-get_counts_for(Path(record[0].file_path))[0], natural_key(Path(record[0].file_path).name)),
+                key=lambda record: (-get_counts_for(record[0])[0], natural_key(Path(record[0].file_path).name)),
             )
         elif sort_mode == "plugin_id":
             # Sort by plugin ID (numeric ascending)
@@ -2161,7 +2143,6 @@ def browse_file_list(
             reviewed,
             None,  # sev_map no longer used
             get_counts_for,
-            file_parse_cache,
         )
 
         (

@@ -118,7 +118,7 @@ def mark_review_complete(plugin_file) -> bool:
         return True
 
     except Exception as e:
-        from .logger import log_error
+        from .logging_setup import log_error
         log_error(f"Failed to mark file as review complete: {e}")
         err(f"Failed to mark as review complete: {e}")
         return False
@@ -148,7 +148,7 @@ def undo_review_complete(plugin_file) -> bool:
         return True
 
     except Exception as e:
-        from .logger import log_error
+        from .logging_setup import log_error
         log_error(f"Failed to undo review complete: {e}")
         err(f"Failed to undo review complete: {e}")
         return False

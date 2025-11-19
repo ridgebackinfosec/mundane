@@ -1747,8 +1747,7 @@ def handle_file_list_actions(
             )
 
         confirm_msg = (
-            f"You are about to rename {len(candidates)} files with "
-            f"prefix 'REVIEW_COMPLETE-'.\n"
+            f"You are about to mark {len(candidates)} items as review completed.\n"
             "Type 'mark' to confirm, or anything else to cancel: "
         )
         confirm = input(f"{C.RED}{confirm_msg}{C.RESET}").strip().lower()

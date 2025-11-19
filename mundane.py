@@ -713,14 +713,35 @@ def _hosts_only_paged_text(path: Path) -> str:
 # === File viewing workflow ===
 
 
-def handle_file_view(chosen: Path, plugin_url: Optional[str] = None, workflow_mapper: Optional[WorkflowMapper] = None) -> None:
+def handle_file_view(
+    chosen: Path,
+    plugin_url: Optional[str] = None,
+    workflow_mapper: Optional[WorkflowMapper] = None,
+    scan_dir: Optional[Path] = None,
+    sev_dir: Optional[Path] = None,
+    hosts: Optional[List[str]] = None,
+    ports_str: Optional[str] = None,
+    args: Any = None,
+    use_sudo: bool = False,
+) -> Optional[str]:
     """
-    Interactive file viewing menu (raw/grouped/hosts-only/copy/CVE info/workflow).
+    Interactive file viewing menu (raw/grouped/hosts-only/copy/CVE info/workflow/tool/mark).
 
     Args:
         chosen: Plugin file to view
         plugin_url: Optional Tenable plugin URL for CVE extraction
         workflow_mapper: Optional workflow mapper for plugin workflows
+        scan_dir: Scan directory for tool workflow
+        sev_dir: Severity directory for tool workflow
+        hosts: List of target hosts for tool workflow
+        ports_str: Comma-separated ports for tool workflow
+        args: CLI arguments for tool workflow
+        use_sudo: Whether to use sudo for tools
+
+    Returns:
+        "back": User wants to go back to file selection
+        "mark_complete": File was marked as reviewed
+        None: Continue normally
     """
     # Check if workflow is available
     has_workflow = False
@@ -730,7 +751,7 @@ def handle_file_view(chosen: Path, plugin_url: Optional[str] = None, workflow_ma
 
     # Loop to allow multiple actions on the same file
     while True:
-        # Step 1: Ask if user wants to view, copy, see CVE info, or see workflow
+        # Build action menu with all available options
         from rich.text import Text
         action_text = Text()
         action_text.append("[V] ", style="cyan")
@@ -744,20 +765,50 @@ def handle_file_view(chosen: Path, plugin_url: Optional[str] = None, workflow_ma
             action_text.append("[W] ", style="cyan")
             action_text.append("Workflow", style=None)
         action_text.append(" / ", style=None)
-        action_text.append("[Enter] ", style="cyan")
-        action_text.append("Continue", style=None)
+        action_text.append("[B] ", style="cyan")
+        action_text.append("Back / ", style=None)
+        action_text.append("[T] ", style="cyan")
+        action_text.append("Run tool / ", style=None)
+        action_text.append("[M] ", style="cyan")
+        action_text.append("Mark reviewed", style=None)
 
         print(f"{C.CYAN}>> {C.RESET}", end="")
         _console.print(action_text)
         try:
             action_choice = input("Choose action: ").strip().lower()
         except KeyboardInterrupt:
-            # User cancelled - just return to continue file processing
-            return
+            # User cancelled - treat as back
+            return "back"
 
+        # Handle Back action
+        if action_choice in ("b", "back"):
+            return "back"
+
+        # Handle Mark reviewed action
+        if action_choice in ("m", "mark"):
+            from mundane_pkg.fs import rename_review_complete
+            try:
+                rename_review_complete(chosen, conn=None)
+                ok(f"Marked as REVIEW_COMPLETE: {chosen.name}")
+                return "mark_complete"
+            except Exception as exc:
+                warn(f"Failed to mark file: {exc}")
+                continue
+
+        # Handle Run tool action
+        if action_choice in ("t", "tool"):
+            if scan_dir is None or sev_dir is None or hosts is None or args is None:
+                warn("Tool execution not available in this context.")
+                continue
+
+            # Run tool workflow
+            run_tool_workflow(chosen, scan_dir, sev_dir, hosts, ports_str or "", args, use_sudo)
+            # After tool completes, loop back to show menu again
+            continue
+
+        # Legacy support for Enter/skip - treat as back
         if action_choice in ("", "n", "none", "skip"):
-            # User pressed Enter - break loop and proceed to tool prompt
-            break
+            return "back"
 
         # Handle workflow option
         if action_choice in ("w", "workflow"):
@@ -1364,55 +1415,32 @@ def process_single_file(
     _console_global.print()  # Blank line before panel
     _console_global.print(panel)
 
-    # View file
-    handle_file_view(chosen, plugin_url=plugin_url, workflow_mapper=workflow_mapper)
-
-    completion_decided = False
-
-    if args.no_tools:
-        info("(no-tools mode active — skipping tool selection)")
-        try:
-            if yesno("Mark this file as REVIEW_COMPLETE?", default="n"):
-                newp = rename_review_complete(chosen)
-                completed_total.append(newp.name if newp != chosen else chosen.name)
-            else:
-                reviewed_total.append(chosen.name)
-            completion_decided = True
-        except KeyboardInterrupt:
-            pass
-        return
-
-    try:
-        do_scan = yesno("\nRun a tool now?", default="n")
-    except KeyboardInterrupt:
-        return
-
-    if not do_scan:
-        try:
-            if yesno("Mark this file as REVIEW_COMPLETE?", default="n"):
-                newp = rename_review_complete(chosen)
-                completed_total.append(newp.name if newp != chosen else chosen.name)
-            else:
-                reviewed_total.append(chosen.name)
-            completion_decided = True
-        except KeyboardInterrupt:
-            pass
-        return
-
-    # Run tool workflow
-    _tool_used = run_tool_workflow(
-        chosen, scan_dir, sev_dir, hosts, ports_str, args, use_sudo
+    # View file and handle actions
+    result = handle_file_view(
+        chosen,
+        plugin_url=plugin_url,
+        workflow_mapper=workflow_mapper,
+        scan_dir=scan_dir,
+        sev_dir=sev_dir,
+        hosts=hosts,
+        ports_str=ports_str,
+        args=args,
+        use_sudo=use_sudo,
     )
 
-    if not completion_decided:
-        try:
-            if yesno("Mark this file as REVIEW_COMPLETE?", default="n"):
-                newp = rename_review_complete(chosen)
-                completed_total.append(newp.name if newp != chosen else chosen.name)
-            else:
-                reviewed_total.append(chosen.name)
-        except KeyboardInterrupt:
-            pass
+    # Handle result from file view
+    if result == "back":
+        # User chose to go back - add to reviewed list
+        reviewed_total.append(chosen.name)
+        return
+    elif result == "mark_complete":
+        # File was marked as reviewed
+        completed_total.append(chosen.name)
+        return
+    else:
+        # Implicit completion - add to reviewed list
+        reviewed_total.append(chosen.name)
+        return
 
 
 # === File list action handler ===

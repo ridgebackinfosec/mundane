@@ -10,7 +10,6 @@ import pytest
 
 from mundane_pkg.session import (
     SessionState,
-    get_session_file_path,
     save_session,
     load_session,
     delete_session,
@@ -93,30 +92,6 @@ class TestSessionState:
         assert len(state.reviewed_files) == 0
         assert len(state.completed_files) == 0
         assert len(state.skipped_files) == 0
-
-
-class TestGetSessionFilePath:
-    """Tests for get_session_file_path function."""
-
-    def test_get_session_file_path(self, temp_dir):
-        """Test session file path generation."""
-        scan_dir = temp_dir / "test_scan"
-        scan_dir.mkdir()
-
-        session_file = get_session_file_path(scan_dir)
-
-        assert session_file == scan_dir / ".session.json"
-        assert session_file.parent == scan_dir
-
-    def test_get_session_file_path_nested(self, temp_dir):
-        """Test session file path for nested directories."""
-        scan_dir = temp_dir / "scans" / "myscan" / "test"
-        scan_dir.mkdir(parents=True)
-
-        session_file = get_session_file_path(scan_dir)
-
-        assert session_file.name == ".session.json"
-        assert session_file.parent == scan_dir
 
 
 class TestSaveSession:

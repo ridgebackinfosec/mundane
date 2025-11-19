@@ -1971,6 +1971,7 @@ def browse_file_list(
     workflow_mapper: Optional[WorkflowMapper] = None,
     has_metasploit_filter: Optional[bool] = None,
     plugin_ids_filter: Optional[list[int]] = None,
+    severity_dirs_filter: Optional[list[str]] = None,
 ) -> None:
     """
     Browse and interact with file list (unified for severity and MSF modes).
@@ -2021,6 +2022,7 @@ def browse_file_list(
         all_records = PluginFile.get_by_scan_with_plugin(
             scan_id=scan.scan_id,
             severity_dir=severity_dir_filter,
+            severity_dirs=severity_dirs_filter,
             has_metasploit=has_metasploit_filter,
             plugin_ids=plugin_ids_filter,
         )
@@ -2684,12 +2686,12 @@ def main(args: types.SimpleNamespace) -> None:
 
                 combined_label = " + ".join(sev_labels)
 
-                # For multi-severity selection, query all files and filter in-memory
-                # This is acceptable since the dataset is already filtered by scan_id
+                # For multi-severity selection, pass list of severity directories to filter
+                severity_dir_names = [sev.name for sev in selected_sev_dirs]
                 browse_file_list(
                     selected_scan,
                     selected_sev_dirs[0] if selected_sev_dirs else None,
-                    None,  # No severity filter - query all to allow multi-severity
+                    None,  # Single severity filter not used for multi-severity
                     combined_label,
                     args,
                     use_sudo,
@@ -2698,6 +2700,7 @@ def main(args: types.SimpleNamespace) -> None:
                     completed_total,
                     is_msf_mode=True,  # Show severity labels for each file
                     workflow_mapper=workflow_mapper,
+                    severity_dirs_filter=severity_dir_names,
                 )
                 
             # === Single severity selected (normal or MSF only) ===

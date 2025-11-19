@@ -385,6 +385,7 @@ class PluginFile:
         cls,
         scan_id: int,
         severity_dir: Optional[str] = None,
+        severity_dirs: Optional[list[str]] = None,
         review_state: Optional[str] = None,
         plugin_name_filter: Optional[str] = None,
         has_metasploit: Optional[bool] = None,
@@ -395,7 +396,8 @@ class PluginFile:
 
         Args:
             scan_id: Scan ID to filter by
-            severity_dir: Optional severity directory filter (e.g., "3_High")
+            severity_dir: Optional single severity directory filter (e.g., "3_High")
+            severity_dirs: Optional list of severity directories to filter by (e.g., ["1_Critical", "2_High"])
             review_state: Optional review state filter ('pending', 'completed', etc.)
             plugin_name_filter: Optional case-insensitive substring to match plugin names
             has_metasploit: Optional filter for metasploit plugins
@@ -426,6 +428,10 @@ class PluginFile:
             if severity_dir is not None:
                 query += " AND pf.severity_dir = ?"
                 params.append(severity_dir)
+            elif severity_dirs is not None and len(severity_dirs) > 0:
+                placeholders = ",".join("?" * len(severity_dirs))
+                query += f" AND pf.severity_dir IN ({placeholders})"
+                params.extend(severity_dirs)
 
             if review_state is not None:
                 query += " AND pf.review_state = ?"

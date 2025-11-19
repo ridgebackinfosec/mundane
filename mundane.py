@@ -756,9 +756,7 @@ def handle_file_view(
         action_text.append("[V] ", style="cyan")
         action_text.append("View file / ", style=None)
         action_text.append("[E] ", style="cyan")
-        action_text.append("CVE info / ", style=None)
-        action_text.append("[C] ", style="cyan")
-        action_text.append("Copy to clipboard", style=None)
+        action_text.append("CVE info", style=None)
         if has_workflow:
             action_text.append(" / ", style=None)
             action_text.append("[W] ", style="cyan")
@@ -858,38 +856,46 @@ def handle_file_view(
 
             continue
 
-        # Step 2: Ask for format (applies to both view and copy)
-        format_prompt = "Format: [R]aw / [G]rouped (host:port) / [H]osts only (default=G): "
+        # Handle View file action
+        if not action_choice in ("v", "view"):
+            warn("Invalid action choice.")
+            continue
+
+        # Step 2: Ask for format (only applies to view now)
+        print_action_menu([
+            ("R", "Raw"),
+            ("G", "Grouped (host:port)"),
+            ("H", "Hosts only")
+        ])
         try:
-            format_choice = input(format_prompt).strip().lower()
+            format_choice = input("Choose format (default=G): ").strip().lower()
         except KeyboardInterrupt:
             return
 
         # Default to grouped
         if format_choice in ("", "g", "grouped"):
-            if action_choice in ("v", "view"):
-                text = _grouped_paged_text(chosen)
-                menu_pager(text)
-            elif action_choice in ("c", "copy"):
-                payload = _grouped_payload_text(chosen)
+            text = _grouped_paged_text(chosen)
+            payload = _grouped_payload_text(chosen)
         elif format_choice in ("h", "hosts", "hosts-only"):
-            if action_choice in ("v", "view"):
-                text = _hosts_only_paged_text(chosen)
-                menu_pager(text)
-            elif action_choice in ("c", "copy"):
-                payload = _hosts_only_payload_text(chosen)
+            text = _hosts_only_paged_text(chosen)
+            payload = _hosts_only_payload_text(chosen)
         elif format_choice in ("r", "raw"):
-            if action_choice in ("v", "view"):
-                text = _file_raw_paged_text(chosen)
-                menu_pager(text)
-            elif action_choice in ("c", "copy"):
-                payload = _file_raw_payload_text(chosen)
+            text = _file_raw_paged_text(chosen)
+            payload = _file_raw_payload_text(chosen)
         else:
             warn("Invalid format choice.")
             continue
 
-        # Step 3: If copying, execute the clipboard operation
-        if action_choice in ("c", "copy"):
+        # Step 3: Display file content
+        menu_pager(text)
+
+        # Step 4: Offer to copy to clipboard
+        try:
+            copy_choice = input("Copy to clipboard? [Y/N]: ").strip().lower()
+        except KeyboardInterrupt:
+            continue
+
+        if copy_choice in ("y", "yes"):
             ok_flag, detail = copy_to_clipboard(payload)
             if ok_flag:
                 ok("Copied to clipboard.")

@@ -32,9 +32,8 @@ from .render import (
 )
 from .fs import (
     list_dirs, list_files, read_text_lines, safe_print_file,
-    build_results_paths, is_review_complete, is_reviewed_filename,
-    rename_review_complete, undo_review_complete, default_page_size,
-    pretty_severity_label, write_work_files
+    build_results_paths, mark_review_complete, undo_review_complete,
+    default_page_size, pretty_severity_label, write_work_files
 )
 from .tools import (
     build_nmap_cmd, build_netexec_cmd,

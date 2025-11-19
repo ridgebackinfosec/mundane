@@ -67,9 +67,6 @@ from mundane_pkg import (
     read_text_lines,
     safe_print_file,
     build_results_paths,
-    is_reviewed_filename,
-    rename_review_complete,
-    undo_review_complete,
     write_work_files,
     # tools:
     build_nmap_cmd,
@@ -114,7 +111,7 @@ from collections import Counter
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from mundane_pkg.models import Plugin
+    from mundane_pkg.models import Plugin, PluginFile
 
 # === Third-party imports ===
 import typer
@@ -715,6 +712,7 @@ def _hosts_only_paged_text(path: Path) -> str:
 
 def handle_file_view(
     chosen: Path,
+    plugin_file: Optional["PluginFile"] = None,
     plugin_url: Optional[str] = None,
     workflow_mapper: Optional[WorkflowMapper] = None,
     scan_dir: Optional[Path] = None,
@@ -729,6 +727,7 @@ def handle_file_view(
 
     Args:
         chosen: Plugin file to view
+        plugin_file: PluginFile database object (None if database not available)
         plugin_url: Optional Tenable plugin URL for CVE extraction
         workflow_mapper: Optional workflow mapper for plugin workflows
         scan_dir: Scan directory for tool workflow
@@ -786,11 +785,13 @@ def handle_file_view(
 
         # Handle Mark reviewed action
         if action_choice in ("m", "mark"):
-            from mundane_pkg.fs import rename_review_complete
+            from mundane_pkg.fs import mark_review_complete
+            if plugin_file is None:
+                warn("Database not available - cannot mark file as reviewed")
+                continue
             try:
-                rename_review_complete(chosen)
-                ok(f"Marked as REVIEW_COMPLETE: {chosen.name}")
-                return "mark_complete"
+                if mark_review_complete(plugin_file):
+                    return "mark_complete"
             except Exception as exc:
                 warn(f"Failed to mark file: {exc}")
                 continue
@@ -1322,6 +1323,7 @@ def run_tool_workflow(
 def process_single_file(
     chosen: Path,
     plugin: "Plugin",
+    plugin_file: Optional["PluginFile"],
     scan_dir: Path,
     sev_dir: Path,
     args: types.SimpleNamespace,
@@ -1337,6 +1339,8 @@ def process_single_file(
 
     Args:
         chosen: Selected plugin file
+        plugin: Plugin metadata object
+        plugin_file: PluginFile database object (None if database not available)
         scan_dir: Scan directory
         sev_dir: Severity directory
         args: Command-line arguments
@@ -1418,6 +1422,7 @@ def process_single_file(
     # View file and handle actions
     result = handle_file_view(
         chosen,
+        plugin_file=plugin_file,
         plugin_url=plugin_url,
         workflow_mapper=workflow_mapper,
         scan_dir=scan_dir,
@@ -1666,9 +1671,9 @@ def handle_file_list_actions(
                     )
 
             # Undo each file (lists will be regenerated on next loop)
+            from mundane_pkg.fs import undo_review_complete
             for plugin_file, plugin in files_to_undo:
-                file_path = Path(plugin_file.file_path)
-                undo_review_complete(file_path)
+                undo_review_complete(plugin_file)
 
             return (
                 None,
@@ -2169,7 +2174,8 @@ def browse_file_list(
             continue
         elif action_type == "mark_all":
             # Handle bulk marking here where we have access to completed_total
-            renamed = 0
+            from mundane_pkg.fs import mark_review_complete
+            marked = 0
             with Progress(
                 SpinnerColumn(style="cyan"),
                 TextColumn("[progress.description]{task.description}"),
@@ -2178,16 +2184,14 @@ def browse_file_list(
                 transient=True,
             ) as progress:
                 task = progress.add_task(
-                    "Marking files as REVIEW_COMPLETE...", total=len(candidates)
+                    "Marking files as review complete...", total=len(candidates)
                 )
                 for plugin_file, plugin in candidates:
-                    file_path = Path(plugin_file.file_path)
-                    newp = rename_review_complete(file_path)
-                    if newp != file_path or is_reviewed_filename(newp.name):
-                        renamed += 1
-                        completed_total.append(newp.name)
+                    if mark_review_complete(plugin_file):
+                        marked += 1
+                        completed_total.append(Path(plugin_file.file_path).name)
                     progress.advance(task)
-            ok(f"Summary: {renamed} renamed, {len(candidates)-renamed} skipped.")
+            ok(f"Summary: {marked} marked, {len(candidates)-marked} skipped.")
             continue
         elif action_type == "file_selected":
             # Determine which record was selected
@@ -2206,6 +2210,7 @@ def browse_file_list(
             process_single_file(
                 chosen_path,
                 plugin,
+                plugin_file,
                 scan_dir,
                 chosen_sev_dir,
                 args,

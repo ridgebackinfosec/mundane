@@ -302,34 +302,19 @@ def count_reviewed_in_scan(
 
     Args:
         scan_dir: Path to the scan directory
-        scan_id: Optional scan ID for database queries (if None, falls back to filesystem)
+        scan_id: Optional scan ID for database queries (required for review counts)
 
     Returns:
         Tuple of (total_files, reviewed_files)
     """
-    # If scan_id provided, use database
+    # Database is required for review state tracking
     if scan_id is not None:
         from .models import PluginFile
         return PluginFile.count_by_scan(scan_id)
 
-    # Fallback to filesystem
+    # Fallback: count files but no review state available
     total_files = 0
-    reviewed_files = 0
     for severity_dir in list_dirs(scan_dir):
         files = [f for f in list_files(severity_dir) if f.suffix.lower() == ".txt"]
         total_files += len(files)
-        reviewed = [
-            f
-            for f in files
-            if f.name.lower().startswith(
-                (
-                    "review_complete",
-                    "review-complete",
-                    "review_complete-",
-                    "review-complete-",
-                )
-            )
-        ]
-        reviewed = list(dict.fromkeys(reviewed))
-        reviewed_files += len(reviewed)
-    return total_files, reviewed_files
+    return total_files, 0  # All files treated as unreviewed when no database

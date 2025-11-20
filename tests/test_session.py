@@ -1,10 +1,7 @@
-"""Tests for mundane_pkg.session module."""
+"""Tests for mundane_pkg.session module (database-only mode)."""
 
-import json
-import os
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -53,123 +50,64 @@ class TestSessionState:
     def test_session_state_creation(self):
         """Test creating SessionState with all fields."""
         state = SessionState(
-            scan_dir="/tmp/test_scan",
+            scan_name="test_scan",
             session_start="2024-01-15T10:30:00",
-            reviewed_files=["file1.txt", "file2.txt"],
-            completed_files=["file3.txt"],
-            skipped_files=["empty.txt"],
+            reviewed_count=2,
+            completed_count=1,
+            skipped_count=1,
             tool_executions=5,
-            cve_extractions=2,
-            last_updated="2024-01-15T11:00:00"
+            cve_extractions=2
         )
 
-        assert state.scan_dir == "/tmp/test_scan"
-        assert len(state.reviewed_files) == 2
-        assert len(state.completed_files) == 1
-        assert len(state.skipped_files) == 1
+        assert state.scan_name == "test_scan"
+        assert state.reviewed_count == 2
+        assert state.completed_count == 1
+        assert state.skipped_count == 1
         assert state.tool_executions == 5
         assert state.cve_extractions == 2
 
-    def test_session_state_empty_lists(self):
-        """Test SessionState with empty lists."""
+    def test_session_state_empty_counts(self):
+        """Test SessionState with zero counts."""
         state = SessionState(
-            scan_dir="/tmp/scan",
+            scan_name="empty_scan",
             session_start="2024-01-15T10:00:00",
-            reviewed_files=[],
-            completed_files=[],
-            skipped_files=[],
+            reviewed_count=0,
+            completed_count=0,
+            skipped_count=0,
             tool_executions=0,
-            cve_extractions=0,
-            last_updated="2024-01-15T10:00:00"
+            cve_extractions=0
         )
 
-        assert len(state.reviewed_files) == 0
-        assert len(state.completed_files) == 0
-        assert len(state.skipped_files) == 0
+        assert state.reviewed_count == 0
+        assert state.completed_count == 0
+        assert state.skipped_count == 0
 
 
 class TestSaveSession:
     """Tests for save_session function."""
 
-    def test_save_session_basic(self, temp_dir, temp_db):
-        """Test basic session save (dual-mode: DB + JSON)."""
-        scan_dir = temp_dir / "test_scan"
-        scan_dir.mkdir()
+    def test_save_session_basic(self, temp_db):
+        """Test basic session save to database."""
+        from mundane_pkg.models import Scan
+
+        # Create scan in database
+        scan = Scan(scan_name="test_scan", export_root="/tmp")
+        scan_id = scan.save(temp_db)
 
         session_start = datetime(2024, 1, 15, 10, 30, 0)
-        reviewed = ["file1.txt", "file2.txt"]
-        completed = ["file3.txt"]
-        skipped = ["empty.txt"]
 
-        save_session(
-            scan_dir,
-            session_start,
-            reviewed,
-            completed,
-            skipped,
+        # Save session
+        session_id = save_session(
+            scan_id=scan_id,
+            session_start=session_start,
+            reviewed_count=2,
+            completed_count=1,
+            skipped_count=1,
             tool_executions=5,
             cve_extractions=2
         )
 
-        # Verify JSON file was created
-        session_file = scan_dir / ".session.json"
-        assert session_file.exists()
-
-        # Verify JSON contents
-        with open(session_file, "r") as f:
-            data = json.load(f)
-
-        assert data["scan_dir"] == str(scan_dir)
-        assert data["reviewed_files"] == reviewed
-        assert data["completed_files"] == completed
-        assert data["skipped_files"] == skipped
-        assert data["tool_executions"] == 5
-        assert data["cve_extractions"] == 2
-        assert "session_start" in data
-        assert "last_updated" in data
-
-    def test_save_session_creates_scan_in_db(self, temp_dir, temp_db):
-        """Test that save_session creates scan entry in database."""
-        scan_dir = temp_dir / "new_scan"
-        scan_dir.mkdir()
-
-        session_start = datetime(2024, 1, 15, 10, 0, 0)
-
-        save_session(
-            scan_dir,
-            session_start,
-            reviewed_files=["test.txt"],
-            completed_files=[],
-            skipped_files=[]
-        )
-
-        # Verify scan was created in database
-        cursor = temp_db.execute(
-            "SELECT scan_name, export_root FROM scans WHERE scan_name = ?",
-            (scan_dir.name,)
-        )
-        row = cursor.fetchone()
-
-        assert row is not None
-        assert row["scan_name"] == scan_dir.name
-        assert row["export_root"] == str(scan_dir.parent)
-
-    def test_save_session_creates_session_in_db(self, temp_dir, temp_db):
-        """Test that save_session creates session entry in database."""
-        scan_dir = temp_dir / "test_scan"
-        scan_dir.mkdir()
-
-        session_start = datetime(2024, 1, 15, 10, 0, 0)
-
-        save_session(
-            scan_dir,
-            session_start,
-            reviewed_files=["f1.txt", "f2.txt"],
-            completed_files=["f3.txt"],
-            skipped_files=["f4.txt"],
-            tool_executions=3,
-            cve_extractions=1
-        )
+        assert session_id is not None
 
         # Verify session in database
         cursor = temp_db.execute(
@@ -177,10 +115,9 @@ class TestSaveSession:
             SELECT s.files_reviewed, s.files_completed, s.files_skipped,
                    s.tools_executed, s.cves_extracted, s.session_end
             FROM sessions s
-            JOIN scans sc ON s.scan_id = sc.scan_id
-            WHERE sc.scan_name = ?
+            WHERE s.scan_id = ? AND s.session_id = ?
             """,
-            (scan_dir.name,)
+            (scan_id, session_id)
         )
         row = cursor.fetchone()
 
@@ -188,344 +125,434 @@ class TestSaveSession:
         assert row["files_reviewed"] == 2
         assert row["files_completed"] == 1
         assert row["files_skipped"] == 1
-        assert row["tools_executed"] == 3
-        assert row["cves_extracted"] == 1
+        assert row["tools_executed"] == 5
+        assert row["cves_extracted"] == 2
         assert row["session_end"] is None  # Active session
 
-    def test_save_session_updates_existing_session(self, temp_dir, temp_db):
+    def test_save_session_updates_scan_last_reviewed(self, temp_db):
+        """Test that save_session updates scan's last_reviewed_at."""
+        from mundane_pkg.models import Scan
+
+        # Create scan
+        scan = Scan(scan_name="test_scan", export_root="/tmp")
+        scan_id = scan.save(temp_db)
+
+        # Verify last_reviewed_at is initially None
+        cursor = temp_db.execute("SELECT last_reviewed_at FROM scans WHERE scan_id = ?", (scan_id,))
+        assert cursor.fetchone()["last_reviewed_at"] is None
+
+        # Save session
+        session_start = datetime(2024, 1, 15, 10, 0, 0)
+        save_session(scan_id=scan_id, session_start=session_start, reviewed_count=1)
+
+        # Verify last_reviewed_at is now set
+        cursor = temp_db.execute("SELECT last_reviewed_at FROM scans WHERE scan_id = ?", (scan_id,))
+        last_reviewed = cursor.fetchone()["last_reviewed_at"]
+        assert last_reviewed is not None
+
+    def test_save_session_updates_existing_session(self, temp_db):
         """Test that save_session updates existing active session."""
-        scan_dir = temp_dir / "test_scan"
-        scan_dir.mkdir()
+        from mundane_pkg.models import Scan
+
+        # Create scan
+        scan = Scan(scan_name="test_scan", export_root="/tmp")
+        scan_id = scan.save(temp_db)
 
         session_start = datetime(2024, 1, 15, 10, 0, 0)
 
         # First save
-        save_session(
-            scan_dir,
-            session_start,
-            reviewed_files=["f1.txt"],
-            completed_files=[],
-            skipped_files=[],
+        session_id_1 = save_session(
+            scan_id=scan_id,
+            session_start=session_start,
+            reviewed_count=1,
+            completed_count=0,
+            skipped_count=0,
             tool_executions=1,
             cve_extractions=0
         )
 
-        # Second save (should update)
-        save_session(
-            scan_dir,
-            session_start,
-            reviewed_files=["f1.txt", "f2.txt"],
-            completed_files=["f3.txt"],
-            skipped_files=["f4.txt"],
+        # Second save (should update, not create new)
+        session_id_2 = save_session(
+            scan_id=scan_id,
+            session_start=session_start,
+            reviewed_count=3,
+            completed_count=2,
+            skipped_count=1,
             tool_executions=5,
             cve_extractions=2
         )
 
-        # Verify only one session exists with updated counts
+        # Should return same session_id
+        assert session_id_1 == session_id_2
+
+        # Verify only one active session exists with updated counts
         cursor = temp_db.execute(
             """
-            SELECT COUNT(*) as count, MAX(files_reviewed) as reviewed,
-                   MAX(tools_executed) as tools
-            FROM sessions s
-            JOIN scans sc ON s.scan_id = sc.scan_id
-            WHERE sc.scan_name = ? AND s.session_end IS NULL
+            SELECT COUNT(*) as count, files_reviewed, files_completed, tools_executed
+            FROM sessions
+            WHERE scan_id = ? AND session_end IS NULL
             """,
-            (scan_dir.name,)
+            (scan_id,)
         )
         row = cursor.fetchone()
 
         assert row["count"] == 1
-        assert row["reviewed"] == 2
-        assert row["tools"] == 5
+        assert row["files_reviewed"] == 3
+        assert row["files_completed"] == 2
+        assert row["tools_executed"] == 5
 
-    def test_save_session_with_empty_lists(self, temp_dir, temp_db):
-        """Test saving session with all empty lists."""
-        scan_dir = temp_dir / "empty_scan"
-        scan_dir.mkdir()
+    def test_save_session_with_zero_counts(self, temp_db):
+        """Test saving session with all zero counts."""
+        from mundane_pkg.models import Scan
+
+        # Create scan
+        scan = Scan(scan_name="empty_scan", export_root="/tmp")
+        scan_id = scan.save(temp_db)
 
         session_start = datetime(2024, 1, 15, 10, 0, 0)
 
-        save_session(
-            scan_dir,
-            session_start,
-            reviewed_files=[],
-            completed_files=[],
-            skipped_files=[],
+        # Save session with zeros
+        session_id = save_session(
+            scan_id=scan_id,
+            session_start=session_start,
+            reviewed_count=0,
+            completed_count=0,
+            skipped_count=0,
             tool_executions=0,
             cve_extractions=0
         )
 
-        # Verify JSON
-        session_file = scan_dir / ".session.json"
-        assert session_file.exists()
+        assert session_id is not None
 
-        with open(session_file, "r") as f:
-            data = json.load(f)
-
-        assert data["reviewed_files"] == []
-        assert data["completed_files"] == []
-        assert data["skipped_files"] == []
-
-    def test_save_session_handles_missing_directory(self, temp_dir, temp_db):
-        """Test that save_session handles missing scan directory gracefully."""
-        scan_dir = temp_dir / "nonexistent_scan"
-        # Don't create the directory
-
-        session_start = datetime(2024, 1, 15, 10, 0, 0)
-
-        # Should not raise exception (logs error internally)
-        save_session(
-            scan_dir,
-            session_start,
-            reviewed_files=["test.txt"],
-            completed_files=[],
-            skipped_files=[]
+        # Verify database
+        cursor = temp_db.execute(
+            "SELECT files_reviewed, files_completed, files_skipped FROM sessions WHERE session_id = ?",
+            (session_id,)
         )
+        row = cursor.fetchone()
 
-        # JSON file should not exist
-        session_file = scan_dir / ".session.json"
-        assert not session_file.exists()
+        assert row["files_reviewed"] == 0
+        assert row["files_completed"] == 0
+        assert row["files_skipped"] == 0
 
 
 class TestLoadSession:
     """Tests for load_session function."""
 
-    def test_load_session_success(self, temp_dir):
-        """Test loading valid session file."""
-        scan_dir = temp_dir / "test_scan"
-        scan_dir.mkdir()
+    def test_load_session_success(self, temp_db):
+        """Test loading active session from database."""
+        from mundane_pkg.models import Scan, Plugin, PluginFile
 
-        # Create session file
-        session_data = {
-            "scan_dir": str(scan_dir),
-            "session_start": "2024-01-15T10:30:00",
-            "reviewed_files": ["file1.txt", "file2.txt"],
-            "completed_files": ["file3.txt"],
-            "skipped_files": ["empty.txt"],
-            "tool_executions": 5,
-            "cve_extractions": 2,
-            "last_updated": "2024-01-15T11:00:00"
-        }
+        # Create scan
+        scan = Scan(scan_name="test_scan", export_root="/tmp")
+        scan_id = scan.save(temp_db)
 
-        session_file = scan_dir / ".session.json"
-        with open(session_file, "w") as f:
-            json.dump(session_data, f)
+        # Create plugin and files to match expected counts
+        plugin = Plugin(plugin_id=1001, plugin_name="Test", severity_int=3)
+        plugin.save(temp_db)
 
-        # Load session
-        state = load_session(scan_dir)
+        # Create 2 reviewed files
+        for i in range(2):
+            pf = PluginFile(
+                scan_id=scan_id,
+                plugin_id=1001,
+                file_path=f"/tmp/scan/test_{i}.txt",
+                review_state="reviewed"
+            )
+            pf.save(temp_db)
+
+        # Create 1 completed file
+        pf = PluginFile(
+            scan_id=scan_id,
+            plugin_id=1001,
+            file_path="/tmp/scan/test_completed.txt",
+            review_state="completed"
+        )
+        pf.save(temp_db)
+
+        # Create 1 skipped file
+        pf = PluginFile(
+            scan_id=scan_id,
+            plugin_id=1001,
+            file_path="/tmp/scan/test_skipped.txt",
+            review_state="skipped"
+        )
+        pf.save(temp_db)
+
+        # Create session
+        session_start = datetime(2024, 1, 15, 10, 30, 0)
+        save_session(
+            scan_id=scan_id,
+            session_start=session_start,
+            reviewed_count=2,
+            completed_count=1,
+            skipped_count=1,
+            tool_executions=5,
+            cve_extractions=2
+        )
+
+        # Load session - counts should come from actual plugin_files review_state
+        state = load_session(scan_id)
 
         assert state is not None
-        assert state.scan_dir == str(scan_dir)
-        assert len(state.reviewed_files) == 2
-        assert len(state.completed_files) == 1
+        assert state.scan_name == "test_scan"
+        assert state.reviewed_count == 2
+        assert state.completed_count == 1
+        assert state.skipped_count == 1
         assert state.tool_executions == 5
         assert state.cve_extractions == 2
 
-    def test_load_session_nonexistent_file(self, temp_dir):
-        """Test loading when session file doesn't exist."""
-        scan_dir = temp_dir / "no_session_scan"
-        scan_dir.mkdir()
+    def test_load_session_nonexistent(self, temp_db):
+        """Test loading when no session exists."""
+        from mundane_pkg.models import Scan
 
-        state = load_session(scan_dir)
+        # Create scan without session
+        scan = Scan(scan_name="no_session_scan", export_root="/tmp")
+        scan_id = scan.save(temp_db)
 
-        assert state is None
-
-    def test_load_session_invalid_json(self, temp_dir):
-        """Test loading corrupted session file."""
-        scan_dir = temp_dir / "corrupt_scan"
-        scan_dir.mkdir()
-
-        session_file = scan_dir / ".session.json"
-        with open(session_file, "w") as f:
-            f.write("{ invalid json }")
-
-        state = load_session(scan_dir)
+        state = load_session(scan_id)
 
         assert state is None
 
-    def test_load_session_missing_fields(self, temp_dir):
-        """Test loading session file with missing required fields."""
-        scan_dir = temp_dir / "incomplete_scan"
-        scan_dir.mkdir()
+    def test_load_session_ended_session_returns_none(self, temp_db):
+        """Test that ended sessions are not loaded."""
+        from mundane_pkg.models import Scan
 
-        # Create incomplete session data
-        session_data = {
-            "scan_dir": str(scan_dir),
-            "session_start": "2024-01-15T10:00:00"
-            # Missing other required fields
-        }
+        # Create scan and session
+        scan = Scan(scan_name="ended_scan", export_root="/tmp")
+        scan_id = scan.save(temp_db)
 
-        session_file = scan_dir / ".session.json"
-        with open(session_file, "w") as f:
-            json.dump(session_data, f)
+        session_start = datetime(2024, 1, 15, 10, 0, 0)
+        save_session(scan_id=scan_id, session_start=session_start, reviewed_count=1)
 
-        state = load_session(scan_dir)
+        # End the session
+        delete_session(scan_id)
 
+        # load_session should return None for ended session
+        state = load_session(scan_id)
         assert state is None
 
-    def test_load_session_empty_file(self, temp_dir):
-        """Test loading empty session file."""
-        scan_dir = temp_dir / "empty_file_scan"
-        scan_dir.mkdir()
+    def test_load_session_with_plugin_files(self, temp_db):
+        """Test that load_session aggregates review states from plugin_files."""
+        from mundane_pkg.models import Scan, Plugin, PluginFile
 
-        session_file = scan_dir / ".session.json"
-        session_file.touch()  # Create empty file
+        # Create scan
+        scan = Scan(scan_name="test_scan", export_root="/tmp")
+        scan_id = scan.save(temp_db)
 
-        state = load_session(scan_dir)
+        # Create plugin
+        plugin = Plugin(plugin_id=1001, plugin_name="Test Plugin", severity_int=3)
+        plugin.save(temp_db)
 
-        assert state is None
+        # Create plugin files with different review states
+        pf1 = PluginFile(
+            scan_id=scan_id,
+            plugin_id=1001,
+            file_path="/tmp/scan/3_High/1001_1.txt",
+            review_state="reviewed"
+        )
+        pf1.save(temp_db)
+
+        pf2 = PluginFile(
+            scan_id=scan_id,
+            plugin_id=1001,
+            file_path="/tmp/scan/3_High/1001_2.txt",
+            review_state="completed"
+        )
+        pf2.save(temp_db)
+
+        pf3 = PluginFile(
+            scan_id=scan_id,
+            plugin_id=1001,
+            file_path="/tmp/scan/3_High/1001_3.txt",
+            review_state="skipped"
+        )
+        pf3.save(temp_db)
+
+        # Create session
+        session_start = datetime(2024, 1, 15, 10, 0, 0)
+        save_session(scan_id=scan_id, session_start=session_start, tool_executions=3)
+
+        # Load session - should aggregate from plugin_files
+        state = load_session(scan_id)
+
+        assert state is not None
+        assert state.reviewed_count == 1  # One with review_state='reviewed'
+        assert state.completed_count == 1  # One with review_state='completed'
+        assert state.skipped_count == 1    # One with review_state='skipped'
 
 
 class TestDeleteSession:
     """Tests for delete_session function."""
 
-    def test_delete_session_removes_json_file(self, temp_dir, temp_db):
-        """Test that delete_session removes JSON file."""
-        scan_dir = temp_dir / "test_scan"
-        scan_dir.mkdir()
-
-        # Create session
-        session_start = datetime(2024, 1, 15, 10, 0, 0)
-        save_session(
-            scan_dir,
-            session_start,
-            reviewed_files=["f1.txt"],
-            completed_files=[],
-            skipped_files=[]
-        )
-
-        session_file = scan_dir / ".session.json"
-        assert session_file.exists()
-
-        # Delete session
-        delete_session(scan_dir)
-
-        # Verify JSON file removed
-        assert not session_file.exists()
-
-    def test_delete_session_ends_db_session(self, temp_dir, temp_db):
+    def test_delete_session_ends_active_session(self, temp_db):
         """Test that delete_session marks database session as ended."""
-        scan_dir = temp_dir / "test_scan"
-        scan_dir.mkdir()
+        from mundane_pkg.models import Scan
 
-        # Create session
+        # Create scan and session
+        scan = Scan(scan_name="test_scan", export_root="/tmp")
+        scan_id = scan.save(temp_db)
+
         session_start = datetime(2024, 1, 15, 10, 0, 0)
-        save_session(
-            scan_dir,
-            session_start,
-            reviewed_files=["f1.txt"],
-            completed_files=[],
-            skipped_files=[]
-        )
+        save_session(scan_id=scan_id, session_start=session_start, reviewed_count=1)
 
         # Verify session is active
         cursor = temp_db.execute(
-            """
-            SELECT session_end FROM sessions s
-            JOIN scans sc ON s.scan_id = sc.scan_id
-            WHERE sc.scan_name = ?
-            """,
-            (scan_dir.name,)
+            "SELECT session_end FROM sessions WHERE scan_id = ?",
+            (scan_id,)
         )
         row = cursor.fetchone()
         assert row["session_end"] is None
 
         # Delete session
-        delete_session(scan_dir)
+        delete_session(scan_id)
 
         # Verify session is ended
         cursor = temp_db.execute(
-            """
-            SELECT session_end, duration_seconds FROM sessions s
-            JOIN scans sc ON s.scan_id = sc.scan_id
-            WHERE sc.scan_name = ?
-            """,
-            (scan_dir.name,)
+            "SELECT session_end, duration_seconds FROM sessions WHERE scan_id = ?",
+            (scan_id,)
         )
         row = cursor.fetchone()
         assert row["session_end"] is not None
         assert row["duration_seconds"] is not None
         assert row["duration_seconds"] >= 0
 
-    def test_delete_session_no_json_file(self, temp_dir, temp_db):
-        """Test delete_session when JSON file doesn't exist."""
-        scan_dir = temp_dir / "no_file_scan"
-        scan_dir.mkdir()
+    def test_delete_session_no_active_session(self, temp_db):
+        """Test delete_session when no active session exists."""
+        from mundane_pkg.models import Scan
+
+        # Create scan without session
+        scan = Scan(scan_name="no_session_scan", export_root="/tmp")
+        scan_id = scan.save(temp_db)
 
         # Should not raise exception
-        delete_session(scan_dir)
+        delete_session(scan_id)
 
-    def test_delete_session_no_db_session(self, temp_dir, temp_db):
-        """Test delete_session when no database session exists."""
-        scan_dir = temp_dir / "no_db_scan"
-        scan_dir.mkdir()
+    def test_delete_session_with_already_ended_session(self, temp_db):
+        """Test delete_session when session is already ended."""
+        from mundane_pkg.models import Scan
 
-        # Create only JSON file (no DB session)
-        session_file = scan_dir / ".session.json"
-        session_data = {
-            "scan_dir": str(scan_dir),
-            "session_start": "2024-01-15T10:00:00",
-            "reviewed_files": [],
-            "completed_files": [],
-            "skipped_files": [],
-            "tool_executions": 0,
-            "cve_extractions": 0,
-            "last_updated": "2024-01-15T10:00:00"
-        }
-        with open(session_file, "w") as f:
-            json.dump(session_data, f)
+        # Create scan and session
+        scan = Scan(scan_name="test_scan", export_root="/tmp")
+        scan_id = scan.save(temp_db)
 
-        # Should not raise exception
-        delete_session(scan_dir)
+        session_start = datetime(2024, 1, 15, 10, 0, 0)
+        save_session(scan_id=scan_id, session_start=session_start, reviewed_count=1)
 
-        # JSON file should be removed
-        assert not session_file.exists()
+        # End session once
+        delete_session(scan_id)
+
+        # End again - should be no-op
+        delete_session(scan_id)
+
+        # Verify only one session exists
+        cursor = temp_db.execute(
+            "SELECT COUNT(*) as count FROM sessions WHERE scan_id = ?",
+            (scan_id,)
+        )
+        assert cursor.fetchone()["count"] == 1
 
 
 class TestSessionLifecycle:
     """Integration tests for complete session lifecycle."""
 
-    def test_complete_session_lifecycle(self, temp_dir, temp_db):
+    def test_complete_session_lifecycle(self, temp_db):
         """Test complete session lifecycle: save → load → update → delete."""
-        scan_dir = temp_dir / "lifecycle_scan"
-        scan_dir.mkdir()
+        from mundane_pkg.models import Scan, Plugin, PluginFile
+
+        # Create scan
+        scan = Scan(scan_name="lifecycle_scan", export_root="/tmp")
+        scan_id = scan.save(temp_db)
+
+        # Create plugin
+        plugin = Plugin(plugin_id=1001, plugin_name="Test", severity_int=3)
+        plugin.save(temp_db)
 
         session_start = datetime(2024, 1, 15, 10, 0, 0)
 
-        # 1. Create initial session
+        # 1. Create initial session with 1 reviewed file
+        pf1 = PluginFile(
+            scan_id=scan_id,
+            plugin_id=1001,
+            file_path="/tmp/scan/test_1.txt",
+            review_state="reviewed"
+        )
+        pf1.save(temp_db)
+
         save_session(
-            scan_dir,
-            session_start,
-            reviewed_files=["f1.txt"],
-            completed_files=[],
-            skipped_files=[],
+            scan_id=scan_id,
+            session_start=session_start,
+            reviewed_count=1,
+            completed_count=0,
+            skipped_count=0,
             tool_executions=1,
             cve_extractions=0
         )
 
         # 2. Load session
-        state = load_session(scan_dir)
+        state = load_session(scan_id)
         assert state is not None
-        assert len(state.reviewed_files) == 1
+        assert state.reviewed_count == 1
         assert state.tool_executions == 1
 
-        # 3. Update session
+        # 3. Update: add more files with different review states
+        pf2 = PluginFile(
+            scan_id=scan_id,
+            plugin_id=1001,
+            file_path="/tmp/scan/test_2.txt",
+            review_state="reviewed"
+        )
+        pf2.save(temp_db)
+
+        pf3 = PluginFile(
+            scan_id=scan_id,
+            plugin_id=1001,
+            file_path="/tmp/scan/test_3.txt",
+            review_state="reviewed"
+        )
+        pf3.save(temp_db)
+
+        pf4 = PluginFile(
+            scan_id=scan_id,
+            plugin_id=1001,
+            file_path="/tmp/scan/test_4.txt",
+            review_state="completed"
+        )
+        pf4.save(temp_db)
+
+        pf5 = PluginFile(
+            scan_id=scan_id,
+            plugin_id=1001,
+            file_path="/tmp/scan/test_5.txt",
+            review_state="completed"
+        )
+        pf5.save(temp_db)
+
+        pf6 = PluginFile(
+            scan_id=scan_id,
+            plugin_id=1001,
+            file_path="/tmp/scan/test_6.txt",
+            review_state="skipped"
+        )
+        pf6.save(temp_db)
+
+        # Update session
         save_session(
-            scan_dir,
-            session_start,
-            reviewed_files=["f1.txt", "f2.txt", "f3.txt"],
-            completed_files=["f4.txt", "f5.txt"],
-            skipped_files=["empty.txt"],
+            scan_id=scan_id,
+            session_start=session_start,
+            reviewed_count=3,
+            completed_count=2,
+            skipped_count=1,
             tool_executions=8,
             cve_extractions=3
         )
 
-        # 4. Load updated session
-        state = load_session(scan_dir)
+        # 4. Load updated session - counts from plugin_files
+        state = load_session(scan_id)
         assert state is not None
-        assert len(state.reviewed_files) == 3
-        assert len(state.completed_files) == 2
-        assert len(state.skipped_files) == 1
+        assert state.reviewed_count == 3
+        assert state.completed_count == 2
+        assert state.skipped_count == 1
         assert state.tool_executions == 8
         assert state.cve_extractions == 3
 
@@ -533,11 +560,9 @@ class TestSessionLifecycle:
         cursor = temp_db.execute(
             """
             SELECT files_reviewed, files_completed, tools_executed, cves_extracted
-            FROM sessions s
-            JOIN scans sc ON s.scan_id = sc.scan_id
-            WHERE sc.scan_name = ?
+            FROM sessions WHERE scan_id = ?
             """,
-            (scan_dir.name,)
+            (scan_id,)
         )
         row = cursor.fetchone()
         assert row["files_reviewed"] == 3
@@ -546,74 +571,62 @@ class TestSessionLifecycle:
         assert row["cves_extracted"] == 3
 
         # 6. Delete session
-        delete_session(scan_dir)
+        delete_session(scan_id)
 
         # 7. Verify cleanup
-        state = load_session(scan_dir)
+        state = load_session(scan_id)
         assert state is None
-
-        session_file = scan_dir / ".session.json"
-        assert not session_file.exists()
 
         # Verify database session is marked ended
         cursor = temp_db.execute(
-            """
-            SELECT session_end FROM sessions s
-            JOIN scans sc ON s.scan_id = sc.scan_id
-            WHERE sc.scan_name = ?
-            """,
-            (scan_dir.name,)
+            "SELECT session_end FROM sessions WHERE scan_id = ?",
+            (scan_id,)
         )
         row = cursor.fetchone()
         assert row["session_end"] is not None
 
-    def test_multiple_sessions_for_same_scan(self, temp_dir, temp_db):
+    def test_multiple_sessions_for_same_scan(self, temp_db):
         """Test multiple sequential sessions for the same scan."""
-        scan_dir = temp_dir / "multi_session_scan"
-        scan_dir.mkdir()
+        from mundane_pkg.models import Scan
+
+        # Create scan
+        scan = Scan(scan_name="multi_session_scan", export_root="/tmp")
+        scan_id = scan.save(temp_db)
 
         # Session 1
         session1_start = datetime(2024, 1, 15, 10, 0, 0)
         save_session(
-            scan_dir,
-            session1_start,
-            reviewed_files=["f1.txt"],
-            completed_files=[],
-            skipped_files=[]
+            scan_id=scan_id,
+            session_start=session1_start,
+            reviewed_count=1,
+            completed_count=0,
+            skipped_count=0
         )
-        delete_session(scan_dir)
+        delete_session(scan_id)
 
         # Session 2
         session2_start = datetime(2024, 1, 15, 14, 0, 0)
         save_session(
-            scan_dir,
-            session2_start,
-            reviewed_files=["f2.txt", "f3.txt"],
-            completed_files=["f1.txt"],
-            skipped_files=[]
+            scan_id=scan_id,
+            session_start=session2_start,
+            reviewed_count=2,
+            completed_count=1,
+            skipped_count=0
         )
-        delete_session(scan_dir)
+        delete_session(scan_id)
 
         # Verify both sessions in database
         cursor = temp_db.execute(
-            """
-            SELECT COUNT(*) as count FROM sessions s
-            JOIN scans sc ON s.scan_id = sc.scan_id
-            WHERE sc.scan_name = ?
-            """,
-            (scan_dir.name,)
+            "SELECT COUNT(*) as count FROM sessions WHERE scan_id = ?",
+            (scan_id,)
         )
         row = cursor.fetchone()
         assert row["count"] == 2
 
         # Verify both sessions have end times
         cursor = temp_db.execute(
-            """
-            SELECT COUNT(*) as ended_count FROM sessions s
-            JOIN scans sc ON s.scan_id = sc.scan_id
-            WHERE sc.scan_name = ? AND s.session_end IS NOT NULL
-            """,
-            (scan_dir.name,)
+            "SELECT COUNT(*) as ended_count FROM sessions WHERE scan_id = ? AND session_end IS NOT NULL",
+            (scan_id,)
         )
         row = cursor.fetchone()
         assert row["ended_count"] == 2

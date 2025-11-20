@@ -505,15 +505,19 @@ def _write_to_database(
 
                 hosts = plugin_hosts.get(plugin_id_str, set())
 
-                # Count unique ports for this plugin
+                # Count unique hosts and ports for this plugin
+                unique_hosts = set()
                 ports = set()
                 for host_entry in hosts:
                     if ":" in host_entry:
                         try:
-                            port_str = host_entry.rsplit(":", 1)[1]
+                            host, port_str = host_entry.rsplit(":", 1)
+                            unique_hosts.add(host)
                             ports.add(int(port_str))
                         except (ValueError, IndexError):
-                            pass
+                            unique_hosts.add(host_entry)
+                    else:
+                        unique_hosts.add(host_entry)
 
                 plugin_file = PluginFile(
                     scan_id=scan_id,
@@ -521,7 +525,7 @@ def _write_to_database(
                     file_path=str(file_path.resolve()),
                     severity_dir=sev_dir,
                     review_state="pending",
-                    host_count=len(hosts),
+                    host_count=len(unique_hosts),
                     port_count=len(ports) if ports else 0,
                     file_created_at=now_iso(),
                     last_parsed_at=now_iso()

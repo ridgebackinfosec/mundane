@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Mundane - Modern CLI for Nessus plugin host review and security tool orchestration.
+Mundane - Modern CLI for Nessus finding host review and security tool orchestration.
 
-This tool provides an interactive TUI for reviewing Nessus plugin exports,
+This tool provides an interactive TUI for reviewing Nessus finding exports,
 running security tools (nmap, netexec, metasploit), and tracking progress.
 """
 
@@ -327,12 +327,12 @@ def bulk_extract_cves_for_files(files: List[Path]) -> None:
             for cves in results.values():
                 all_cves.update(cves)
 
-            info(f"\nFound {len(all_cves)} unique CVE(s) across {len(results)} plugin(s):\n")
+            info(f"\nFound {len(all_cves)} unique CVE(s) across {len(results)} finding(s):\n")
             for cve in sorted(all_cves):
                 info(f"{cve}")
         else:
             # Separated by file (default)
-            info(f"\nFound CVEs for {len(results)} plugin(s):\n")
+            info(f"\nFound CVEs for {len(results)} finding(s):\n")
             for plugin_name, cves in sorted(results.items()):
                 info(f"{plugin_name}:")
                 for cve in cves:
@@ -843,7 +843,7 @@ def handle_file_view(
         # Handle workflow option
         if action_choice in ("w", "workflow"):
             if not has_workflow:
-                warn("No workflow available for this plugin.")
+                warn("No workflow available for this finding.")
                 continue
 
             plugin_id = _plugin_id_from_filename(chosen)
@@ -871,7 +871,7 @@ def handle_file_view(
                 if is_cached:
                     info("Using cached CVEs from database...")
                 else:
-                    info("Fetching plugin page from Tenable...")
+                    info("Fetching finding page from Tenable...")
 
                 cves = fetch_and_store_cves(int(plugin_id))
 
@@ -881,7 +881,7 @@ def handle_file_view(
                     for cve in cves:
                         info(f"  {cve}")
                 else:
-                    warn("No CVEs found on plugin page.")
+                    warn("No CVEs found on finding page.")
             except Exception as exc:
                 warn(f"Failed to fetch CVE information: {exc}")
 
@@ -1350,7 +1350,7 @@ def run_tool_workflow(
         info(f" - Results dir:{results_dir}")
 
         try:
-            again = yesno("\nRun another command for this plugin file?", default="n")
+            again = yesno("\nRun another command for this finding?", default="n")
         except KeyboardInterrupt:
             break
         if not again:
@@ -1418,9 +1418,9 @@ def process_single_file(
         content.append("⚡ Metasploit module available!", style="bold red")
         content.append("\n\n")  # Blank line after MSF indicator
 
-    # File
-    content.append("File: ", style="cyan")
-    content.append(f"{chosen.name}\n", style="yellow")
+    # Nessus Plugin ID
+    content.append("Nessus Plugin ID: ", style="cyan")
+    content.append(f"{plugin.plugin_id}\n", style="yellow")
 
     # Severity
     content.append("Severity: ", style="cyan")
@@ -1566,7 +1566,7 @@ def handle_file_list_actions(
         return None, file_filter, reviewed_filter, group_filter, sort_mode, page_idx
 
     if ans == "f":
-        info("Filter help: Enter any text to match plugin names (case-insensitive)")
+        info("Filter help: Enter any text to match finding names (case-insensitive)")
         info("Examples: 'apache' matches 'Apache HTTP Server', 'ssl' matches 'SSL Certificate'")
         file_filter = input("Enter substring to filter by (or press Enter for none): ").strip()
         page_idx = 0
@@ -2841,7 +2841,7 @@ def review(
         warn("\nInterrupted — goodbye.")
 
 
-@app.command(help="Preview a plugin file (raw or grouped).")
+@app.command(help="Preview a finding (raw or grouped).")
 def view(
     file: Path = typer.Argument(..., exists=True, readable=True),
     grouped: bool = typer.Option(
@@ -2855,7 +2855,7 @@ def view(
         safe_print_file(file)
 
 
-@app.command(help="Compare plugin files and group identical host:port combos.")
+@app.command(help="Compare findings and group identical host:port combos.")
 def compare(
     paths: list[str] = typer.Argument(
         ..., help="Files/dirs/globs to compare (e.g., '4_Critical/*.txt')."
@@ -2881,7 +2881,7 @@ def compare(
 
     files = [file for file in out if file.exists()]
     if not files:
-        err("No plugin files found for comparison.")
+        err("No findings found for comparison.")
         raise typer.Exit(1)
 
     _ = compare_filtered(files)
@@ -2919,33 +2919,26 @@ def show_nessus_tool_suggestions(nessus_file: Path) -> None:
     info(f"   {gowitness_cmd}\n")
 
     # msfconsole db_import command
-    info(fmt_action("3. msfconsole (Metasploit import):"))
-    msfconsole_cmd = f"msfconsole -q -x \"db_import {nessus_file} ; hosts; services; vulns; exit\""
-    info(f"   {msfconsole_cmd}\n")
+    # info(fmt_action("3. msfconsole (Metasploit import):"))
+    # msfconsole_cmd = f"msfconsole -q -x \"db_import {nessus_file} ; hosts; services; vulns; exit\""
+    # info(f"   {msfconsole_cmd}\n")
 
     info("Tip: Copy these commands to run them in your terminal.")
 
 
-@app.command(name="import", help="Import .nessus file and export plugin host lists")
+@app.command(name="import", help="Import .nessus file and export finding host lists")
 def import_scan(
     nessus: Path = typer.Argument(
         ..., exists=True, readable=True, help="Path to a .nessus file"
-    ),
-    out_dir: Optional[Path] = typer.Option(
-        None,
-        "--out-dir",
-        "-o",
-        help="Export output directory (default: ~/.mundane/scans/<scan_name>)",
     ),
     review: bool = typer.Option(
         False, "--review", help="Launch interactive review after export"
     ),
 ) -> None:
     """
-    Import .nessus file and export plugin host lists to organized directory.
+    Import .nessus file and export finding host lists to organized directory.
 
-    Auto-detects scan name from .nessus file and exports to ~/.mundane/scans/<scan_name>
-    unless --out-dir is specified.
+    Auto-detects scan name from .nessus file and exports to ~/.mundane/scans/<scan_name>.
 
     Optionally launch interactive review after export completes.
     """
@@ -2955,14 +2948,10 @@ def import_scan(
     # Always extract scan name from .nessus file for consistency with database
     scan_name = extract_scan_name_from_nessus(nessus)
 
-    # Determine output directory
-    if out_dir is None:
-        out_dir = SCANS_ROOT / scan_name
-        info(f"Using scan name: {scan_name}")
-        info(f"Export directory: {out_dir}")
-    else:
-        info(f"Using scan name: {scan_name}")
-        info(f"Export directory: {out_dir} (custom location)")
+    # Determine output directory (always use SCANS_ROOT/<scan_name>)
+    out_dir = SCANS_ROOT / scan_name
+    info(f"Using scan name: {scan_name}")
+    info(f"Finding files location: {out_dir}")
 
     # Check for duplicate imports
     from mundane_pkg.database import compute_file_hash
@@ -3019,7 +3008,7 @@ def import_scan(
             raise typer.Exit(0)
 
     # Run export
-    header("Exporting plugin host files")
+    header("Importing scan to database")
     out_dir.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -3030,7 +3019,7 @@ def import_scan(
             include_ports=True
         )
 
-        ok(f"Export complete: {result.plugins_exported} plugins exported")
+        ok(f"Export complete: {result.plugins_exported} findings exported")
 
         # Display severity breakdown
         if result.severities:
@@ -3055,7 +3044,7 @@ def import_scan(
             _console_global.print(sev_table)
 
         print()  # Blank line after table
-        info(f"Files written to: {out_dir.resolve()}")
+        info(f"Reference files saved to: {out_dir.resolve()}")
         info("Next: mundane review")
 
     except Exception as e:

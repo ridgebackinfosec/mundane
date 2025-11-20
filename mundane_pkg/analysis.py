@@ -8,7 +8,7 @@ scan statistics.
 import re
 from collections import defaultdict
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 from rich import box
 from rich.console import Console
@@ -34,7 +34,7 @@ from .render import render_compare_tables
 _console_global = Console()
 
 @log_timing
-def compare_filtered(files: list[Path]) -> list[list[str]]:
+def compare_filtered(files: Union[list[Path], list['PluginFile']]) -> list[list[str]]:
     """Compare host/port combinations across multiple filtered files.
 
     Parses each file, computes intersections and unions of hosts and ports,
@@ -42,7 +42,7 @@ def compare_filtered(files: list[Path]) -> list[list[str]]:
     comparison tables.
 
     Args:
-        files: List of file paths to compare
+        files: List of file paths or PluginFile objects to compare
 
     Returns:
         List of groups where each group is a list of filenames with
@@ -55,6 +55,10 @@ def compare_filtered(files: list[Path]) -> list[list[str]]:
     header("Filtered Files: Host/Port Comparison")
     info(f"Files compared: {len(files)}")
 
+    # Detect if we have PluginFile objects or Path objects
+    from .models import PluginFile
+    use_database = files and isinstance(files[0], PluginFile)
+
     parsed = []
     with Progress(
         SpinnerColumn(style="cyan"),
@@ -66,12 +70,65 @@ def compare_filtered(files: list[Path]) -> list[list[str]]:
         task = progress.add_task(
             "Parsing files for comparison...", total=len(files)
         )
-        for file_path in files:
-            hosts, ports_set, combos, had_explicit = (
-                parse_file_hosts_ports_detailed(file_path)
-            )
-            parsed.append((file_path, hosts, ports_set, combos, had_explicit))
-            progress.advance(task)
+
+        if use_database:
+            # Database mode: query all hosts/ports in a single batch
+            from .database import db_transaction, query_all
+
+            file_ids = [pf.file_id for pf in files]
+            with db_transaction() as conn:
+                rows = query_all(
+                    conn,
+                    """
+                    SELECT file_id, host, port, is_ipv4, is_ipv6
+                    FROM plugin_file_hosts
+                    WHERE file_id IN ({})
+                    ORDER BY file_id, is_ipv4 DESC, host ASC
+                    """.format(','.join('?' * len(file_ids))),
+                    file_ids
+                )
+
+            # Group results by file_id
+            from collections import defaultdict
+            hosts_by_file = defaultdict(list)
+            for row in rows:
+                hosts_by_file[row['file_id']].append(row)
+
+            # Process each PluginFile
+            for pf in files:
+                file_rows = hosts_by_file.get(pf.file_id, [])
+
+                # Extract hosts and ports from database rows
+                hosts = []
+                ports_set = set()
+                combos = []
+                had_explicit = False
+
+                for row in file_rows:
+                    host = row['host']
+                    port = row['port']
+
+                    if host not in hosts:
+                        hosts.append(host)
+                    if port:
+                        ports_set.add(port)
+                        combo = f"{host}:{port}"
+                        if combo not in combos:
+                            combos.append(combo)
+                            had_explicit = True
+
+                # Create virtual Path object for filename display
+                file_path = Path(pf.file_path)
+                parsed.append((file_path, hosts, ports_set, combos, had_explicit))
+                progress.advance(task)
+        else:
+            # File-based mode: parse each file individually
+            for file_path in files:
+                hosts, ports_set, combos, had_explicit = (
+                    parse_file_hosts_ports_detailed(file_path)
+                )
+                parsed.append((file_path, hosts, ports_set, combos, had_explicit))
+                progress.advance(task)
 
     all_host_sets = [set(h) for _, h, _, _, _ in parsed]
     all_port_sets = [set(p) for _, _, p, _, _ in parsed]
@@ -150,14 +207,14 @@ def compare_filtered(files: list[Path]) -> list[list[str]]:
 
 
 @log_timing
-def analyze_inclusions(files: list[Path]) -> list[list[str]]:
+def analyze_inclusions(files: Union[list[Path], list['PluginFile']]) -> list[list[str]]:
     """Analyze superset relationships across filtered files.
 
     Identifies which files are supersets of others (contain all their
     host:port combinations) and groups them accordingly.
 
     Args:
-        files: List of file paths to analyze
+        files: List of file paths or PluginFile objects to analyze
 
     Returns:
         List of groups where each group is [superset_name, *covered_names],
@@ -170,6 +227,10 @@ def analyze_inclusions(files: list[Path]) -> list[list[str]]:
     header("Filtered Files: Superset / Coverage Analysis")
     info(f"Files analyzed: {len(files)}")
 
+    # Detect if we have PluginFile objects or Path objects
+    from .models import PluginFile
+    use_database = files and isinstance(files[0], PluginFile)
+
     parsed = []
     item_sets = {}
     with Progress(
@@ -180,21 +241,80 @@ def analyze_inclusions(files: list[Path]) -> list[list[str]]:
         transient=True,
     ) as progress:
         task = progress.add_task("Parsing files...", total=len(files))
-        for file_path in files:
-            hosts, ports_set, combos, had_explicit = (
-                parse_file_hosts_ports_detailed(file_path)
-            )
-            parsed.append((file_path, hosts, ports_set, combos, had_explicit))
-            item_sets[file_path] = build_item_set(
-                hosts, ports_set, combos, had_explicit
-            )
-            progress.advance(task)
+
+        if use_database:
+            # Database mode: query all hosts/ports in a single batch
+            from .database import db_transaction, query_all
+
+            file_ids = [pf.file_id for pf in files]
+            with db_transaction() as conn:
+                rows = query_all(
+                    conn,
+                    """
+                    SELECT file_id, host, port, is_ipv4, is_ipv6
+                    FROM plugin_file_hosts
+                    WHERE file_id IN ({})
+                    ORDER BY file_id, is_ipv4 DESC, host ASC
+                    """.format(','.join('?' * len(file_ids))),
+                    file_ids
+                )
+
+            # Group results by file_id
+            from collections import defaultdict
+            hosts_by_file = defaultdict(list)
+            for row in rows:
+                hosts_by_file[row['file_id']].append(row)
+
+            # Process each PluginFile
+            for pf in files:
+                file_rows = hosts_by_file.get(pf.file_id, [])
+
+                # Extract hosts and ports from database rows
+                hosts = []
+                ports_set = set()
+                combos = []
+                had_explicit = False
+
+                for row in file_rows:
+                    host = row['host']
+                    port = row['port']
+
+                    if host not in hosts:
+                        hosts.append(host)
+                    if port:
+                        ports_set.add(port)
+                        combo = f"{host}:{port}"
+                        if combo not in combos:
+                            combos.append(combo)
+                            had_explicit = True
+
+                # Create virtual Path object for compatibility
+                file_path = Path(pf.file_path)
+                parsed.append((file_path, hosts, ports_set, combos, had_explicit))
+                item_sets[file_path] = build_item_set(
+                    hosts, ports_set, combos, had_explicit
+                )
+                progress.advance(task)
+        else:
+            # File-based mode: parse each file individually
+            for file_path in files:
+                hosts, ports_set, combos, had_explicit = (
+                    parse_file_hosts_ports_detailed(file_path)
+                )
+                parsed.append((file_path, hosts, ports_set, combos, had_explicit))
+                item_sets[file_path] = build_item_set(
+                    hosts, ports_set, combos, had_explicit
+                )
+                progress.advance(task)
+
+    # Extract Path objects from parsed results for compatibility
+    file_paths = [file_path for file_path, _, _, _, _ in parsed]
 
     # Build coverage map: for each file, which others does it fully include?
-    cover_map = {file_path: set() for file_path in files}
-    for i, file_a in enumerate(files):
+    cover_map = {file_path: set() for file_path in file_paths}
+    for i, file_a in enumerate(file_paths):
         items_a = item_sets[file_a]
-        for j, file_b in enumerate(files):
+        for j, file_b in enumerate(file_paths):
             if i == j:
                 continue
             items_b = item_sets[file_b]
@@ -203,11 +323,11 @@ def analyze_inclusions(files: list[Path]) -> list[list[str]]:
 
     # Maximals = files not strictly contained by any other
     maximals = []
-    for file_a in files:
+    for file_a in file_paths:
         items_a = item_sets[file_a]
         if not any(
             (items_a < item_sets[file_b])
-            for file_b in files
+            for file_b in file_paths
             if file_b is not file_a
         ):
             maximals.append(file_a)
@@ -220,7 +340,7 @@ def analyze_inclusions(files: list[Path]) -> list[list[str]]:
     summary.add_column("File")
     summary.add_column("Items", justify="right", no_wrap=True)
     summary.add_column("Covers", justify="right", no_wrap=True)
-    for i, file_path in enumerate(files, 1):
+    for i, file_path in enumerate(file_paths, 1):
         summary.add_row(
             str(i),
             file_path.name,

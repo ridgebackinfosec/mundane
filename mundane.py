@@ -1815,9 +1815,9 @@ def handle_file_list_actions(
                 page_idx,
             )
 
-        # Extract Path objects from (PluginFile, Plugin) tuples
-        candidate_paths = [Path(pf.file_path) for pf, p in candidates]
-        groups = compare_filtered(candidate_paths)
+        # Pass PluginFile objects directly for database queries
+        candidate_files = [pf for pf, _ in candidates]
+        groups = compare_filtered(candidate_files)
         if groups:
             visible = min(VISIBLE_GROUPS, len(groups))
             opts = " | ".join(f"g{i+1}" for i in range(visible))
@@ -1847,9 +1847,9 @@ def handle_file_list_actions(
                 page_idx,
             )
 
-        # Extract Path objects from (PluginFile, Plugin) tuples
-        candidate_paths = [Path(pf.file_path) for pf, p in candidates]
-        groups = analyze_inclusions(candidate_paths)
+        # Pass PluginFile objects directly for database queries
+        candidate_files = [pf for pf, _ in candidates]
+        groups = analyze_inclusions(candidate_files)
         if groups:
             visible = min(VISIBLE_GROUPS, len(groups))
             opts = " | ".join(f"g{i+1}" for i in range(visible))

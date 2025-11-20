@@ -3067,6 +3067,115 @@ def import_scan(
             warn("\nInterrupted — returning to shell.")
 
 
+# === Scan management commands ===
+
+@app.command(help="List all imported scans with statistics")
+def list_scans() -> None:
+    """Display all scans in the database with finding counts and severity breakdown."""
+    from mundane_pkg.models import Scan
+    from rich.table import Table
+
+    scans = Scan.get_all_with_stats()
+
+    if not scans:
+        info("No scans found in database.")
+        info("Tip: Use 'mundane import <scan.nessus>' to import a scan")
+        return
+
+    # Create summary table
+    table = Table(title="Imported Scans", show_header=True, header_style="bold cyan")
+    table.add_column("Scan Name", style="yellow", no_wrap=True)
+    table.add_column("Total", justify="right")
+    table.add_column("Critical", justify="right", style="red")
+    table.add_column("High", justify="right", style="bright_red")
+    table.add_column("Medium", justify="right", style="yellow")
+    table.add_column("Low", justify="right", style="cyan")
+    table.add_column("Reviewed", justify="right", style="green")
+    table.add_column("Last Reviewed", style="dim")
+
+    for scan in scans:
+        # Format last reviewed date
+        last_reviewed = scan["last_reviewed_at"]
+        if last_reviewed:
+            # Parse ISO format and display as date only
+            try:
+                from datetime import datetime
+                dt = datetime.fromisoformat(last_reviewed)
+                last_reviewed = dt.strftime("%Y-%m-%d")
+            except Exception:
+                pass
+        else:
+            last_reviewed = "Never"
+
+        table.add_row(
+            scan["scan_name"],
+            str(scan["total_findings"] or 0),
+            str(scan["critical_count"] or 0),
+            str(scan["high_count"] or 0),
+            str(scan["medium_count"] or 0),
+            str(scan["low_count"] or 0),
+            str(scan["reviewed_count"] or 0),
+            last_reviewed
+        )
+
+    _console_global.print(table)
+    print()  # Blank line
+    info(f"Total scans: {len(scans)}")
+    info("Use 'mundane review' to start reviewing a scan")
+
+
+@app.command(help="Delete a scan and all associated data")
+def delete(
+    scan_name: str = typer.Argument(..., help="Name of scan to delete")
+) -> None:
+    """Delete a scan and all associated data from the database.
+
+    This will permanently remove:
+    - The scan entry
+    - All findings for this scan
+    - All host:port data
+    - All review sessions
+    - All tool execution records and artifacts
+
+    This action cannot be undone!
+    """
+    from mundane_pkg.models import Scan
+
+    # Check if scan exists
+    scan = Scan.get_by_name(scan_name)
+    if not scan:
+        err(f"Scan not found: {scan_name}")
+        info("Use 'mundane list' to see available scans")
+        raise typer.Exit(1)
+
+    # Confirm deletion
+    warn(f"You are about to delete scan: {scan_name}")
+    warn("This will permanently delete ALL associated data:")
+    warn("  - Findings")
+    warn("  - Host:port combinations")
+    warn("  - Review sessions")
+    warn("  - Tool executions and artifacts")
+    print()  # Blank line
+
+    try:
+        response = input("Type the scan name to confirm deletion: ").strip()
+    except KeyboardInterrupt:
+        print()  # Newline after ^C
+        info("Deletion cancelled")
+        raise typer.Exit(0)
+
+    if response != scan_name:
+        err("Scan name does not match. Deletion cancelled.")
+        raise typer.Exit(1)
+
+    # Delete scan
+    if Scan.delete_by_name(scan_name):
+        ok(f"Scan deleted: {scan_name}")
+    else:
+        err(f"Failed to delete scan: {scan_name}")
+        raise typer.Exit(1)
+
+
 # === Config management commands ===
 
 @app.command(help="Initialize example config file.")

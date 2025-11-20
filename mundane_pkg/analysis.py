@@ -101,7 +101,7 @@ def compare_filtered(files: Union[list[Path], list['PluginFile']]) -> list[list[
                 # Extract hosts and ports from database rows
                 hosts = []
                 ports_set = set()
-                combos = []
+                combos = defaultdict(set)
                 had_explicit = False
 
                 for row in file_rows:
@@ -112,10 +112,8 @@ def compare_filtered(files: Union[list[Path], list['PluginFile']]) -> list[list[
                         hosts.append(host)
                     if port:
                         ports_set.add(port)
-                        combo = f"{host}:{port}"
-                        if combo not in combos:
-                            combos.append(combo)
-                            had_explicit = True
+                        combos[host].add(port)
+                        had_explicit = True
 
                 # Create virtual Path object for filename display
                 file_path = Path(pf.file_path)
@@ -272,7 +270,7 @@ def analyze_inclusions(files: Union[list[Path], list['PluginFile']]) -> list[lis
                 # Extract hosts and ports from database rows
                 hosts = []
                 ports_set = set()
-                combos = []
+                combos = defaultdict(set)
                 had_explicit = False
 
                 for row in file_rows:
@@ -283,10 +281,8 @@ def analyze_inclusions(files: Union[list[Path], list['PluginFile']]) -> list[lis
                         hosts.append(host)
                     if port:
                         ports_set.add(port)
-                        combo = f"{host}:{port}"
-                        if combo not in combos:
-                            combos.append(combo)
-                            had_explicit = True
+                        combos[host].add(port)
+                        had_explicit = True
 
                 # Create virtual Path object for compatibility
                 file_path = Path(pf.file_path)

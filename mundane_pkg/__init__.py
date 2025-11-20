@@ -1,6 +1,7 @@
 
 """Internal package for the mundane CLI (split from monolithic script)."""
 from .ansi import C, header, ok, warn, err, info, fmt_action, fmt_reviewed, cyan_label, colorize_severity_label, breadcrumb
+from .banner import display_banner
 from .constants import (
     RESULTS_ROOT, SCANS_ROOT, REVIEW_PREFIX,
     PLUGIN_DETAILS_BASE, NETEXEC_PROTOCOLS,

@@ -2785,9 +2785,13 @@ _console = _console_global
 
 
 @app.callback()
-def _root() -> None:
+def _root(
+    quiet: bool = typer.Option(False, "-q", "--quiet", help="Suppress startup banner")
+) -> None:
     """Modern CLI for mundane."""
-    return
+    if not quiet:
+        from mundane_pkg.banner import display_banner
+        display_banner()
 
 
 @app.command(help="Interactive review of findings.")

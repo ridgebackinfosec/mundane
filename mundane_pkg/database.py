@@ -76,20 +76,16 @@ CREATE TABLE IF NOT EXISTS plugin_files (
     file_id INTEGER PRIMARY KEY AUTOINCREMENT,
     scan_id INTEGER NOT NULL,
     plugin_id INTEGER NOT NULL,
-    file_path TEXT NOT NULL UNIQUE,
-    severity_dir TEXT NOT NULL,
     review_state TEXT DEFAULT 'pending',
     reviewed_at TIMESTAMP,
     reviewed_by TEXT,
     review_notes TEXT,
     host_count INTEGER DEFAULT 0,
     port_count INTEGER DEFAULT 0,
-    file_created_at TIMESTAMP,
-    file_modified_at TIMESTAMP,
-    last_parsed_at TIMESTAMP,
     FOREIGN KEY (scan_id) REFERENCES scans(scan_id) ON DELETE CASCADE,
     FOREIGN KEY (plugin_id) REFERENCES plugins(plugin_id),
-    CONSTRAINT valid_review_state CHECK (review_state IN ('pending', 'reviewed', 'completed', 'skipped'))
+    CONSTRAINT valid_review_state CHECK (review_state IN ('pending', 'reviewed', 'completed', 'skipped')),
+    CONSTRAINT unique_scan_plugin UNIQUE (scan_id, plugin_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_plugin_files_scan ON plugin_files(scan_id);

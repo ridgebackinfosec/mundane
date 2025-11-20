@@ -221,7 +221,6 @@ class TestPluginFileModel:
         pf = PluginFile(
             scan_id=scan_id,
             plugin_id=12345,
-            file_path="/tmp/test/plugin.txt",
             host_count=5
         )
 
@@ -230,6 +229,7 @@ class TestPluginFileModel:
         assert file_id is not None
         assert file_id > 0
 
+    @pytest.mark.skip(reason="file_path column removed in v1.9.0 schema optimization")
     def test_plugin_file_get_by_path(self, temp_db):
         """Test retrieving plugin file by path."""
         # Setup
@@ -241,7 +241,6 @@ class TestPluginFileModel:
         pf = PluginFile(
             scan_id=scan_id,
             plugin_id=12345,
-            file_path="/tmp/test/plugin.txt"
         )
         pf.save(temp_db)
 
@@ -262,7 +261,6 @@ class TestPluginFileModel:
         pf = PluginFile(
             scan_id=scan_id,
             plugin_id=12345,
-            file_path="/tmp/test/plugin.txt",
             review_state="pending"
         )
         file_id = pf.save(temp_db)
@@ -286,7 +284,6 @@ class TestPluginFileModel:
         pf = PluginFile(
             scan_id=scan_id,
             plugin_id=12345,
-            file_path="/tmp/test/plugin.txt"
         )
         file_id = pf.save(temp_db)
 
@@ -324,32 +321,24 @@ class TestPluginFileModel:
         pf1 = PluginFile(
             scan_id=scan_id,
             plugin_id=1001,
-            file_path="/tmp/scan/4_Critical/1001_Critical.txt",
-            severity_dir="4_Critical"
         )
         pf1.save(temp_db)
 
         pf2 = PluginFile(
             scan_id=scan_id,
             plugin_id=1002,
-            file_path="/tmp/scan/3_High/1002_High.txt",
-            severity_dir="3_High"
         )
         pf2.save(temp_db)
 
         pf3 = PluginFile(
             scan_id=scan_id,
             plugin_id=1003,
-            file_path="/tmp/scan/2_Medium/1003_Medium.txt",
-            severity_dir="2_Medium"
         )
         pf3.save(temp_db)
 
         pf4 = PluginFile(
             scan_id=scan_id,
             plugin_id=1004,
-            file_path="/tmp/scan/0_Info/1004_Info.txt",
-            severity_dir="0_Info"
         )
         pf4.save(temp_db)
 
@@ -359,6 +348,7 @@ class TestPluginFileModel:
         # Should be sorted from highest to lowest severity
         assert severity_dirs == ["4_Critical", "3_High", "2_Medium", "0_Info"]
 
+    @pytest.mark.skip(reason="v1.9.0: cannot create duplicate scan_id+plugin_id (UNIQUE constraint)")
     def test_get_severity_dirs_for_scan_deduplicates(self, temp_db):
         """Test get_severity_dirs_for_scan deduplicates severity directories."""
         # Setup scan
@@ -373,16 +363,12 @@ class TestPluginFileModel:
         pf1 = PluginFile(
             scan_id=scan_id,
             plugin_id=1001,
-            file_path="/tmp/scan/3_High/1001_High_A.txt",
-            severity_dir="3_High"
         )
         pf1.save(temp_db)
 
         pf2 = PluginFile(
             scan_id=scan_id,
             plugin_id=1001,
-            file_path="/tmp/scan/3_High/1001_High_B.txt",
-            severity_dir="3_High"
         )
         pf2.save(temp_db)
 
@@ -403,7 +389,6 @@ class TestPluginFileModel:
         pf = PluginFile(
             scan_id=scan_id,
             plugin_id=12345,
-            file_path="/tmp/test/plugin.txt"
         )
         file_id = pf.save(temp_db)
         pf.file_id = file_id
@@ -425,7 +410,6 @@ class TestPluginFileModel:
         pf = PluginFile(
             scan_id=scan_id,
             plugin_id=12345,
-            file_path="/tmp/test/plugin.txt",
             host_count=3,
             port_count=2
         )
@@ -479,7 +463,6 @@ class TestPluginFileModel:
         pf = PluginFile(
             scan_id=scan_id,
             plugin_id=12345,
-            file_path="/tmp/test/plugin.txt"
         )
         file_id = pf.save(temp_db)
         pf.file_id = file_id
@@ -515,7 +498,6 @@ class TestPluginFileModel:
         pf = PluginFile(
             scan_id=scan_id,
             plugin_id=12345,
-            file_path="/tmp/test/plugin.txt"
         )
         file_id = pf.save(temp_db)
         pf.file_id = file_id
@@ -536,7 +518,6 @@ class TestPluginFileModel:
         pf = PluginFile(
             scan_id=scan_id,
             plugin_id=12345,
-            file_path="/tmp/test/plugin.txt"
         )
         file_id = pf.save(temp_db)
         pf.file_id = file_id
@@ -581,7 +562,6 @@ class TestPluginFileModel:
         pf = PluginFile(
             scan_id=scan_id,
             plugin_id=12345,
-            file_path="/tmp/test/plugin.txt"
         )
         file_id = pf.save(temp_db)
         pf.file_id = file_id
@@ -611,7 +591,6 @@ class TestPluginFileModel:
         pf = PluginFile(
             scan_id=scan_id,
             plugin_id=12345,
-            file_path="/tmp/test/plugin.txt"
         )
         file_id = pf.save(temp_db)
         pf.file_id = file_id
@@ -853,7 +832,6 @@ class TestModelRelationships:
         pf = PluginFile(
             scan_id=scan_id,
             plugin_id=12345,
-            file_path="/tmp/test/plugin.txt"
         )
         pf.save(temp_db)
 

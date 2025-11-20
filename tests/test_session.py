@@ -247,34 +247,36 @@ class TestLoadSession:
         scan = Scan(scan_name="test_scan", export_root="/tmp")
         scan_id = scan.save(temp_db)
 
-        # Create plugin and files to match expected counts
-        plugin = Plugin(plugin_id=1001, plugin_name="Test", severity_int=3)
-        plugin.save(temp_db)
+        # Create plugins and files to match expected counts
+        # Need unique plugin_id for each PluginFile due to UNIQUE(scan_id, plugin_id)
 
         # Create 2 reviewed files
         for i in range(2):
+            plugin = Plugin(plugin_id=1001+i, plugin_name=f"Test{i}", severity_int=3)
+            plugin.save(temp_db)
             pf = PluginFile(
                 scan_id=scan_id,
-                plugin_id=1001,
-                file_path=f"/tmp/scan/test_{i}.txt",
+                plugin_id=1001+i,
                 review_state="reviewed"
             )
             pf.save(temp_db)
 
         # Create 1 completed file
+        plugin = Plugin(plugin_id=1003, plugin_name="Test3", severity_int=3)
+        plugin.save(temp_db)
         pf = PluginFile(
             scan_id=scan_id,
-            plugin_id=1001,
-            file_path="/tmp/scan/test_completed.txt",
+            plugin_id=1003,
             review_state="completed"
         )
         pf.save(temp_db)
 
         # Create 1 skipped file
+        plugin = Plugin(plugin_id=1004, plugin_name="Test4", severity_int=3)
+        plugin.save(temp_db)
         pf = PluginFile(
             scan_id=scan_id,
-            plugin_id=1001,
-            file_path="/tmp/scan/test_skipped.txt",
+            plugin_id=1004,
             review_state="skipped"
         )
         pf.save(temp_db)
@@ -340,31 +342,32 @@ class TestLoadSession:
         scan = Scan(scan_name="test_scan", export_root="/tmp")
         scan_id = scan.save(temp_db)
 
-        # Create plugin
-        plugin = Plugin(plugin_id=1001, plugin_name="Test Plugin", severity_int=3)
-        plugin.save(temp_db)
+        # Create plugins and plugin files with different review states
+        # Need unique plugin_id for each PluginFile due to UNIQUE(scan_id, plugin_id)
 
-        # Create plugin files with different review states
+        plugin1 = Plugin(plugin_id=1001, plugin_name="Test Plugin 1", severity_int=3)
+        plugin1.save(temp_db)
         pf1 = PluginFile(
             scan_id=scan_id,
             plugin_id=1001,
-            file_path="/tmp/scan/3_High/1001_1.txt",
             review_state="reviewed"
         )
         pf1.save(temp_db)
 
+        plugin2 = Plugin(plugin_id=1002, plugin_name="Test Plugin 2", severity_int=3)
+        plugin2.save(temp_db)
         pf2 = PluginFile(
             scan_id=scan_id,
-            plugin_id=1001,
-            file_path="/tmp/scan/3_High/1001_2.txt",
+            plugin_id=1002,
             review_state="completed"
         )
         pf2.save(temp_db)
 
+        plugin3 = Plugin(plugin_id=1003, plugin_name="Test Plugin 3", severity_int=3)
+        plugin3.save(temp_db)
         pf3 = PluginFile(
             scan_id=scan_id,
-            plugin_id=1001,
-            file_path="/tmp/scan/3_High/1001_3.txt",
+            plugin_id=1003,
             review_state="skipped"
         )
         pf3.save(temp_db)
@@ -464,9 +467,10 @@ class TestSessionLifecycle:
         scan = Scan(scan_name="lifecycle_scan", export_root="/tmp")
         scan_id = scan.save(temp_db)
 
-        # Create plugin
-        plugin = Plugin(plugin_id=1001, plugin_name="Test", severity_int=3)
-        plugin.save(temp_db)
+        # Create plugins - need unique plugin_id for each PluginFile due to UNIQUE(scan_id, plugin_id)
+        for i in range(1, 7):
+            plugin = Plugin(plugin_id=1000+i, plugin_name=f"Test{i}", severity_int=3)
+            plugin.save(temp_db)
 
         session_start = datetime(2024, 1, 15, 10, 0, 0)
 
@@ -474,7 +478,6 @@ class TestSessionLifecycle:
         pf1 = PluginFile(
             scan_id=scan_id,
             plugin_id=1001,
-            file_path="/tmp/scan/test_1.txt",
             review_state="reviewed"
         )
         pf1.save(temp_db)
@@ -498,40 +501,35 @@ class TestSessionLifecycle:
         # 3. Update: add more files with different review states
         pf2 = PluginFile(
             scan_id=scan_id,
-            plugin_id=1001,
-            file_path="/tmp/scan/test_2.txt",
+            plugin_id=1002,
             review_state="reviewed"
         )
         pf2.save(temp_db)
 
         pf3 = PluginFile(
             scan_id=scan_id,
-            plugin_id=1001,
-            file_path="/tmp/scan/test_3.txt",
+            plugin_id=1003,
             review_state="reviewed"
         )
         pf3.save(temp_db)
 
         pf4 = PluginFile(
             scan_id=scan_id,
-            plugin_id=1001,
-            file_path="/tmp/scan/test_4.txt",
+            plugin_id=1004,
             review_state="completed"
         )
         pf4.save(temp_db)
 
         pf5 = PluginFile(
             scan_id=scan_id,
-            plugin_id=1001,
-            file_path="/tmp/scan/test_5.txt",
+            plugin_id=1005,
             review_state="completed"
         )
         pf5.save(temp_db)
 
         pf6 = PluginFile(
             scan_id=scan_id,
-            plugin_id=1001,
-            file_path="/tmp/scan/test_6.txt",
+            plugin_id=1006,
             review_state="skipped"
         )
         pf6.save(temp_db)

@@ -56,16 +56,17 @@ CREATE INDEX IF NOT EXISTS idx_plugins_metasploit ON plugins(has_metasploit);
 CREATE INDEX IF NOT EXISTS idx_plugins_name ON plugins(plugin_name);
 
 -- ============================================================================
--- PLUGIN_FILES: Exported .txt files per scan (one per plugin per scan)
+-- PLUGIN_FILES: Findings per scan (one per plugin per scan)
+-- ============================================================================
+-- Streamlined in v1.9.0: Removed duplicate/unnecessary columns
+--   - severity_dir: duplicates plugins.severity_int (use JOIN)
+--   - file_path: not needed in DB-only (can construct if needed)
+--   - file_created_at, file_modified_at, last_parsed_at: unused
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS plugin_files (
     file_id INTEGER PRIMARY KEY AUTOINCREMENT,
     scan_id INTEGER NOT NULL,
     plugin_id INTEGER NOT NULL,
-
-    -- File path info
-    file_path TEXT NOT NULL UNIQUE,     -- Absolute path to .txt file
-    severity_dir TEXT NOT NULL,         -- e.g., "3_High", "4_Critical"
 
     -- Review state (replaces REVIEW_COMPLETE- file prefix)
     review_state TEXT DEFAULT 'pending', -- 'pending', 'reviewed', 'completed', 'skipped'
@@ -77,22 +78,16 @@ CREATE TABLE IF NOT EXISTS plugin_files (
     host_count INTEGER DEFAULT 0,
     port_count INTEGER DEFAULT 0,
 
-    -- Timestamps
-    file_created_at TIMESTAMP,
-    file_modified_at TIMESTAMP,
-    last_parsed_at TIMESTAMP,
-
     FOREIGN KEY (scan_id) REFERENCES scans(scan_id) ON DELETE CASCADE,
     FOREIGN KEY (plugin_id) REFERENCES plugins(plugin_id),
 
     CONSTRAINT valid_review_state CHECK (review_state IN ('pending', 'reviewed', 'completed', 'skipped')),
-    CONSTRAINT unique_scan_plugin UNIQUE (scan_id, file_path)
+    CONSTRAINT unique_scan_plugin UNIQUE (scan_id, plugin_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_plugin_files_scan ON plugin_files(scan_id);
 CREATE INDEX IF NOT EXISTS idx_plugin_files_plugin ON plugin_files(plugin_id);
 CREATE INDEX IF NOT EXISTS idx_plugin_files_review_state ON plugin_files(review_state);
-CREATE INDEX IF NOT EXISTS idx_plugin_files_severity ON plugin_files(severity_dir);
 
 -- ============================================================================
 -- PLUGIN_FILE_HOSTS: Host:port combinations per plugin file

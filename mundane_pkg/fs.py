@@ -30,6 +30,11 @@ _console_global = Console()
 def read_text_lines(path: Path) -> list[str]:
     """Read a text file and return a list of lines with newlines stripped.
 
+    .. deprecated:: 1.8.19
+        This function is part of the legacy file-based architecture.
+        Database-only mode uses PluginFile.get_all_host_port_lines() instead.
+        This function is kept as a fallback but should not be used for new code.
+
     Args:
         path: Path to the file to read
 
@@ -82,6 +87,11 @@ def safe_print_file(path: Path, max_bytes: int = 2_000_000) -> None:
 
 def list_dirs(directory: Path) -> list[Path]:
     """List all subdirectories in a directory, sorted by name.
+
+    .. deprecated:: 1.8.19
+        This function is part of the legacy file-based architecture.
+        Database-only mode uses PluginFile.get_severity_dirs_for_scan() instead.
+        This function is kept as a fallback but should not be used for new code.
 
     Args:
         directory: Path to the parent directory
@@ -199,6 +209,11 @@ def pretty_severity_label(name: str) -> str:
 
 def list_files(directory: Path) -> list[Path]:
     """List all files in a directory, sorted by name.
+
+    .. deprecated:: 1.8.19
+        This function is part of the legacy file-based architecture.
+        Database-only mode uses PluginFile.query_by_scan() instead.
+        This function is kept as a fallback but should not be used for new code.
 
     Args:
         directory: Path to the parent directory

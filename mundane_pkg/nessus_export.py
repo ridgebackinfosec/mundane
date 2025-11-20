@@ -398,31 +398,18 @@ def export_nessus_plugins(
     total_hosts = 0
     severities: Dict[int, int] = {}
 
-    # Export each plugin
+    # Export each plugin (DATABASE-ONLY MODE - no file creation)
     for pid, meta in sorted(plugins.items(), key=sort_key):
-        # Create severity-based subdirectory
-        sev_dir = base_scan_dir / f"{meta['severity_int']}_{meta['severity_label']}"
-
-        # Generate filename with optional MSF suffix
+        # Generate virtual file path for database reference (no actual file created)
         msf_suffix = "-MSF" if meta.get("msf") else ""
         fname = f"{pid}_{sanitize_filename(meta['name'])}{msf_suffix}.txt"
-        out_path = sev_dir / fname
 
-        # Sort hosts: IPs first (by address), then hostnames (alphabetically)
+        # Count hosts for statistics
         hosts = plugin_hosts.get(pid, set())
-        ip_list = [h for h in hosts if is_ip(h)]
-        host_list = [h for h in hosts if not is_ip(h)]
-        ip_list_sorted = sorted(ip_list, key=sort_key_ip)
-        host_list_sorted = sorted(host_list)
-        ordered = ip_list_sorted + host_list_sorted
+        total_hosts += len(hosts)
+        severities[meta["severity_int"]] = severities.get(meta["severity_int"], 0) + 1
 
-        # Write plugin file
-        if _write_plugin_file(out_path, ordered):
-            log_info(f"Wrote {out_path}")
-            total_hosts += len(ordered)
-            severities[meta["severity_int"]] = severities.get(meta["severity_int"], 0) + 1
-
-    log_info(f"Export complete: {len(plugins)} plugins, {total_hosts} host entries")
+    log_info(f"Database-only import complete: {len(plugins)} plugins, {total_hosts} host entries (no files created)")
 
     # Write to database if enabled
     if use_database:
@@ -518,6 +505,16 @@ def _write_to_database(
 
                 hosts = plugin_hosts.get(plugin_id_str, set())
 
+                # Count unique ports for this plugin
+                ports = set()
+                for host_entry in hosts:
+                    if ":" in host_entry:
+                        try:
+                            port_str = host_entry.rsplit(":", 1)[1]
+                            ports.add(int(port_str))
+                        except (ValueError, IndexError):
+                            pass
+
                 plugin_file = PluginFile(
                     scan_id=scan_id,
                     plugin_id=plugin_id,
@@ -525,6 +522,7 @@ def _write_to_database(
                     severity_dir=sev_dir,
                     review_state="pending",
                     host_count=len(hosts),
+                    port_count=len(ports) if ports else 0,
                     file_created_at=now_iso(),
                     last_parsed_at=now_iso()
                 )

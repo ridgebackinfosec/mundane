@@ -571,6 +571,148 @@ class PluginFile:
 
             return total_count, reviewed_count
 
+    @classmethod
+    def get_severity_dirs_for_scan(
+        cls,
+        scan_id: int,
+        conn: Optional[sqlite3.Connection] = None
+    ) -> list[str]:
+        """Get distinct severity directories for a scan, sorted by severity level.
+
+        Queries the database for all unique severity_dir values associated with
+        plugin files for the given scan, ordered from highest to lowest severity
+        (e.g., ["4_Critical", "3_High", "2_Medium", "1_Low", "0_Info"]).
+
+        Args:
+            scan_id: Scan ID to query
+            conn: Database connection
+
+        Returns:
+            List of severity directory names sorted by severity (highest first)
+        """
+        with db_transaction(conn) as c:
+            rows = query_all(
+                c,
+                """
+                SELECT DISTINCT severity_dir
+                FROM plugin_files
+                WHERE scan_id = ?
+                ORDER BY severity_dir DESC
+                """,
+                (scan_id,)
+            )
+            return [row[0] for row in rows] if rows else []
+
+    def get_hosts_and_ports(self, conn: Optional[sqlite3.Connection] = None) -> tuple[list[str], str]:
+        """Retrieve hosts and formatted port string from database.
+
+        Queries the plugin_file_hosts table to get all host:port combinations
+        for this plugin file. Returns data in the same format as parse_hosts_ports()
+        for backward compatibility.
+
+        Args:
+            conn: Database connection
+
+        Returns:
+            Tuple of (unique_hosts_list, comma_separated_ports_string)
+            Example: (["192.168.1.1", "192.168.1.2"], "80,443,8080")
+        """
+        if self.file_id is None:
+            log_error("Cannot get hosts for unsaved PluginFile (file_id is None)")
+            return [], ""
+
+        with db_transaction(conn) as c:
+            # Query all host:port combinations for this file
+            rows = query_all(
+                c,
+                """
+                SELECT host, port, is_ipv4, is_ipv6
+                FROM plugin_file_hosts
+                WHERE file_id = ?
+                ORDER BY is_ipv4 DESC, is_ipv6 DESC, host ASC
+                """,
+                (self.file_id,)
+            )
+
+            if not rows:
+                return [], ""
+
+            # Extract unique hosts (preserving order: IPs first, then hostnames)
+            seen_hosts = set()
+            hosts = []
+            ports = set()
+
+            for row in rows:
+                host = row[0]
+                port = row[1]
+
+                # Add host to list if not seen (preserves order)
+                if host not in seen_hosts:
+                    hosts.append(host)
+                    seen_hosts.add(host)
+
+                # Collect ports
+                if port is not None:
+                    ports.add(str(port))
+
+            # Format ports as comma-separated string, sorted numerically
+            ports_str = ",".join(sorted(ports, key=lambda x: int(x))) if ports else ""
+
+            return hosts, ports_str
+
+    def get_all_host_port_lines(self, conn: Optional[sqlite3.Connection] = None) -> list[str]:
+        """Retrieve all host:port combinations as formatted lines.
+
+        Queries the plugin_file_hosts table and returns each entry as a
+        "host:port" string, matching the format of plugin file contents.
+
+        Args:
+            conn: Database connection
+
+        Returns:
+            List of "host:port" strings, sorted (IPs first, then hostnames)
+            Example: ["192.168.1.1:80", "192.168.1.1:443", "example.com:80"]
+        """
+        if self.file_id is None:
+            log_error("Cannot get host:port lines for unsaved PluginFile (file_id is None)")
+            return []
+
+        with db_transaction(conn) as c:
+            # Query all host:port combinations for this file
+            rows = query_all(
+                c,
+                """
+                SELECT host, port, is_ipv4, is_ipv6
+                FROM plugin_file_hosts
+                WHERE file_id = ?
+                ORDER BY is_ipv4 DESC, is_ipv6 DESC, host ASC, port ASC
+                """,
+                (self.file_id,)
+            )
+
+            if not rows:
+                return []
+
+            # Format as "host:port" strings
+            lines = []
+            for row in rows:
+                host = row[0]
+                port = row[1]
+
+                if port is not None:
+                    # Format with port
+                    # Handle IPv6 addresses (add brackets if needed)
+                    is_ipv6 = bool(row[3])
+                    if is_ipv6 and ":" in host and not host.startswith("["):
+                        lines.append(f"[{host}]:{port}")
+                    else:
+                        lines.append(f"{host}:{port}")
+                else:
+                    # No port specified
+                    lines.append(host)
+
+            return lines
+
 
 # ========== Model: ToolExecution ==========
 

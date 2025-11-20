@@ -196,11 +196,10 @@ def render_file_list_table(
     Args:
         display: List of (PluginFile, Plugin) tuples to display on this page
         sort_mode: Current sort mode ("hosts", "name", or "plugin_id")
-        get_counts_for: Function to get (host_count, ports_str) for a file path
+        get_counts_for: Function to get (host_count, ports_str) for a PluginFile object
         row_offset: Starting row number for pagination
         show_severity: Whether to show severity column (for MSF mode)
     """
-    from pathlib import Path
 
     table = Table(
         title=None, box=box.SIMPLE, show_lines=False, pad_edge=False
@@ -222,10 +221,8 @@ def render_file_list_table(
 
         row_data = [str(row_number), plugin_id_str, plugin_name]
 
-        # Always retrieve and show host count
-        # Convert file_path string to Path for get_counts_for
-        file_path = Path(plugin_file.file_path)
-        host_count, _ports_str = get_counts_for(file_path)
+        # Always retrieve and show host count from database
+        host_count, _ports_str = get_counts_for(plugin_file)
         row_data.append(str(host_count))
 
         if show_severity:

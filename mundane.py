@@ -24,7 +24,6 @@ from mundane_pkg import (
     run_command_with_progress,
     # parsing
     normalize_combos,
-    parse_for_overview,
     parse_hosts_ports,
     parse_file_hosts_ports_detailed,
     extract_plugin_id_from_filename,
@@ -50,7 +49,6 @@ from mundane_pkg import (
     cyan_label,
     colorize_severity_label,
     # render:
-    render_scan_table,
     render_severity_table,
     render_file_list_table,
     render_actions_footer,
@@ -63,7 +61,6 @@ from mundane_pkg import (
     list_files,
     default_page_size,
     # fs:
-    list_dirs,
     read_text_lines,
     safe_print_file,
     build_results_paths,
@@ -86,7 +83,6 @@ from mundane_pkg import (
     save_session,
     load_session,
     delete_session,
-    get_session_file_path,
     # workflow_mapper:
     Workflow,
     WorkflowStep,
@@ -188,41 +184,43 @@ def print_action_menu(actions: list[tuple[str, str]]) -> None:
 # === File viewing helpers ===
 
 
-def _file_raw_payload_text(path: Path, max_bytes: int = MAX_FILE_BYTES) -> str:
+def _file_raw_payload_text(plugin_file: "PluginFile") -> str:
     """
-    Read raw file content as text with size limit.
+    Get raw file content from database (all host:port lines).
 
     Args:
-        path: File to read
-        max_bytes: Maximum bytes to read
+        plugin_file: PluginFile database object
 
     Returns:
-        File content as UTF-8 string (with error replacement)
+        File content as UTF-8 string (one host:port per line)
     """
-    with path.open("rb") as file_handle:
-        data = file_handle.read(max_bytes)
-    return data.decode("utf-8", errors="replace")
+    # Get all host:port lines from database
+    lines = plugin_file.get_all_host_port_lines()
+    content = "\n".join(lines)
+    if lines:
+        content += "\n"  # Add trailing newline
+    return content
 
 
-def _file_raw_paged_text(path: Path, max_bytes: int = MAX_FILE_BYTES) -> str:
+def _file_raw_paged_text(plugin_file: "PluginFile") -> str:
     """
-    Prepare raw file content for paged viewing with metadata.
+    Prepare raw file content for paged viewing with metadata from database.
 
     Args:
-        path: File to read
-        max_bytes: Maximum bytes to read
+        plugin_file: PluginFile database object
 
     Returns:
         Formatted string with file info and content
     """
-    if not path.exists():
-        return f"(missing) {path}\n"
+    from pathlib import Path
+    filename = Path(plugin_file.file_path).name
 
-    size = path.stat().st_size
-    lines = [f"Showing: {path} ({size} bytes)"]
-    if size > max_bytes:
-        lines.append(f"File is large; showing first {max_bytes} bytes.")
-    lines.append(_file_raw_payload_text(path, max_bytes))
+    # Get content from database
+    content = _file_raw_payload_text(plugin_file)
+    size_bytes = len(content.encode('utf-8'))
+
+    lines = [f"Showing: {filename} ({size_bytes} bytes from database)"]
+    lines.append(content)
     return "\n".join(lines)
 
 
@@ -496,37 +494,29 @@ def show_scan_summary(
     """
     Display comprehensive scan overview with host/port statistics.
 
+    Database-only mode: queries all statistics from database.
+
     Args:
-        scan_dir: Scan directory to analyze
+        scan_dir: Scan directory (used for display name only)
         top_ports_n: Number of top ports to display
-        scan_id: Optional scan ID for database queries
+        scan_id: Scan ID (required for database queries)
     """
+    if scan_id is None:
+        err("Database scan_id is required for scan summary")
+        return
+
     header(f"Scan Overview — {scan_dir.name}")
 
-    # Database-first: Query plugin files instead of walking filesystem
-    if scan_id is not None:
-        from mundane_pkg.models import PluginFile
-        plugin_files_db = PluginFile.get_by_scan_with_plugin(scan_id)
-        all_files = [Path(pf.file_path) for pf, _ in plugin_files_db]
-        severities = sorted(set(pf.severity_dir for pf, _ in plugin_files_db))
-    else:
-        # Fallback to filesystem if no scan_id (legacy mode)
-        severities = list_dirs(scan_dir)
-        all_files = []
-        for severity in severities:
-            all_files.extend(
-                [file for file in list_files(severity) if file.suffix.lower() == ".txt"]
-            )
-
     total_files, reviewed_files = count_reviewed_in_scan(scan_dir, scan_id=scan_id)
+
+    # Query all host/port data from database
+    from mundane_pkg.database import db_transaction, query_all
 
     unique_hosts = set()
     ipv4_set = set()
     ipv6_set = set()
     ports_counter: Counter = Counter()
     empties = 0
-    malformed_total = 0
-    combo_sig_counter: Counter = Counter()
 
     with Progress(
         SpinnerColumn(style="cyan"),
@@ -535,34 +525,52 @@ def show_scan_summary(
         console=_console_global,
         transient=True,
     ) as progress:
-        task = progress.add_task(
-            "Parsing files for overview...", total=len(all_files) or 1
-        )
-        for file in all_files:
-            hosts, ports, combos, had_explicit, malformed = parse_for_overview(file)
-            malformed_total += malformed
+        task = progress.add_task("Querying database for overview...", total=None)
 
-            if not hosts:
-                empties += 1
+        with db_transaction() as conn:
+            # Get all host/port combinations for this scan
+            rows = query_all(
+                conn,
+                """
+                SELECT DISTINCT pfh.host, pfh.port, pfh.is_ipv4, pfh.is_ipv6, pfh.file_id
+                FROM plugin_file_hosts pfh
+                JOIN plugin_files pf ON pfh.file_id = pf.file_id
+                WHERE pf.scan_id = ?
+                """,
+                (scan_id,)
+            )
 
-            unique_hosts.update(hosts)
+            # Count files with no hosts (empty files)
+            empty_files = query_all(
+                conn,
+                """
+                SELECT pf.file_id
+                FROM plugin_files pf
+                LEFT JOIN plugin_file_hosts pfh ON pf.file_id = pfh.file_id
+                WHERE pf.scan_id = ? AND pfh.file_id IS NULL
+                """,
+                (scan_id,)
+            )
+            empties = len(empty_files)
 
-            for host in hosts:
-                try:
-                    ip = ipaddress.ip_address(host)
-                    if isinstance(ip, ipaddress.IPv4Address):
-                        ipv4_set.add(host)
-                    elif isinstance(ip, ipaddress.IPv6Address):
-                        ipv6_set.add(host)
-                except Exception:
-                    pass
+        # Process query results
+        for row in rows:
+            host = row["host"]
+            port = row["port"]
+            is_ipv4 = bool(row["is_ipv4"])
+            is_ipv6 = bool(row["is_ipv6"])
 
-            for port in ports:
-                ports_counter[port] += 1
+            unique_hosts.add(host)
 
-            sig = normalize_combos(hosts, ports, combos, had_explicit)
-            combo_sig_counter[sig] += 1
-            progress.advance(task)
+            if is_ipv4:
+                ipv4_set.add(host)
+            elif is_ipv6:
+                ipv6_set.add(host)
+
+            if port is not None:
+                ports_counter[str(port)] += 1
+
+        progress.update(task, completed=True)
 
     # File Statistics - Inline Display
     from rich.table import Table
@@ -584,8 +592,6 @@ def show_scan_summary(
     ]
     if empties > 0:
         file_stats_parts.append(f"[cyan]Empty:[/cyan] {empties}")
-    if malformed_total > 0:
-        file_stats_parts.append(f"[cyan]Malformed:[/cyan] {malformed_total}")
 
     _console_global.print(" │ ".join(file_stats_parts))
     print()  # Blank line
@@ -601,13 +607,6 @@ def show_scan_summary(
 
     port_set = set(ports_counter.keys())
     analysis_table.add_row("Unique Ports", str(len(port_set)))
-
-    multi_clusters = [count for count in combo_sig_counter.values() if count > 1]
-    analysis_table.add_row("Host:Port Clusters", str(len(multi_clusters)))
-    if multi_clusters:
-        sizes = sorted(multi_clusters, reverse=True)[:3]
-        largest_str = ", ".join(f"{size} files" for size in sizes)
-        analysis_table.add_row("  └─ Largest", largest_str)
 
     _console_global.print(analysis_table)
     print()  # Blank line after table
@@ -642,69 +641,101 @@ def print_grouped_hosts_ports(path: Path) -> None:
         warn(f"Error grouping hosts/ports: {exc}")
 
 
-def _grouped_payload_text(path: Path) -> str:
+def _grouped_payload_text(plugin_file: "PluginFile") -> str:
     """
-    Generate grouped host:port text for copying/viewing.
+    Generate grouped host:port text for copying/viewing from database.
 
     Args:
-        path: Plugin file to parse
+        plugin_file: PluginFile database object
 
     Returns:
         Formatted string with host:port,port,... lines
     """
-    hosts, _ports, combos, _had_explicit = parse_file_hosts_ports_detailed(path)
+    # Get all host:port lines from database
+    lines = plugin_file.get_all_host_port_lines()
+
+    # Group ports by host
+    from collections import defaultdict
+    host_ports = defaultdict(list)
+
+    for line in lines:
+        if ":" in line:
+            # Handle IPv6 with brackets: [host]:port
+            if line.startswith("["):
+                # IPv6 format: [2001:db8::1]:80
+                host_end = line.index("]")
+                host = line[1:host_end]  # Remove brackets
+                port = line[host_end+2:]  # Skip ']:'
+            else:
+                # IPv4 or hostname: host:port
+                host, port = line.rsplit(":", 1)
+            host_ports[host].append(port)
+        else:
+            # No port
+            host_ports[line].append(None)
+
+    # Format output: host:port1,port2,port3 or just host if no ports
     out = []
-    for host in hosts:
-        port_list = (
-            sorted(combos[host], key=lambda x: int(x)) if combos[host] else []
-        )
-        out.append(f"{host}:{','.join(port_list)}" if port_list else host)
+    for host in host_ports.keys():
+        ports = [p for p in host_ports[host] if p is not None]
+        if ports:
+            # Sort ports numerically
+            sorted_ports = sorted(set(ports), key=lambda x: int(x))
+            out.append(f"{host}:{','.join(sorted_ports)}")
+        else:
+            out.append(host)
+
     return "\n".join(out) + ("\n" if out else "")
 
 
-def _grouped_paged_text(path: Path) -> str:
+def _grouped_paged_text(plugin_file: "PluginFile") -> str:
     """
-    Prepare grouped host:port content for paged viewing.
+    Prepare grouped host:port content for paged viewing from database.
 
     Args:
-        path: Plugin file to parse
+        plugin_file: PluginFile database object
 
     Returns:
         Formatted string with header and grouped content
     """
-    body = _grouped_payload_text(path)
-    return f"Grouped view: {path.name}\n{body}"
+    from pathlib import Path
+    body = _grouped_payload_text(plugin_file)
+    filename = Path(plugin_file.file_path).name
+    return f"Grouped view: {filename}\n{body}"
 
 
 # === Hosts-only helpers ===
 
 
-def _hosts_only_payload_text(path: Path) -> str:
+def _hosts_only_payload_text(plugin_file: "PluginFile") -> str:
     """
-    Extract only hosts (IPs or FQDNs) without port information.
+    Extract only hosts (IPs or FQDNs) without port information from database.
 
     Args:
-        path: Plugin file to parse
+        plugin_file: PluginFile database object
 
     Returns:
         One host per line
     """
-    hosts, _ports, _combos, _had_explicit = parse_file_hosts_ports_detailed(path)
+    # Get unique hosts from database (already sorted: IPs first, then hostnames)
+    hosts, _ports_str = plugin_file.get_hosts_and_ports()
     return "\n".join(hosts) + ("\n" if hosts else "")
 
 
-def _hosts_only_paged_text(path: Path) -> str:
+def _hosts_only_paged_text(plugin_file: "PluginFile") -> str:
     """
-    Prepare hosts-only content for paged viewing.
+    Prepare hosts-only content for paged viewing from database.
 
     Args:
-        path: Plugin file to parse
+        plugin_file: PluginFile database object
 
     Returns:
         Formatted string with header and host list
     """
-    body = _hosts_only_payload_text(path)
-    return f"Hosts-only view: {path.name}\n{body}"
+    from pathlib import Path
+    body = _hosts_only_payload_text(plugin_file)
+    filename = Path(plugin_file.file_path).name
+    return f"Hosts-only view: {filename}\n{body}"
 
 
 # === File viewing workflow ===
@@ -872,16 +903,21 @@ def handle_file_view(
         except KeyboardInterrupt:
             return
 
+        # Check if plugin_file is available (database mode)
+        if plugin_file is None:
+            warn("Database not available - cannot view file contents")
+            continue
+
         # Default to grouped
         if format_choice in ("", "g", "grouped"):
-            text = _grouped_paged_text(chosen)
-            payload = _grouped_payload_text(chosen)
+            text = _grouped_paged_text(plugin_file)
+            payload = _grouped_payload_text(plugin_file)
         elif format_choice in ("h", "hosts", "hosts-only"):
-            text = _hosts_only_paged_text(chosen)
-            payload = _hosts_only_payload_text(chosen)
+            text = _hosts_only_paged_text(plugin_file)
+            payload = _hosts_only_payload_text(plugin_file)
         elif format_choice in ("r", "raw"):
-            text = _file_raw_paged_text(chosen)
-            payload = _file_raw_payload_text(chosen)
+            text = _file_raw_paged_text(plugin_file)
+            payload = _file_raw_payload_text(plugin_file)
         else:
             warn("Invalid format choice.")
             continue
@@ -1357,15 +1393,19 @@ def process_single_file(
         show_severity: Whether to show severity label (for MSF mode)
         workflow_mapper: Optional workflow mapper for plugin workflows
     """
-    lines = read_text_lines(chosen)
-    tokens = [line for line in lines if line.strip()]
+    # Get hosts and ports from database instead of reading file
+    if plugin_file is not None:
+        hosts, ports_str = plugin_file.get_hosts_and_ports()
+    else:
+        # Fallback to file reading if database not available (backward compatibility)
+        lines = read_text_lines(chosen)
+        tokens = [line for line in lines if line.strip()]
+        hosts, ports_str = parse_hosts_ports(tokens) if tokens else ([], "")
 
-    if not tokens:
+    if not hosts:
         info("File is empty (no hosts found). This usually means the vulnerability doesn't affect any hosts.")
         skipped_total.append(chosen.name)
         return
-
-    hosts, ports_str = parse_hosts_ports(tokens)
 
     # Build Rich Panel preview
     content = Text()
@@ -1473,8 +1513,7 @@ def handle_file_list_actions(
     total_pages: int,
     reviewed: List[Any],  # List of (PluginFile, Plugin) tuples
     sev_map: Optional[Dict[Path, Path]] = None,
-    get_counts_for: Optional[Callable[[Path], Tuple[int, str]]] = None,
-    file_parse_cache: Optional[Dict[Path, Tuple[int, str]]] = None,
+    get_counts_for: Optional[Callable[["PluginFile"], Tuple[int, str]]] = None,
 ) -> ActionResult:
     """
     Handle file list actions (filter, sort, navigate, group, etc.).
@@ -1492,8 +1531,7 @@ def handle_file_list_actions(
         total_pages: Total number of pages
         reviewed: List of reviewed records
         sev_map: Map of file to severity dir (deprecated, unused)
-        get_counts_for: Function to get host counts for a Path
-        file_parse_cache: Cache of parsed file data (Path -> counts)
+        get_counts_for: Function to get host counts for a PluginFile (database-driven)
 
     Returns:
         Tuple of (action_type, file_filter, reviewed_filter,
@@ -1555,25 +1593,7 @@ def handle_file_list_actions(
         }.get(sort_mode, "Plugin ID ↑")
         ok(f"Sorting by {sort_label}")
 
-        # Pre-load host counts AFTER switching to hosts mode
-        if sort_mode == "hosts" and get_counts_for and file_parse_cache is not None:
-            # Extract Path objects from (PluginFile, Plugin) tuples
-            candidate_paths = [Path(pf.file_path) for pf, p in candidates]
-            missing = [path for path in candidate_paths if path not in file_parse_cache]
-            if missing:
-                with Progress(
-                    SpinnerColumn(style="cyan"),
-                    TextColumn("[progress.description]{task.description}"),
-                    TimeElapsedColumn(),
-                    console=_console_global,
-                    transient=True,
-                ) as progress:
-                    task = progress.add_task(
-                        "Counting hosts in files...", total=len(missing)
-                    )
-                    for path in missing:
-                        _ = get_counts_for(path)
-                        progress.advance(task)
+        # No need to pre-load host counts - they're already in the database!
 
         page_idx = 0
         return None, file_filter, reviewed_filter, group_filter, sort_mode, page_idx
@@ -1792,9 +1812,9 @@ def handle_file_list_actions(
                 page_idx,
             )
 
-        # Extract Path objects from (PluginFile, Plugin) tuples
-        candidate_paths = [Path(pf.file_path) for pf, p in candidates]
-        groups = compare_filtered(candidate_paths)
+        # Pass PluginFile objects directly for database queries
+        candidate_files = [pf for pf, _ in candidates]
+        groups = compare_filtered(candidate_files)
         if groups:
             visible = min(VISIBLE_GROUPS, len(groups))
             opts = " | ".join(f"g{i+1}" for i in range(visible))
@@ -1824,9 +1844,9 @@ def handle_file_list_actions(
                 page_idx,
             )
 
-        # Extract Path objects from (PluginFile, Plugin) tuples
-        candidate_paths = [Path(pf.file_path) for pf, p in candidates]
-        groups = analyze_inclusions(candidate_paths)
+        # Pass PluginFile objects directly for database queries
+        candidate_files = [pf for pf, _ in candidates]
+        groups = analyze_inclusions(candidate_files)
         if groups:
             visible = min(VISIBLE_GROUPS, len(groups))
             opts = " | ".join(f"g{i+1}" for i in range(visible))
@@ -2035,25 +2055,23 @@ def browse_file_list(
     reviewed_filter = ""
     group_filter: Optional[Tuple[int, set]] = None
     sort_mode = "plugin_id"  # Default sort by plugin ID
-    file_parse_cache: Dict[Path, Tuple[int, str]] = {}
     page_size = default_page_size()
     page_idx = 0
 
     # Derive scan_dir from scan object
     scan_dir = Path(scan.export_root) / scan.scan_name
 
-    def get_counts_for(path: Path) -> Tuple[int, str]:
-        """Get cached host/port counts for a file."""
-        if path in file_parse_cache:
-            return file_parse_cache[path]
-        try:
-            lines = read_text_lines(path)
-            hosts, ports_str = parse_hosts_ports(lines)
-            stats = (len(hosts), ports_str)
-        except Exception:
-            stats = (0, "")
-        file_parse_cache[path] = stats
-        return stats
+    def get_counts_for(plugin_file: "PluginFile") -> Tuple[int, str]:
+        """Get host/port counts from database.
+
+        Args:
+            plugin_file: PluginFile database object
+
+        Returns:
+            Tuple of (host_count, ports_string) - uses pre-computed database fields
+        """
+        # Use pre-computed counts from database (populated during import)
+        return (plugin_file.host_count or 0, "")
 
     while True:
         # Query database for files with plugin info
@@ -2085,7 +2103,7 @@ def browse_file_list(
         if sort_mode == "hosts":
             display = sorted(
                 candidates,
-                key=lambda record: (-get_counts_for(Path(record[0].file_path))[0], natural_key(Path(record[0].file_path).name)),
+                key=lambda record: (-get_counts_for(record[0])[0], natural_key(Path(record[0].file_path).name)),
             )
         elif sort_mode == "plugin_id":
             # Sort by plugin ID (numeric ascending)
@@ -2161,7 +2179,6 @@ def browse_file_list(
             reviewed,
             None,  # sev_map no longer used
             get_counts_for,
-            file_parse_cache,
         )
 
         (
@@ -2423,121 +2440,300 @@ def main(args: types.SimpleNamespace) -> None:
     # If no export_root specified, use database scan selection
     if export_root is None:
         from mundane_pkg.models import Scan, PluginFile
-        from mundane_pkg.session import USE_DATABASE
         from datetime import datetime
 
-        if not USE_DATABASE:
-            err("Database is disabled. Please specify --export-root or enable database.")
-            return
-
-        # Get all scans from database
-        try:
-            all_scans = Scan.get_all()
-        except Exception as e:
-            err(f"Failed to query scans from database: {e}")
-            return
-
-        if not all_scans:
-            err("No scans found in database.")
-            info("Import a scan first: mundane import <nessus_file>")
-            return
-
-        # Display scan selection menu
-        header("Available Scans")
-        from rich.table import Table
-        from rich import box
-
-        scan_table = Table(show_header=True, header_style="bold cyan", box=box.SIMPLE)
-        scan_table.add_column("#", style="cyan", justify="right")
-        scan_table.add_column("Scan Name", style="yellow")
-        scan_table.add_column("Last Reviewed", style="magenta")
-
-        for idx, scan in enumerate(all_scans, 1):
-            last_reviewed = "never"
-            if scan.last_reviewed_at:
-                try:
-                    dt = datetime.fromisoformat(scan.last_reviewed_at)
-                    now = datetime.now()
-                    delta = now - dt
-                    if delta.days == 0:
-                        if delta.seconds < 3600:
-                            mins = delta.seconds // 60
-                            last_reviewed = f"{mins} min{'s' if mins != 1 else ''} ago"
-                        else:
-                            hours = delta.seconds // 3600
-                            last_reviewed = f"{hours} hour{'s' if hours != 1 else ''} ago"
-                    elif delta.days == 1:
-                        last_reviewed = "yesterday"
-                    elif delta.days < 7:
-                        last_reviewed = f"{delta.days} days ago"
-                    else:
-                        last_reviewed = dt.strftime("%Y-%m-%d")
-                except Exception:
-                    last_reviewed = scan.last_reviewed_at[:10]  # Just date
-
-            scan_table.add_row(str(idx), scan.scan_name, last_reviewed)
-
-        _console_global.print(scan_table)
-        print_action_menu([("Q", "Quit")])
-
-        try:
-            ans = input("Choose scan: ").strip().lower()
-        except KeyboardInterrupt:
-            warn("\nInterrupted — exiting.")
-            return
-
-        if ans in ("x", "exit", "q", "quit"):
-            return
-
-        if not ans.isdigit() or not (1 <= int(ans) <= len(all_scans)):
-            warn(f"Invalid choice. Please enter 1-{len(all_scans)} or [Q]uit.")
-            return
-
-        selected_scan = all_scans[int(ans) - 1]
-        export_root = Path(selected_scan.export_root)
-        scan_dir = export_root / selected_scan.scan_name
-
-        if not scan_dir.exists():
-            err(f"Scan directory not found: {scan_dir}")
-            info("The scan may have been moved or deleted.")
-            return
-
-        # Skip the scan loop, go directly to reviewing this scan
-        ok(f"Selected: {selected_scan.scan_name}")
-        # Don't wrap in scan loop - jump directly to single scan review
-        # We'll handle this by jumping to the session check and severity loop
-
-        # Check for existing session
-        previous_session = load_session(scan_dir)
-        if previous_session:
-            from datetime import datetime
-            session_date = datetime.fromisoformat(previous_session.session_start)
-            header("Previous Session Found")
-            info(f"Session started: {session_date.strftime('%Y-%m-%d %H:%M:%S')}")
-            info(f"Reviewed: {len(previous_session.reviewed_files)} files")
-            info(f"Completed: {len(previous_session.completed_files)} files")
-            info(f"Skipped: {len(previous_session.skipped_files)} files")
+        # Outer loop for scan selection
+        while True:
+            # Get all scans from database
             try:
-                resume = yesno("Resume this session?", default="y")
+                all_scans = Scan.get_all()
+            except Exception as e:
+                err(f"Failed to query scans from database: {e}")
+                return
+
+            if not all_scans:
+                err("No scans found in database.")
+                info("Import a scan first: mundane import <nessus_file>")
+                return
+
+            # Display scan selection menu
+            header("Available Scans")
+            from rich.table import Table
+            from rich import box
+
+            scan_table = Table(show_header=True, header_style="bold cyan", box=box.SIMPLE)
+            scan_table.add_column("#", style="cyan", justify="right")
+            scan_table.add_column("Scan Name", style="yellow")
+            scan_table.add_column("Last Reviewed", style="magenta")
+
+            for idx, scan in enumerate(all_scans, 1):
+                last_reviewed = "never"
+                if scan.last_reviewed_at:
+                    try:
+                        dt = datetime.fromisoformat(scan.last_reviewed_at)
+                        now = datetime.now()
+                        delta = now - dt
+                        if delta.days == 0:
+                            if delta.seconds < 3600:
+                                mins = delta.seconds // 60
+                                last_reviewed = f"{mins} min{'s' if mins != 1 else ''} ago"
+                            else:
+                                hours = delta.seconds // 3600
+                                last_reviewed = f"{hours} hour{'s' if hours != 1 else ''} ago"
+                        elif delta.days == 1:
+                            last_reviewed = "yesterday"
+                        elif delta.days < 7:
+                            last_reviewed = f"{delta.days} days ago"
+                        else:
+                            last_reviewed = dt.strftime("%Y-%m-%d")
+                    except Exception:
+                        last_reviewed = scan.last_reviewed_at[:10]  # Just date
+
+                scan_table.add_row(str(idx), scan.scan_name, last_reviewed)
+
+            _console_global.print(scan_table)
+            print_action_menu([("Q", "Quit")])
+
+            try:
+                ans = input("Choose scan: ").strip().lower()
             except KeyboardInterrupt:
                 warn("\nInterrupted — exiting.")
                 return
 
-            if resume:
-                reviewed_total = previous_session.reviewed_files.copy()
-                completed_total = previous_session.completed_files.copy()
-                skipped_total = previous_session.skipped_files.copy()
-            else:
-                # Fresh session
-                pass
-        else:
-            # No previous session - start fresh
-            pass
+            if ans in ("x", "exit", "q", "quit"):
+                return
 
-        # Continue to severity loop (line ~2281+)
-        # We'll mark this with a goto-style approach by setting a flag
-        _single_scan_mode = True
-        _selected_scan_dir = scan_dir
+            if not ans.isdigit() or not (1 <= int(ans) <= len(all_scans)):
+                warn(f"Invalid choice. Please enter 1-{len(all_scans)} or [Q]uit.")
+                continue  # Back to scan selection
+
+            selected_scan = all_scans[int(ans) - 1]
+            export_root = Path(selected_scan.export_root)
+            scan_dir = export_root / selected_scan.scan_name
+
+            # Note: scan_dir is a Path object used for display (scan_dir.name) only
+            # In database-only mode, the directory doesn't need to exist
+
+            ok(f"Selected: {selected_scan.scan_name}")
+
+            # Check for existing session
+            previous_session = load_session(selected_scan.scan_id)
+            if previous_session:
+                from datetime import datetime
+                session_date = datetime.fromisoformat(previous_session.session_start)
+                header("Previous Session Found")
+                info(f"Session started: {session_date.strftime('%Y-%m-%d %H:%M:%S')}")
+                info(f"Reviewed: {previous_session.reviewed_count} files")
+                info(f"Completed: {previous_session.completed_count} files")
+                info(f"Skipped: {previous_session.skipped_count} files")
+                try:
+                    resume = yesno("Resume this session?", default="y")
+                except KeyboardInterrupt:
+                    warn("\nInterrupted — exiting.")
+                    return
+
+                if resume:
+                    # Session start time is restored; file tracking continues from database
+                    session_start_time = session_date
+                    ok("Session resumed.")
+                else:
+                    # Start fresh session - end the old one
+                    delete_session(selected_scan.scan_id)
+                    ok("Starting fresh session.")
+            else:
+                # No previous session - start fresh
+                pass
+
+            # Overview immediately after selecting scan
+            show_scan_summary(scan_dir, scan_id=selected_scan.scan_id)
+
+            # Severity loop (inner loop)
+            while True:
+                from mundane_pkg import breadcrumb
+                bc = breadcrumb(scan_dir.name, "Choose severity")
+                header(bc if bc else f"Scan: {scan_dir.name} — choose severity")
+
+                # Get severity directories from database (database-only mode)
+                severity_dir_names = PluginFile.get_severity_dirs_for_scan(selected_scan.scan_id)
+                if not severity_dir_names:
+                    warn("No severity directories in this scan.")
+                    break
+
+                # Create virtual Path objects for compatibility with existing render code
+                # Database returns pre-sorted (DESC), so no additional sorting needed
+                severities = [scan_dir / sev_name for sev_name in severity_dir_names]
+
+                # Metasploit Module virtual group (menu counts) - query from database
+                msf_files = PluginFile.get_by_scan_with_plugin(
+                    scan_id=selected_scan.scan_id,
+                    has_metasploit=True
+                )
+
+                has_msf = len(msf_files) > 0
+                msf_total = len(msf_files)
+                msf_reviewed = sum(
+                    1
+                    for (pf, _p) in msf_files
+                    if pf.review_state == "completed"
+                )
+                msf_unrev = msf_total - msf_reviewed
+
+                msf_summary = (
+                    (len(severities) + 1, msf_unrev, msf_reviewed, msf_total)
+                    if has_msf
+                    else None
+                )
+
+                # Workflow Mapped virtual group (menu counts) - query from database
+                workflow_plugin_ids = workflow_mapper.get_all_plugin_ids()
+                if workflow_plugin_ids:
+                    workflow_plugin_ids_int = [int(pid) for pid in workflow_plugin_ids if pid.isdigit()]
+                    workflow_files = PluginFile.get_by_scan_with_plugin(
+                        scan_id=selected_scan.scan_id,
+                        plugin_ids=workflow_plugin_ids_int
+                    )
+                else:
+                    workflow_files = []
+
+                has_workflows = len(workflow_files) > 0
+                workflow_total = len(workflow_files)
+                workflow_reviewed = sum(
+                    1
+                    for (pf, _p) in workflow_files
+                    if pf.review_state == "completed"
+                )
+                workflow_unrev = workflow_total - workflow_reviewed
+
+                # Calculate workflow menu index (after severities and MSF if present)
+                workflow_menu_idx = len(severities) + (1 if has_msf else 0) + 1
+
+                workflow_summary = (
+                    (workflow_menu_idx, workflow_unrev, workflow_reviewed, workflow_total)
+                    if has_workflows
+                    else None
+                )
+
+                render_severity_table(severities, msf_summary=msf_summary, workflow_summary=workflow_summary, scan_id=selected_scan.scan_id)
+
+                print_action_menu([("B", "Back")])
+                info("Tip: Multi-select is supported (e.g., 1-3 or 1,3,5)")
+
+                try:
+                    ans = input("Choose: ").strip().lower()
+                except KeyboardInterrupt:
+                    warn("\nInterrupted — returning to scan menu.")
+                    break
+
+                if ans in ("b", "back"):
+                    break
+                elif ans == "q":
+                    return
+
+                options_count = len(severities) + (1 if has_msf else 0) + (1 if has_workflows else 0)
+
+                # Parse selection (supports ranges and comma-separated)
+                selected_indices = parse_severity_selection(ans, options_count)
+
+                if selected_indices is None:
+                    warn("Invalid choice. Use single numbers, ranges (1-3), or comma-separated (1,3,5).")
+                    continue
+
+                # Check if MSF is included in selection
+                msf_in_selection = has_msf and (len(severities) + 1) in selected_indices
+
+                # Check if Workflow Mapped is included in selection
+                workflow_in_selection = has_workflows and workflow_menu_idx in selected_indices
+
+                # Filter out MSF and Workflow from severity indices
+                severity_indices = [idx for idx in selected_indices if idx <= len(severities)]
+
+                # === Multiple severities selected (or mix of severities + MSF) ===
+                if len(severity_indices) > 1 or (len(severity_indices) >= 1 and msf_in_selection):
+                    selected_sev_dirs = [severities[idx - 1] for idx in severity_indices]
+
+                    # Build combined label
+                    sev_labels = [pretty_severity_label(sev.name) for sev in selected_sev_dirs]
+                    if msf_in_selection:
+                        sev_labels.append("Metasploit Module")
+
+                    combined_label = " + ".join(sev_labels)
+
+                    # For multi-severity selection, pass list of severity directories to filter
+                    severity_dir_names = [sev.name for sev in selected_sev_dirs]
+                    browse_file_list(
+                        selected_scan,
+                        selected_sev_dirs[0] if selected_sev_dirs else None,
+                        None,  # Single severity filter not used for multi-severity
+                        combined_label,
+                        args,
+                        use_sudo,
+                        skipped_total,
+                        reviewed_total,
+                        completed_total,
+                        is_msf_mode=True,  # Show severity labels for each file
+                        workflow_mapper=workflow_mapper,
+                        severity_dirs_filter=severity_dir_names,
+                    )
+
+                # === Single severity selected (normal or MSF only) ===
+                elif len(severity_indices) == 1:
+                    choice_idx = severity_indices[0]
+                    sev_dir = severities[choice_idx - 1]
+
+                    # Use severity directory name as filter (e.g., "3_High")
+                    severity_dir_filter = sev_dir.name
+
+                    browse_file_list(
+                        selected_scan,
+                        sev_dir,
+                        severity_dir_filter,
+                        pretty_severity_label(sev_dir.name),
+                        args,
+                        use_sudo,
+                        skipped_total,
+                        reviewed_total,
+                        completed_total,
+                        is_msf_mode=False,
+                        workflow_mapper=workflow_mapper,
+                    )
+
+                # === Metasploit Module only ===
+                elif msf_in_selection:
+                    # Query database for metasploit plugins across all severities
+                    browse_file_list(
+                        selected_scan,
+                        None,  # No single severity dir
+                        None,  # No severity filter
+                        "Metasploit Module",
+                        args,
+                        use_sudo,
+                        skipped_total,
+                        reviewed_total,
+                        completed_total,
+                        is_msf_mode=True,
+                        workflow_mapper=workflow_mapper,
+                        has_metasploit_filter=True,
+                    )
+
+                # === Workflow Mapped only ===
+                elif workflow_in_selection:
+                    # Group files by workflow name using database records
+                    workflow_groups = group_files_by_workflow(workflow_files, workflow_mapper)
+
+                    browse_workflow_groups(
+                        selected_scan,
+                        workflow_groups,
+                        args,
+                        use_sudo,
+                        skipped_total,
+                        reviewed_total,
+                        completed_total,
+                        workflow_mapper,
+                    )
+
+            # End of severity loop - continue to scan selection loop
+            # (User pressed 'b' or 'q' from severity menu)
+
     else:
         # Filesystem mode is deprecated - require database mode
         err("The --export-root flag is deprecated for 'review' mode.")
@@ -2549,313 +2745,31 @@ def main(args: types.SimpleNamespace) -> None:
         err("  mundane review")
         return
 
-    # =========================================================================
-    # DEAD CODE BELOW - Unreachable due to return statement above
-    # TODO: Remove in future version (kept temporarily for reference)
-    # =========================================================================
-
-    # Scan loop (only used when export_root is explicitly provided)
-    while True:
-        # Skip scan selection if already selected from database
-        if _single_scan_mode:
-            scan_dir = _selected_scan_dir
-            # Don't reset flag - we'll break after reviewing this one scan
-        else:
-            scans = list_dirs(export_root)
-            if not scans:
-                err("No scan directories found.")
-                return
-
-            header("Select a scan")
-            render_scan_table(scans)
-            print_action_menu([("Q", "Quit")])
-
-            try:
-                ans = input("Choose: ").strip().lower()
-            except KeyboardInterrupt:
-                warn("\nInterrupted — exiting.")
-                return
-
-            if ans in ("x", "exit", "q", "quit"):
-                # Confirmation if files were reviewed this session
-                if completed_total:
-                    try:
-                        confirm = yesno(
-                            f"You marked {len(completed_total)} file(s) as reviewed this session. Exit?",
-                            default="n"
-                        )
-                        if not confirm:
-                            continue
-                    except KeyboardInterrupt:
-                        continue
-                break
-
-            if not ans.isdigit() or not (1 <= int(ans) <= len(scans)):
-                warn(f"Invalid choice. Please enter 1-{len(scans)} or [Q]uit.")
-                continue
-
-            scan_dir = scans[int(ans) - 1]
-
-            # Check for existing session
-            previous_session = load_session(scan_dir)
-            if previous_session:
-                from datetime import datetime
-                session_date = datetime.fromisoformat(previous_session.session_start)
-                header("Previous Session Found")
-                info(f"Session started: {session_date.strftime('%Y-%m-%d %H:%M:%S')}")
-                info(f"Reviewed: {len(previous_session.reviewed_files)}")
-                info(f"Completed: {len(previous_session.completed_files)}")
-                info(f"Skipped: {len(previous_session.skipped_files)}")
-
-                try:
-                    resume = yesno("\nResume previous session?", default="y")
-                except KeyboardInterrupt:
-                    resume = False
-
-                if resume:
-                    # Restore session state
-                    reviewed_total = previous_session.reviewed_files.copy()
-                    completed_total = previous_session.completed_files.copy()
-                    skipped_total = previous_session.skipped_files.copy()
-                    session_start_time = session_date
-                    ok("Session resumed.")
-            else:
-                # Start fresh session - delete old session file
-                delete_session(scan_dir)
-                ok("Starting fresh session.")
-
-        # Overview immediately after selecting scan
-        # Pass scan_id if available (database mode)
-        scan_id_for_summary = selected_scan.scan_id if 'selected_scan' in locals() else None
-        show_scan_summary(scan_dir, scan_id=scan_id_for_summary)
-
-        # Track if user chose to go back (for single-scan mode)
-        user_went_back = False
-
-        # Severity loop
-        while True:
-            from mundane_pkg import breadcrumb
-            bc = breadcrumb(scan_dir.name, "Choose severity")
-            header(bc if bc else f"Scan: {scan_dir.name} — choose severity")
-            severities = list_dirs(scan_dir)
-            if not severities:
-                warn("No severity directories in this scan.")
-                break
-
-            def sev_key(path: Path) -> Tuple[int, str]:
-                """Sort key for severity directories (highest first)."""
-                match = re.match(r"^(\d+)_", path.name)
-                return -(int(match.group(1)) if match else 0), path.name
-
-            severities = sorted(severities, key=sev_key)
-
-            # Metasploit Module virtual group (menu counts) - query from database
-            msf_files = PluginFile.get_by_scan_with_plugin(
-                scan_id=selected_scan.scan_id,
-                has_metasploit=True
-            )
-
-            has_msf = len(msf_files) > 0
-            msf_total = len(msf_files)
-            msf_reviewed = sum(
-                1
-                for (pf, _p) in msf_files
-                if pf.review_state == "completed"
-            )
-            msf_unrev = msf_total - msf_reviewed
-
-            msf_summary = (
-                (len(severities) + 1, msf_unrev, msf_reviewed, msf_total)
-                if has_msf
-                else None
-            )
-
-            # Workflow Mapped virtual group (menu counts) - query from database
-            workflow_plugin_ids = workflow_mapper.get_all_plugin_ids()
-            if workflow_plugin_ids:
-                workflow_plugin_ids_int = [int(pid) for pid in workflow_plugin_ids if pid.isdigit()]
-                workflow_files = PluginFile.get_by_scan_with_plugin(
-                    scan_id=selected_scan.scan_id,
-                    plugin_ids=workflow_plugin_ids_int
-                )
-            else:
-                workflow_files = []
-
-            has_workflows = len(workflow_files) > 0
-            workflow_total = len(workflow_files)
-            workflow_reviewed = sum(
-                1
-                for (pf, _p) in workflow_files
-                if pf.review_state == "completed"
-            )
-            workflow_unrev = workflow_total - workflow_reviewed
-
-            # Calculate workflow menu index (after severities and MSF if present)
-            workflow_menu_idx = len(severities) + (1 if has_msf else 0) + 1
-
-            workflow_summary = (
-                (workflow_menu_idx, workflow_unrev, workflow_reviewed, workflow_total)
-                if has_workflows
-                else None
-            )
-
-            render_severity_table(severities, msf_summary=msf_summary, workflow_summary=workflow_summary, scan_id=selected_scan.scan_id)
-
-            print_action_menu([("B", "Back")])
-            info("Tip: Multi-select is supported (e.g., 1-3 or 1,3,5)")
-
-            try:
-                ans = input("Choose: ").strip().lower()
-            except KeyboardInterrupt:
-                warn("\nInterrupted — returning to scan menu.")
-                user_went_back = True
-                break
-
-            if ans in ("b", "back"):
-                user_went_back = True
-                break
-            elif ans == "q":
-                break
-
-            options_count = len(severities) + (1 if has_msf else 0) + (1 if has_workflows else 0)
-
-            # Parse selection (supports ranges and comma-separated)
-            selected_indices = parse_severity_selection(ans, options_count)
-
-            if selected_indices is None:
-                warn("Invalid choice. Use single numbers, ranges (1-3), or comma-separated (1,3,5).")
-                continue
-
-            # Check if MSF is included in selection
-            msf_in_selection = has_msf and (len(severities) + 1) in selected_indices
-
-            # Check if Workflow Mapped is included in selection
-            workflow_in_selection = has_workflows and workflow_menu_idx in selected_indices
-
-            # Filter out MSF and Workflow from severity indices
-            severity_indices = [idx for idx in selected_indices if idx <= len(severities)]
-            
-            # === Multiple severities selected (or mix of severities + MSF) ===
-            if len(severity_indices) > 1 or (len(severity_indices) >= 1 and msf_in_selection):
-                selected_sev_dirs = [severities[idx - 1] for idx in severity_indices]
-
-                # Build combined label
-                sev_labels = [pretty_severity_label(sev.name) for sev in selected_sev_dirs]
-                if msf_in_selection:
-                    sev_labels.append("Metasploit Module")
-
-                combined_label = " + ".join(sev_labels)
-
-                # For multi-severity selection, pass list of severity directories to filter
-                severity_dir_names = [sev.name for sev in selected_sev_dirs]
-                browse_file_list(
-                    selected_scan,
-                    selected_sev_dirs[0] if selected_sev_dirs else None,
-                    None,  # Single severity filter not used for multi-severity
-                    combined_label,
-                    args,
-                    use_sudo,
-                    skipped_total,
-                    reviewed_total,
-                    completed_total,
-                    is_msf_mode=True,  # Show severity labels for each file
-                    workflow_mapper=workflow_mapper,
-                    severity_dirs_filter=severity_dir_names,
-                )
-                
-            # === Single severity selected (normal or MSF only) ===
-            elif len(severity_indices) == 1:
-                choice_idx = severity_indices[0]
-                sev_dir = severities[choice_idx - 1]
-
-                # Use severity directory name as filter (e.g., "3_High")
-                severity_dir_filter = sev_dir.name
-
-                browse_file_list(
-                    selected_scan,
-                    sev_dir,
-                    severity_dir_filter,
-                    pretty_severity_label(sev_dir.name),
-                    args,
-                    use_sudo,
-                    skipped_total,
-                    reviewed_total,
-                    completed_total,
-                    is_msf_mode=False,
-                    workflow_mapper=workflow_mapper,
-                )
-                
-            # === Metasploit Module only ===
-            elif msf_in_selection:
-                # Query database for metasploit plugins across all severities
-                browse_file_list(
-                    selected_scan,
-                    None,  # No single severity dir
-                    None,  # No severity filter
-                    "Metasploit Module",
-                    args,
-                    use_sudo,
-                    skipped_total,
-                    reviewed_total,
-                    completed_total,
-                    is_msf_mode=True,
-                    workflow_mapper=workflow_mapper,
-                    has_metasploit_filter=True,
-                )
-
-            # === Workflow Mapped only ===
-            elif workflow_in_selection:
-                # Group files by workflow name using database records
-                workflow_groups = group_files_by_workflow(workflow_files, workflow_mapper)
-
-                browse_workflow_groups(
-                    selected_scan,
-                    workflow_groups,
-                    args,
-                    use_sudo,
-                    skipped_total,
-                    reviewed_total,
-                    completed_total,
-                    workflow_mapper,
-                )
-
-        # If single scan mode (DB-selected), handle based on user action
-        if _single_scan_mode:
-            if user_went_back:
-                # User chose to go back - reset single scan mode and continue to scan selection
-                _single_scan_mode = False
-                continue
-            else:
-                # User finished reviewing (or quit) - exit scan loop
-                break
-
     # Save session before showing summary
     if reviewed_total or completed_total or skipped_total:
         save_session(
-            scan_dir,
+            selected_scan.scan_id,
             session_start_time,
-            reviewed_total,
-            completed_total,
-            skipped_total,
+            reviewed_count=len(reviewed_total),
+            completed_count=len(completed_total),
+            skipped_count=len(skipped_total),
         )
 
     # Session summary with rich statistics (only if work was done)
     if reviewed_total or completed_total or skipped_total:
         # Note: scan_dir is defined only if user entered a scan
         # Since we have reviewed/completed/skipped files, scan_dir must be defined
-        # Pass scan_id if available (database mode)
-        scan_id_for_stats = selected_scan.scan_id if 'selected_scan' in locals() else None
         show_session_statistics(
             session_start_time,
             reviewed_total,
             completed_total,
             skipped_total,
             scan_dir,
-            scan_id=scan_id_for_stats,
+            scan_id=selected_scan.scan_id,
         )
 
-        # Clean up session file after successful completion
-        delete_session(scan_dir)
+        # Clean up session (mark as ended in database)
+        delete_session(selected_scan.scan_id)
 
     ok("Done.")
 

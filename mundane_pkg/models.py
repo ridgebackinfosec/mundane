@@ -150,6 +150,67 @@ class Scan:
             )
             return [cls.from_row(row) for row in rows]
 
+    @classmethod
+    def get_all_with_stats(cls, conn: Optional[sqlite3.Connection] = None) -> list[dict]:
+        """Retrieve all scans with statistics (finding counts, severity breakdown).
+
+        Args:
+            conn: Database connection
+
+        Returns:
+            List of dicts with scan info and statistics
+        """
+        with db_transaction(conn) as c:
+            rows = query_all(
+                c,
+                """
+                SELECT
+                    s.scan_id,
+                    s.scan_name,
+                    s.created_at,
+                    s.last_reviewed_at,
+                    COUNT(DISTINCT pf.file_id) as total_findings,
+                    SUM(CASE WHEN p.severity_int = 4 THEN 1 ELSE 0 END) as critical_count,
+                    SUM(CASE WHEN p.severity_int = 3 THEN 1 ELSE 0 END) as high_count,
+                    SUM(CASE WHEN p.severity_int = 2 THEN 1 ELSE 0 END) as medium_count,
+                    SUM(CASE WHEN p.severity_int = 1 THEN 1 ELSE 0 END) as low_count,
+                    SUM(CASE WHEN pf.review_state = 'completed' THEN 1 ELSE 0 END) as reviewed_count
+                FROM scans s
+                LEFT JOIN plugin_files pf ON s.scan_id = pf.scan_id
+                LEFT JOIN plugins p ON pf.plugin_id = p.plugin_id
+                GROUP BY s.scan_id, s.scan_name, s.created_at, s.last_reviewed_at
+                ORDER BY s.last_reviewed_at DESC NULLS LAST, s.created_at DESC
+                """
+            )
+            return [dict(row) for row in rows]
+
+    @classmethod
+    def delete_by_name(cls, scan_name: str, conn: Optional[sqlite3.Connection] = None) -> bool:
+        """Delete a scan and all associated data by name.
+
+        Due to CASCADE DELETE constraints, this will automatically delete:
+        - All plugin_files entries
+        - All plugin_file_hosts entries
+        - All sessions
+        - All tool_executions (and their artifacts)
+
+        Args:
+            scan_name: Name of scan to delete
+            conn: Database connection
+
+        Returns:
+            True if scan was deleted, False if scan not found
+        """
+        with db_transaction(conn) as c:
+            # Check if scan exists
+            scan = cls.get_by_name(scan_name, c)
+            if not scan:
+                return False
+
+            # Delete scan (CASCADE will handle related tables)
+            c.execute("DELETE FROM scans WHERE scan_name = ?", (scan_name,))
+            return True
+
 
 # ========== Model: Plugin ==========
 

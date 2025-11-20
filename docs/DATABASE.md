@@ -44,25 +44,35 @@ The database is global across all scans, enabling cross-scan queries and histori
 
 ---
 
-## Dual-Mode Operation
+## Database-Only Architecture
 
-Mundane operates in **dual-mode** by default - data is written to both:
+**As of version 1.8.19**, Mundane uses a **database-only architecture**. All plugin data, review state, session information, and host:port combinations are stored in SQLite.
 
-1. **SQLite database** (`~/.mundane/mundane.db`)
-2. **JSON session files** (`.mundane_session.json` in scan directory)
+### What Changed (Migration Completed)
 
-This ensures:
-- **Compatibility**: Existing workflows using JSON files continue working
-- **Migration path**: Users can adopt database features gradually
-- **Audit trail**: Database tracks historical data across sessions
+The previous "dual-mode" operation (database + JSON files) has been fully migrated to database-only:
+
+- ✅ **Plugin files**: Stored in `plugin_files` table with review state tracking
+- ✅ **Host:port data**: Stored in `plugin_file_hosts` table (parsed from .txt files on import)
+- ✅ **Review sessions**: Stored in `sessions` table (no more `.mundane_session.json` files)
+- ✅ **Analysis functions**: Compare and superset analysis query database directly
+- ✅ **Preview mode**: Loads host:port data from database instead of reading files
+
+### Backward Compatibility
+
+For backward compatibility, some file-based operations remain as fallback paths:
+- File reading functions still exist but are marked as deprecated (see function docstrings)
+- Virtual `Path` objects are created for rendering code that expects file paths
+- `.txt` plugin files are still created during export for human reference
 
 ### Operating Modes
 
-| Mode | `MUNDANE_USE_DB` | `MUNDANE_DB_ONLY` | Behavior |
-|---|---|---|---|
-| **Dual-mode** (default) | `1` | `0` | Database + JSON files |
-| **Database-only** | `1` | `1` | Database only, no JSON files |
-| **Legacy** | `0` | - | JSON files only, no database |
+| Mode | `MUNDANE_USE_DB` | `MUNDANE_DB_ONLY` | Behavior | Status |
+|---|---|---|---|---|
+| **Database-only** (default) | `1` | `1` | Database only, no JSON files | ✅ Current |
+| **Legacy** | `0` | - | JSON files only, no database | ⚠️ Deprecated |
+
+**Note**: The legacy mode is deprecated and may be removed in a future version.
 
 ---
 
@@ -503,17 +513,18 @@ Control database behavior with these environment variables:
 | Variable | Description | Values | Default |
 |---|---|---|---|
 | `MUNDANE_USE_DB` | Enable database integration | `0`, `1`, `true`, `on` | `1` |
-| `MUNDANE_DB_ONLY` | Skip JSON session files | `0`, `1`, `true`, `on` | `0` |
+| `MUNDANE_DB_ONLY` | Skip JSON session files | `0`, `1`, `true`, `on` | `1` *(changed in v1.8.19)* |
+
+**⚠️ Note**: As of version 1.8.19, `MUNDANE_DB_ONLY` defaults to `1` (database-only mode). The dual-mode operation has been deprecated.
 
 **Examples**:
 
 ```bash
-# Disable database entirely (legacy mode)
-export MUNDANE_USE_DB=0
+# Default operation (database-only, no JSON files) - v1.8.19+
 mundane review --export-root ~/.mundane/scans/<scan_name>
 
-# Use database-only mode (no JSON session files)
-export MUNDANE_DB_ONLY=1
+# Disable database entirely (legacy mode) - DEPRECATED
+export MUNDANE_USE_DB=0
 mundane review --export-root ~/.mundane/scans/<scan_name>
 ```
 
@@ -622,5 +633,32 @@ Planned database features (see [TODO.md](../TODO.md)):
 
 ---
 
-**Last Updated**: 2024-01-12
+---
+
+## Migration Notes (v1.8.19)
+
+### Database-Only Architecture Migration
+
+Version 1.8.19 completed the migration from dual-mode to database-only architecture:
+
+**Completed Changes**:
+1. ✅ Session API migrated from file-based to database-only (scan_id instead of scan_dir)
+2. ✅ Analysis functions (compare, superset) query database instead of parsing files
+3. ✅ Preview mode loads host:port data from `plugin_file_hosts` table
+4. ✅ Review state tracking fully database-driven (no `.mundane_session.json` files)
+5. ✅ Deprecated file-based parsing functions marked with docstring warnings
+
+**Breaking Changes**:
+- `.mundane_session.json` files are no longer created or read
+- Session state is stored exclusively in database `sessions` table
+- Legacy `MUNDANE_DB_ONLY=0` mode is deprecated
+
+**Upgrade Notes**:
+- Existing `.mundane_session.json` files are ignored (data remains in database)
+- Re-export scans to ensure all host:port data is in `plugin_file_hosts` table
+- Use `mundane import` command to populate database from existing .nessus files
+
+---
+
+**Last Updated**: 2025-01-20 (v1.8.19 - Database-Only Migration Complete)
 **Maintained By**: Ridgeback InfoSec, LLC

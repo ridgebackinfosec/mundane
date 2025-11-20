@@ -24,7 +24,6 @@ from mundane_pkg import (
     run_command_with_progress,
     # parsing
     normalize_combos,
-    parse_for_overview,
     parse_hosts_ports,
     parse_file_hosts_ports_detailed,
     extract_plugin_id_from_filename,
@@ -50,7 +49,6 @@ from mundane_pkg import (
     cyan_label,
     colorize_severity_label,
     # render:
-    render_scan_table,
     render_severity_table,
     render_file_list_table,
     render_actions_footer,
@@ -63,7 +61,6 @@ from mundane_pkg import (
     list_files,
     default_page_size,
     # fs:
-    list_dirs,
     read_text_lines,
     safe_print_file,
     build_results_paths,

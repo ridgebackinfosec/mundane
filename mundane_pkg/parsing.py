@@ -94,6 +94,12 @@ def parse_file_hosts_ports_detailed(
 ) -> tuple[list[str], set[str], dict[str, set[str]], bool]:
     """Parse a file with detailed host-port combination tracking.
 
+    .. deprecated:: 1.8.19
+        This function is part of the legacy file-based architecture.
+        Database-only mode queries plugin_file_hosts table instead.
+        This function is kept as a fallback for file-based operations
+        but should not be used for new code.
+
     Args:
         path: Path to the file to parse
 
@@ -219,6 +225,11 @@ def parse_for_overview(
     path: Path,
 ) -> tuple[list[str], set[str], dict[str, set[str]], bool, int]:
     """Fast parsing for scan statistics overview.
+
+    .. deprecated:: 1.8.19
+        This function is part of the legacy file-based architecture.
+        Database-only mode uses PluginFile.get_hosts_and_ports() instead.
+        This function is not currently used and may be removed in a future version.
 
     Args:
         path: Path to the file to parse

@@ -293,6 +293,105 @@ class TestPluginFileModel:
         retrieved = PluginFile.get_by_id(file_id, temp_db)
         assert retrieved.review_state == "pending"
 
+    def test_get_severity_dirs_for_scan_empty(self, temp_db):
+        """Test get_severity_dirs_for_scan returns empty list when no files exist."""
+        # Create scan without any plugin files
+        scan = Scan(scan_name="empty_scan", export_root="/tmp")
+        scan_id = scan.save(temp_db)
+
+        # Query severity directories
+        severity_dirs = PluginFile.get_severity_dirs_for_scan(scan_id, temp_db)
+
+        assert severity_dirs == []
+
+    def test_get_severity_dirs_for_scan_with_data(self, temp_db):
+        """Test get_severity_dirs_for_scan returns sorted severity directories."""
+        # Setup scan
+        scan = Scan(scan_name="test_scan", export_root="/tmp")
+        scan_id = scan.save(temp_db)
+
+        # Create plugins with different severities
+        plugin1 = Plugin(plugin_id=1001, plugin_name="Critical Plugin", severity_int=4)
+        plugin1.save(temp_db)
+        plugin2 = Plugin(plugin_id=1002, plugin_name="High Plugin", severity_int=3)
+        plugin2.save(temp_db)
+        plugin3 = Plugin(plugin_id=1003, plugin_name="Medium Plugin", severity_int=2)
+        plugin3.save(temp_db)
+        plugin4 = Plugin(plugin_id=1004, plugin_name="Info Plugin", severity_int=0)
+        plugin4.save(temp_db)
+
+        # Create plugin files with severity directories
+        pf1 = PluginFile(
+            scan_id=scan_id,
+            plugin_id=1001,
+            file_path="/tmp/scan/4_Critical/1001_Critical.txt",
+            severity_dir="4_Critical"
+        )
+        pf1.save(temp_db)
+
+        pf2 = PluginFile(
+            scan_id=scan_id,
+            plugin_id=1002,
+            file_path="/tmp/scan/3_High/1002_High.txt",
+            severity_dir="3_High"
+        )
+        pf2.save(temp_db)
+
+        pf3 = PluginFile(
+            scan_id=scan_id,
+            plugin_id=1003,
+            file_path="/tmp/scan/2_Medium/1003_Medium.txt",
+            severity_dir="2_Medium"
+        )
+        pf3.save(temp_db)
+
+        pf4 = PluginFile(
+            scan_id=scan_id,
+            plugin_id=1004,
+            file_path="/tmp/scan/0_Info/1004_Info.txt",
+            severity_dir="0_Info"
+        )
+        pf4.save(temp_db)
+
+        # Query severity directories
+        severity_dirs = PluginFile.get_severity_dirs_for_scan(scan_id, temp_db)
+
+        # Should be sorted from highest to lowest severity
+        assert severity_dirs == ["4_Critical", "3_High", "2_Medium", "0_Info"]
+
+    def test_get_severity_dirs_for_scan_deduplicates(self, temp_db):
+        """Test get_severity_dirs_for_scan deduplicates severity directories."""
+        # Setup scan
+        scan = Scan(scan_name="test_scan", export_root="/tmp")
+        scan_id = scan.save(temp_db)
+
+        # Create plugin
+        plugin = Plugin(plugin_id=1001, plugin_name="High Plugin", severity_int=3)
+        plugin.save(temp_db)
+
+        # Create multiple plugin files with same severity
+        pf1 = PluginFile(
+            scan_id=scan_id,
+            plugin_id=1001,
+            file_path="/tmp/scan/3_High/1001_High_A.txt",
+            severity_dir="3_High"
+        )
+        pf1.save(temp_db)
+
+        pf2 = PluginFile(
+            scan_id=scan_id,
+            plugin_id=1001,
+            file_path="/tmp/scan/3_High/1001_High_B.txt",
+            severity_dir="3_High"
+        )
+        pf2.save(temp_db)
+
+        # Query severity directories
+        severity_dirs = PluginFile.get_severity_dirs_for_scan(scan_id, temp_db)
+
+        # Should only return one instance of "3_High"
+        assert severity_dirs == ["3_High"]
+
     def test_get_hosts_and_ports_empty(self, temp_db):
         """Test get_hosts_and_ports returns empty when no hosts exist."""
         # Setup

@@ -571,6 +571,38 @@ class PluginFile:
 
             return total_count, reviewed_count
 
+    @classmethod
+    def get_severity_dirs_for_scan(
+        cls,
+        scan_id: int,
+        conn: Optional[sqlite3.Connection] = None
+    ) -> list[str]:
+        """Get distinct severity directories for a scan, sorted by severity level.
+
+        Queries the database for all unique severity_dir values associated with
+        plugin files for the given scan, ordered from highest to lowest severity
+        (e.g., ["4_Critical", "3_High", "2_Medium", "1_Low", "0_Info"]).
+
+        Args:
+            scan_id: Scan ID to query
+            conn: Database connection
+
+        Returns:
+            List of severity directory names sorted by severity (highest first)
+        """
+        with db_transaction(conn) as c:
+            rows = query_all(
+                c,
+                """
+                SELECT DISTINCT severity_dir
+                FROM plugin_files
+                WHERE scan_id = ?
+                ORDER BY severity_dir DESC
+                """,
+                (scan_id,)
+            )
+            return [row[0] for row in rows] if rows else []
+
     def get_hosts_and_ports(self, conn: Optional[sqlite3.Connection] = None) -> tuple[list[str], str]:
         """Retrieve hosts and formatted port string from database.
 

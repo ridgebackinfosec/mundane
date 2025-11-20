@@ -2651,17 +2651,16 @@ def main(args: types.SimpleNamespace) -> None:
             from mundane_pkg import breadcrumb
             bc = breadcrumb(scan_dir.name, "Choose severity")
             header(bc if bc else f"Scan: {scan_dir.name} — choose severity")
-            severities = list_dirs(scan_dir)
-            if not severities:
+
+            # Get severity directories from database (database-only mode)
+            severity_dir_names = PluginFile.get_severity_dirs_for_scan(selected_scan.scan_id)
+            if not severity_dir_names:
                 warn("No severity directories in this scan.")
                 break
 
-            def sev_key(path: Path) -> Tuple[int, str]:
-                """Sort key for severity directories (highest first)."""
-                match = re.match(r"^(\d+)_", path.name)
-                return -(int(match.group(1)) if match else 0), path.name
-
-            severities = sorted(severities, key=sev_key)
+            # Create virtual Path objects for compatibility with existing render code
+            # Database returns pre-sorted (DESC), so no additional sorting needed
+            severities = [scan_dir / sev_name for sev_name in severity_dir_names]
 
             # Metasploit Module virtual group (menu counts) - query from database
             msf_files = PluginFile.get_by_scan_with_plugin(

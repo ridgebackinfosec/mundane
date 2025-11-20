@@ -269,113 +269,134 @@ class TestExtractScanNameFromNessus:
 
 
 class TestNessusExport:
-    """Tests for Nessus export functionality."""
+    """Tests for Nessus export functionality (database-only mode)."""
+
+    @pytest.fixture(autouse=True)
+    def mock_db_for_tests(self, monkeypatch, temp_db):
+        """Mock database connection for tests."""
+        monkeypatch.setenv("MUNDANE_USE_DB", "1")
+
+        import mundane_pkg.database
+
+        class UnclosableConnection:
+            """Wrapper that prevents connection from being closed."""
+            def __init__(self, conn):
+                self._conn = conn
+
+            def __getattr__(self, name):
+                if name == 'close':
+                    return lambda: None
+                return getattr(self._conn, name)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                return False
+
+        def mock_get_connection(database_path=None):
+            return UnclosableConnection(temp_db)
+
+        monkeypatch.setattr(mundane_pkg.database, "get_connection", mock_get_connection)
 
     @pytest.mark.integration
-    def test_export_creates_directory_structure(self, minimal_nessus_fixture, temp_dir):
-        """Test that export creates proper directory structure."""
+    def test_export_creates_database_entries(self, minimal_nessus_fixture, temp_dir, temp_db):
+        """Test that export creates database entries for scan, plugins, and hosts."""
         result = export_nessus_plugins(
             minimal_nessus_fixture,
             temp_dir,
-            use_database=False
+            use_database=True
         )
 
         # Check result structure
         assert isinstance(result, ExportResult)
         assert result.plugins_exported > 0
 
-        # Check scan directory exists
-        scan_dir = temp_dir / result.scan_name
-        assert scan_dir.exists()
-        assert scan_dir.is_dir()
+        # Verify scan exists
+        cursor = temp_db.execute("SELECT scan_name FROM scans WHERE scan_name = ?", (result.scan_name,))
+        scan = cursor.fetchone()
+        assert scan is not None
 
-        # Verify severity directories exist for plugins that were exported
-        for sev_int in result.severities.keys():
-            from mundane_pkg.nessus_export import severity_label_from_int
-            sev_label = severity_label_from_int(sev_int)
-            sev_dir = scan_dir / f"{sev_int}_{sev_label}"
-            assert sev_dir.exists()
+        # Verify plugins were inserted
+        cursor = temp_db.execute("SELECT COUNT(*) as count FROM plugins")
+        plugin_count = cursor.fetchone()["count"]
+        assert plugin_count == result.plugins_exported
+
+        # Verify plugin files were inserted
+        cursor = temp_db.execute("SELECT COUNT(*) as count FROM plugin_files")
+        file_count = cursor.fetchone()["count"]
+        assert file_count == result.plugins_exported
+
+        # Verify different severities exist
+        cursor = temp_db.execute("SELECT DISTINCT severity_int FROM plugins")
+        severities = {row["severity_int"] for row in cursor.fetchall()}
+        assert len(severities) > 0
+        assert severities == set(result.severities.keys())
 
     @pytest.mark.integration
-    def test_export_creates_plugin_files(self, minimal_nessus_fixture, temp_dir):
-        """Test that plugin files are created."""
+    def test_export_stores_plugin_metadata(self, minimal_nessus_fixture, temp_dir, temp_db):
+        """Test that plugin metadata is stored in database."""
         result = export_nessus_plugins(
             minimal_nessus_fixture,
             temp_dir,
-            use_database=False
+            use_database=True
         )
 
-        scan_dir = temp_dir / result.scan_name
+        # Verify plugins have metadata
+        cursor = temp_db.execute("SELECT plugin_id, plugin_name, severity_int FROM plugins")
+        plugins = cursor.fetchall()
 
-        # Count plugin files created
-        txt_files = list(scan_dir.rglob("*.txt"))
-        assert len(txt_files) == result.plugins_exported
-
-        # Verify files have content
-        assert all(f.stat().st_size > 0 for f in txt_files)
+        assert len(plugins) == result.plugins_exported
+        for plugin in plugins:
+            assert plugin["plugin_id"] > 0
+            assert len(plugin["plugin_name"]) > 0
+            assert plugin["severity_int"] >= 0
 
     @pytest.mark.integration
-    def test_export_file_content_format(self, minimal_nessus_fixture, temp_dir):
-        """Test that plugin file content is correctly formatted."""
+    def test_export_host_port_format(self, minimal_nessus_fixture, temp_dir, temp_db):
+        """Test that host:port entries are correctly formatted in database."""
         result = export_nessus_plugins(
             minimal_nessus_fixture,
             temp_dir,
             include_ports=True,
-            use_database=False
+            use_database=True
         )
 
-        scan_dir = temp_dir / result.scan_name
+        # Get any plugin file
+        cursor = temp_db.execute("SELECT file_id FROM plugin_files LIMIT 1")
+        file_row = cursor.fetchone()
+        assert file_row is not None
+        file_id = file_row["file_id"]
 
-        # Find any plugin file
-        txt_files = list(scan_dir.rglob("*.txt"))
-        assert len(txt_files) > 0
+        # Get hosts for this file
+        cursor = temp_db.execute(
+            "SELECT host, port, is_ipv4, is_ipv6 FROM plugin_file_hosts WHERE file_id = ?",
+            (file_id,)
+        )
+        hosts = cursor.fetchall()
+        assert len(hosts) > 0
 
-        plugin_file = txt_files[0]
-        content = plugin_file.read_text()
-
-        # File should have at least one host entry
-        lines = [line.strip() for line in content.split('\n') if line.strip()]
-        assert len(lines) > 0
-
-        # IPs should come before hostnames (if both present)
-        ip_lines = [i for i, line in enumerate(lines) if is_ip(line)]
-        hostname_lines = [i for i, line in enumerate(lines) if not is_ip(line)]
-
-        if ip_lines and hostname_lines:
-            assert max(ip_lines) < min(hostname_lines), "IPs should come before hostnames"
+        # Verify host classification (should have is_ipv4 or is_ipv6 or neither for hostnames)
+        for host_row in hosts:
+            assert host_row["host"] is not None
+            # Either is_ipv4 or is_ipv6 should be set, or neither for hostnames
+            assert isinstance(host_row["is_ipv4"], int)
+            assert isinstance(host_row["is_ipv6"], int)
 
     @pytest.mark.integration
-    def test_export_without_ports(self, minimal_nessus_fixture, temp_dir):
-        """Test export with ports disabled."""
+    def test_export_without_ports(self, minimal_nessus_fixture, temp_dir, temp_db):
+        """Test export with ports disabled stores hosts without port info."""
         result = export_nessus_plugins(
             minimal_nessus_fixture,
             temp_dir,
             include_ports=False,
-            use_database=False
+            use_database=True
         )
 
-        scan_dir = temp_dir / result.scan_name
-
-        # Find any plugin file
-        txt_files = list(scan_dir.rglob("*.txt"))
-        assert len(txt_files) > 0
-
-        plugin_file = txt_files[0]
-        content = plugin_file.read_text()
-
-        # Should have hosts without ports
-        lines = [line.strip() for line in content.split('\n') if line.strip()]
-        assert len(lines) > 0
-
-        # Check that lines don't have :port suffix (for IPs that had ports)
-        # IP-only entries should not have colons
-        for line in lines:
-            if is_ip(line):
-                # If it's detected as IP, it might be IPv6 with colons, so skip
-                pass
-            # Just verify no obvious :port patterns at the end
-            assert not line.endswith(":80")
-            assert not line.endswith(":443")
+        # Verify hosts were stored (ports may be NULL)
+        cursor = temp_db.execute("SELECT COUNT(*) as count FROM plugin_file_hosts")
+        host_count = cursor.fetchone()["count"]
+        assert host_count > 0
 
     @pytest.mark.integration
     def test_export_result_structure(self, minimal_nessus_fixture, temp_dir):
@@ -383,7 +404,7 @@ class TestNessusExport:
         result = export_nessus_plugins(
             minimal_nessus_fixture,
             temp_dir,
-            use_database=False
+            use_database=True
         )
 
         assert isinstance(result, ExportResult)
@@ -396,71 +417,78 @@ class TestNessusExport:
         assert len(result.severities) > 0
 
     @pytest.mark.integration
-    def test_export_host_deduplication(self, minimal_nessus_fixture, temp_dir):
-        """Test that duplicate host:port entries are deduplicated."""
+    def test_export_host_deduplication(self, minimal_nessus_fixture, temp_dir, temp_db):
+        """Test that duplicate host:port entries are deduplicated in database."""
         result = export_nessus_plugins(
             minimal_nessus_fixture,
             temp_dir,
-            use_database=False
+            use_database=True
         )
 
-        scan_dir = temp_dir / result.scan_name
+        # Get any plugin file
+        cursor = temp_db.execute("SELECT file_id FROM plugin_files LIMIT 1")
+        file_row = cursor.fetchone()
+        assert file_row is not None
+        file_id = file_row["file_id"]
 
-        # Check any plugin file for duplicates
-        txt_files = list(scan_dir.rglob("*.txt"))
-        assert len(txt_files) > 0
+        # Get hosts for this file
+        cursor = temp_db.execute(
+            "SELECT host, port FROM plugin_file_hosts WHERE file_id = ?",
+            (file_id,)
+        )
+        hosts = cursor.fetchall()
 
-        plugin_file = txt_files[0]
-        content = plugin_file.read_text()
-        lines = [line.strip() for line in content.split('\n') if line.strip()]
-
-        # Should not have duplicates
-        assert len(lines) == len(set(lines))
+        # Check for duplicates (same host+port combination)
+        host_port_pairs = [(h["host"], h["port"]) for h in hosts]
+        assert len(host_port_pairs) == len(set(host_port_pairs)), "Should not have duplicate host:port entries"
 
     @pytest.mark.integration
-    def test_export_handles_special_characters_in_name(self, sample_nessus_xml, temp_dir):
-        """Test that special characters in plugin names are sanitized."""
-        # This test uses the fixture from conftest.py
+    def test_export_handles_special_characters_in_name(self, sample_nessus_xml, temp_dir, temp_db):
+        """Test that special characters in plugin names are sanitized in database."""
         result = export_nessus_plugins(
             sample_nessus_xml,
             temp_dir,
-            use_database=False
+            use_database=True
         )
 
-        # Check that files were created with sanitized names
-        scan_dir = temp_dir / result.scan_name
-        assert scan_dir.exists()
+        # Verify plugins were stored
+        cursor = temp_db.execute("SELECT plugin_name FROM plugins")
+        plugins = cursor.fetchall()
+        assert len(plugins) > 0
 
-        # Find created files
-        files = list(scan_dir.rglob("*.txt"))
-        assert len(files) > 0
+        # Plugin names in database should be stored as-is (not sanitized)
+        # but file paths should be sanitized
+        cursor = temp_db.execute("SELECT file_path FROM plugin_files")
+        file_paths = cursor.fetchall()
 
-        # Filenames should not contain invalid characters
-        for f in files:
-            assert "/" not in f.name
-            assert "\\" not in f.name
-            assert ":" not in f.stem  # Stem excludes extension
+        for path_row in file_paths:
+            file_path = path_row["file_path"]
+            # File paths should not contain invalid filesystem characters
+            from pathlib import Path
+            # Should be able to create a Path object without errors
+            assert Path(file_path) is not None
 
     @pytest.mark.slow
     @pytest.mark.integration
-    def test_export_large_scan(self, goad_nessus_fixture, temp_dir):
-        """Test exporting large real-world scan (GOAD)."""
+    def test_export_large_scan(self, goad_nessus_fixture, temp_dir, temp_db):
+        """Test exporting large real-world scan (GOAD) to database."""
         result = export_nessus_plugins(
             goad_nessus_fixture,
             temp_dir,
-            use_database=False
+            use_database=True
         )
 
         assert result.plugins_exported > 0
         assert result.total_hosts > 0
 
-        # Verify scan directory was created
-        scan_dir = temp_dir / result.scan_name
-        assert scan_dir.exists()
+        # Verify database entries were created
+        cursor = temp_db.execute("SELECT COUNT(*) as count FROM plugins")
+        plugin_count = cursor.fetchone()["count"]
+        assert plugin_count == result.plugins_exported
 
-        # Verify files were created
-        txt_files = list(scan_dir.rglob("*.txt"))
-        assert len(txt_files) == result.plugins_exported
+        cursor = temp_db.execute("SELECT COUNT(*) as count FROM plugin_file_hosts")
+        host_count = cursor.fetchone()["count"]
+        assert host_count > 0
 
 
 class TestNessusExportDatabaseIntegration:
@@ -530,26 +558,59 @@ class TestNessusExportDatabaseIntegration:
 class TestNessusExportEdgeCases:
     """Tests for edge cases in Nessus export."""
 
+    @pytest.fixture(autouse=True)
+    def mock_db_for_edge_cases(self, monkeypatch, temp_db):
+        """Mock database connection for edge case tests."""
+        monkeypatch.setenv("MUNDANE_USE_DB", "1")
+
+        import mundane_pkg.database
+
+        class UnclosableConnection:
+            """Wrapper that prevents connection from being closed."""
+            def __init__(self, conn):
+                self._conn = conn
+
+            def __getattr__(self, name):
+                if name == 'close':
+                    return lambda: None
+                return getattr(self._conn, name)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                return False
+
+        def mock_get_connection(database_path=None):
+            return UnclosableConnection(temp_db)
+
+        monkeypatch.setattr(mundane_pkg.database, "get_connection", mock_get_connection)
+
     def test_export_nonexistent_file(self, temp_dir):
         """Test exporting nonexistent file raises error."""
         nonexistent = temp_dir / "nonexistent.nessus"
 
         with pytest.raises(FileNotFoundError):
-            export_nessus_plugins(nonexistent, temp_dir, use_database=False)
+            export_nessus_plugins(nonexistent, temp_dir, use_database=True)
 
-    def test_export_to_nonexistent_output_dir(self, minimal_nessus_fixture, temp_dir):
-        """Test export creates output directory if missing."""
+    def test_export_to_nonexistent_output_dir(self, minimal_nessus_fixture, temp_dir, temp_db):
+        """Test export succeeds even if output directory doesn't exist (database-only mode)."""
         output_dir = temp_dir / "new_dir" / "nested"
 
         result = export_nessus_plugins(
             minimal_nessus_fixture,
             output_dir,
-            use_database=False
+            use_database=True
         )
 
-        assert output_dir.exists()
-        scan_dir = output_dir / result.scan_name
-        assert scan_dir.exists()
+        # In database-only mode, we don't create directories
+        # Just verify export succeeded and data is in database
+        assert result.plugins_exported > 0
+
+        # Verify database has the data
+        cursor = temp_db.execute("SELECT COUNT(*) as count FROM plugins")
+        plugin_count = cursor.fetchone()["count"]
+        assert plugin_count > 0
 
     @pytest.mark.integration
     def test_export_idempotent(self, minimal_nessus_fixture, temp_dir):

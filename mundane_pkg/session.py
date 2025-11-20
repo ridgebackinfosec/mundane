@@ -77,7 +77,7 @@ def load_session(scan_id: int) -> Optional[SessionState]:
     Load active session state from database.
 
     Queries the database for the most recent active session (session_end IS NULL)
-    and retrieves file counts by querying the plugin_files review_state field.
+    and retrieves file counts from the sessions table.
 
     Args:
         scan_id: Scan ID
@@ -89,24 +89,22 @@ def load_session(scan_id: int) -> Optional[SessionState]:
         from .database import db_transaction, query_one
 
         with db_transaction() as conn:
-            # Query active session with file counts
+            # Query active session
             row = query_one(
                 conn,
                 """
                 SELECT
                     s.session_id,
                     s.session_start,
+                    s.files_reviewed,
+                    s.files_completed,
+                    s.files_skipped,
                     s.tools_executed,
                     s.cves_extracted,
-                    sc.scan_name,
-                    COALESCE(SUM(CASE WHEN pf.review_state = 'reviewed' THEN 1 ELSE 0 END), 0) as reviewed_count,
-                    COALESCE(SUM(CASE WHEN pf.review_state = 'completed' THEN 1 ELSE 0 END), 0) as completed_count,
-                    COALESCE(SUM(CASE WHEN pf.review_state = 'skipped' THEN 1 ELSE 0 END), 0) as skipped_count
+                    sc.scan_name
                 FROM sessions s
                 JOIN scans sc ON s.scan_id = sc.scan_id
-                LEFT JOIN plugin_files pf ON pf.scan_id = s.scan_id
                 WHERE s.scan_id = ? AND s.session_end IS NULL
-                GROUP BY s.session_id, s.session_start, s.tools_executed, s.cves_extracted, sc.scan_name
                 ORDER BY s.session_start DESC
                 LIMIT 1
                 """,
@@ -119,9 +117,9 @@ def load_session(scan_id: int) -> Optional[SessionState]:
             return SessionState(
                 scan_name=row["scan_name"],
                 session_start=row["session_start"],
-                reviewed_count=row["reviewed_count"],
-                completed_count=row["completed_count"],
-                skipped_count=row["skipped_count"],
+                reviewed_count=row["files_reviewed"],
+                completed_count=row["files_completed"],
+                skipped_count=row["files_skipped"],
                 tool_executions=row["tools_executed"],
                 cve_extractions=row["cves_extracted"],
             )

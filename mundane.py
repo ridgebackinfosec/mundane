@@ -2445,113 +2445,298 @@ def main(args: types.SimpleNamespace) -> None:
         from mundane_pkg.models import Scan, PluginFile
         from datetime import datetime
 
-        # Get all scans from database
-        try:
-            all_scans = Scan.get_all()
-        except Exception as e:
-            err(f"Failed to query scans from database: {e}")
-            return
-
-        if not all_scans:
-            err("No scans found in database.")
-            info("Import a scan first: mundane import <nessus_file>")
-            return
-
-        # Display scan selection menu
-        header("Available Scans")
-        from rich.table import Table
-        from rich import box
-
-        scan_table = Table(show_header=True, header_style="bold cyan", box=box.SIMPLE)
-        scan_table.add_column("#", style="cyan", justify="right")
-        scan_table.add_column("Scan Name", style="yellow")
-        scan_table.add_column("Last Reviewed", style="magenta")
-
-        for idx, scan in enumerate(all_scans, 1):
-            last_reviewed = "never"
-            if scan.last_reviewed_at:
-                try:
-                    dt = datetime.fromisoformat(scan.last_reviewed_at)
-                    now = datetime.now()
-                    delta = now - dt
-                    if delta.days == 0:
-                        if delta.seconds < 3600:
-                            mins = delta.seconds // 60
-                            last_reviewed = f"{mins} min{'s' if mins != 1 else ''} ago"
-                        else:
-                            hours = delta.seconds // 3600
-                            last_reviewed = f"{hours} hour{'s' if hours != 1 else ''} ago"
-                    elif delta.days == 1:
-                        last_reviewed = "yesterday"
-                    elif delta.days < 7:
-                        last_reviewed = f"{delta.days} days ago"
-                    else:
-                        last_reviewed = dt.strftime("%Y-%m-%d")
-                except Exception:
-                    last_reviewed = scan.last_reviewed_at[:10]  # Just date
-
-            scan_table.add_row(str(idx), scan.scan_name, last_reviewed)
-
-        _console_global.print(scan_table)
-        print_action_menu([("Q", "Quit")])
-
-        try:
-            ans = input("Choose scan: ").strip().lower()
-        except KeyboardInterrupt:
-            warn("\nInterrupted — exiting.")
-            return
-
-        if ans in ("x", "exit", "q", "quit"):
-            return
-
-        if not ans.isdigit() or not (1 <= int(ans) <= len(all_scans)):
-            warn(f"Invalid choice. Please enter 1-{len(all_scans)} or [Q]uit.")
-            return
-
-        selected_scan = all_scans[int(ans) - 1]
-        export_root = Path(selected_scan.export_root)
-        scan_dir = export_root / selected_scan.scan_name
-
-        # Note: scan_dir is a Path object used for display (scan_dir.name) only
-        # In database-only mode, the directory doesn't need to exist
-
-        # Skip the scan loop, go directly to reviewing this scan
-        ok(f"Selected: {selected_scan.scan_name}")
-        # Don't wrap in scan loop - jump directly to single scan review
-        # We'll handle this by jumping to the session check and severity loop
-
-        # Check for existing session
-        previous_session = load_session(selected_scan.scan_id)
-        if previous_session:
-            from datetime import datetime
-            session_date = datetime.fromisoformat(previous_session.session_start)
-            header("Previous Session Found")
-            info(f"Session started: {session_date.strftime('%Y-%m-%d %H:%M:%S')}")
-            info(f"Reviewed: {previous_session.reviewed_count} files")
-            info(f"Completed: {previous_session.completed_count} files")
-            info(f"Skipped: {previous_session.skipped_count} files")
+        # Outer loop for scan selection
+        while True:
+            # Get all scans from database
             try:
-                resume = yesno("Resume this session?", default="y")
+                all_scans = Scan.get_all()
+            except Exception as e:
+                err(f"Failed to query scans from database: {e}")
+                return
+
+            if not all_scans:
+                err("No scans found in database.")
+                info("Import a scan first: mundane import <nessus_file>")
+                return
+
+            # Display scan selection menu
+            header("Available Scans")
+            from rich.table import Table
+            from rich import box
+
+            scan_table = Table(show_header=True, header_style="bold cyan", box=box.SIMPLE)
+            scan_table.add_column("#", style="cyan", justify="right")
+            scan_table.add_column("Scan Name", style="yellow")
+            scan_table.add_column("Last Reviewed", style="magenta")
+
+            for idx, scan in enumerate(all_scans, 1):
+                last_reviewed = "never"
+                if scan.last_reviewed_at:
+                    try:
+                        dt = datetime.fromisoformat(scan.last_reviewed_at)
+                        now = datetime.now()
+                        delta = now - dt
+                        if delta.days == 0:
+                            if delta.seconds < 3600:
+                                mins = delta.seconds // 60
+                                last_reviewed = f"{mins} min{'s' if mins != 1 else ''} ago"
+                            else:
+                                hours = delta.seconds // 3600
+                                last_reviewed = f"{hours} hour{'s' if hours != 1 else ''} ago"
+                        elif delta.days == 1:
+                            last_reviewed = "yesterday"
+                        elif delta.days < 7:
+                            last_reviewed = f"{delta.days} days ago"
+                        else:
+                            last_reviewed = dt.strftime("%Y-%m-%d")
+                    except Exception:
+                        last_reviewed = scan.last_reviewed_at[:10]  # Just date
+
+                scan_table.add_row(str(idx), scan.scan_name, last_reviewed)
+
+            _console_global.print(scan_table)
+            print_action_menu([("Q", "Quit")])
+
+            try:
+                ans = input("Choose scan: ").strip().lower()
             except KeyboardInterrupt:
                 warn("\nInterrupted — exiting.")
                 return
 
-            if resume:
-                # Session start time is restored; file tracking continues from database
-                session_start_time = session_date
-                ok("Session resumed.")
-            else:
-                # Start fresh session - end the old one
-                delete_session(selected_scan.scan_id)
-                ok("Starting fresh session.")
-        else:
-            # No previous session - start fresh
-            pass
+            if ans in ("x", "exit", "q", "quit"):
+                return
 
-        # Continue to severity loop (line ~2281+)
-        # We'll mark this with a goto-style approach by setting a flag
-        _single_scan_mode = True
-        _selected_scan_dir = scan_dir
+            if not ans.isdigit() or not (1 <= int(ans) <= len(all_scans)):
+                warn(f"Invalid choice. Please enter 1-{len(all_scans)} or [Q]uit.")
+                continue  # Back to scan selection
+
+            selected_scan = all_scans[int(ans) - 1]
+            export_root = Path(selected_scan.export_root)
+            scan_dir = export_root / selected_scan.scan_name
+
+            # Note: scan_dir is a Path object used for display (scan_dir.name) only
+            # In database-only mode, the directory doesn't need to exist
+
+            ok(f"Selected: {selected_scan.scan_name}")
+
+            # Check for existing session
+            previous_session = load_session(selected_scan.scan_id)
+            if previous_session:
+                from datetime import datetime
+                session_date = datetime.fromisoformat(previous_session.session_start)
+                header("Previous Session Found")
+                info(f"Session started: {session_date.strftime('%Y-%m-%d %H:%M:%S')}")
+                info(f"Reviewed: {previous_session.reviewed_count} files")
+                info(f"Completed: {previous_session.completed_count} files")
+                info(f"Skipped: {previous_session.skipped_count} files")
+                try:
+                    resume = yesno("Resume this session?", default="y")
+                except KeyboardInterrupt:
+                    warn("\nInterrupted — exiting.")
+                    return
+
+                if resume:
+                    # Session start time is restored; file tracking continues from database
+                    session_start_time = session_date
+                    ok("Session resumed.")
+                else:
+                    # Start fresh session - end the old one
+                    delete_session(selected_scan.scan_id)
+                    ok("Starting fresh session.")
+            else:
+                # No previous session - start fresh
+                pass
+
+            # Overview immediately after selecting scan
+            show_scan_summary(scan_dir, scan_id=selected_scan.scan_id)
+
+            # Severity loop (inner loop)
+            while True:
+                from mundane_pkg import breadcrumb
+                bc = breadcrumb(scan_dir.name, "Choose severity")
+                header(bc if bc else f"Scan: {scan_dir.name} — choose severity")
+
+                # Get severity directories from database (database-only mode)
+                severity_dir_names = PluginFile.get_severity_dirs_for_scan(selected_scan.scan_id)
+                if not severity_dir_names:
+                    warn("No severity directories in this scan.")
+                    break
+
+                # Create virtual Path objects for compatibility with existing render code
+                # Database returns pre-sorted (DESC), so no additional sorting needed
+                severities = [scan_dir / sev_name for sev_name in severity_dir_names]
+
+                # Metasploit Module virtual group (menu counts) - query from database
+                msf_files = PluginFile.get_by_scan_with_plugin(
+                    scan_id=selected_scan.scan_id,
+                    has_metasploit=True
+                )
+
+                has_msf = len(msf_files) > 0
+                msf_total = len(msf_files)
+                msf_reviewed = sum(
+                    1
+                    for (pf, _p) in msf_files
+                    if pf.review_state == "completed"
+                )
+                msf_unrev = msf_total - msf_reviewed
+
+                msf_summary = (
+                    (len(severities) + 1, msf_unrev, msf_reviewed, msf_total)
+                    if has_msf
+                    else None
+                )
+
+                # Workflow Mapped virtual group (menu counts) - query from database
+                workflow_plugin_ids = workflow_mapper.get_all_plugin_ids()
+                if workflow_plugin_ids:
+                    workflow_plugin_ids_int = [int(pid) for pid in workflow_plugin_ids if pid.isdigit()]
+                    workflow_files = PluginFile.get_by_scan_with_plugin(
+                        scan_id=selected_scan.scan_id,
+                        plugin_ids=workflow_plugin_ids_int
+                    )
+                else:
+                    workflow_files = []
+
+                has_workflows = len(workflow_files) > 0
+                workflow_total = len(workflow_files)
+                workflow_reviewed = sum(
+                    1
+                    for (pf, _p) in workflow_files
+                    if pf.review_state == "completed"
+                )
+                workflow_unrev = workflow_total - workflow_reviewed
+
+                # Calculate workflow menu index (after severities and MSF if present)
+                workflow_menu_idx = len(severities) + (1 if has_msf else 0) + 1
+
+                workflow_summary = (
+                    (workflow_menu_idx, workflow_unrev, workflow_reviewed, workflow_total)
+                    if has_workflows
+                    else None
+                )
+
+                render_severity_table(severities, msf_summary=msf_summary, workflow_summary=workflow_summary, scan_id=selected_scan.scan_id)
+
+                print_action_menu([("B", "Back")])
+                info("Tip: Multi-select is supported (e.g., 1-3 or 1,3,5)")
+
+                try:
+                    ans = input("Choose: ").strip().lower()
+                except KeyboardInterrupt:
+                    warn("\nInterrupted — returning to scan menu.")
+                    break
+
+                if ans in ("b", "back"):
+                    break
+                elif ans == "q":
+                    return
+
+                options_count = len(severities) + (1 if has_msf else 0) + (1 if has_workflows else 0)
+
+                # Parse selection (supports ranges and comma-separated)
+                selected_indices = parse_severity_selection(ans, options_count)
+
+                if selected_indices is None:
+                    warn("Invalid choice. Use single numbers, ranges (1-3), or comma-separated (1,3,5).")
+                    continue
+
+                # Check if MSF is included in selection
+                msf_in_selection = has_msf and (len(severities) + 1) in selected_indices
+
+                # Check if Workflow Mapped is included in selection
+                workflow_in_selection = has_workflows and workflow_menu_idx in selected_indices
+
+                # Filter out MSF and Workflow from severity indices
+                severity_indices = [idx for idx in selected_indices if idx <= len(severities)]
+
+                # === Multiple severities selected (or mix of severities + MSF) ===
+                if len(severity_indices) > 1 or (len(severity_indices) >= 1 and msf_in_selection):
+                    selected_sev_dirs = [severities[idx - 1] for idx in severity_indices]
+
+                    # Build combined label
+                    sev_labels = [pretty_severity_label(sev.name) for sev in selected_sev_dirs]
+                    if msf_in_selection:
+                        sev_labels.append("Metasploit Module")
+
+                    combined_label = " + ".join(sev_labels)
+
+                    # For multi-severity selection, pass list of severity directories to filter
+                    severity_dir_names = [sev.name for sev in selected_sev_dirs]
+                    browse_file_list(
+                        selected_scan,
+                        selected_sev_dirs[0] if selected_sev_dirs else None,
+                        None,  # Single severity filter not used for multi-severity
+                        combined_label,
+                        args,
+                        use_sudo,
+                        skipped_total,
+                        reviewed_total,
+                        completed_total,
+                        is_msf_mode=True,  # Show severity labels for each file
+                        workflow_mapper=workflow_mapper,
+                        severity_dirs_filter=severity_dir_names,
+                    )
+
+                # === Single severity selected (normal or MSF only) ===
+                elif len(severity_indices) == 1:
+                    choice_idx = severity_indices[0]
+                    sev_dir = severities[choice_idx - 1]
+
+                    # Use severity directory name as filter (e.g., "3_High")
+                    severity_dir_filter = sev_dir.name
+
+                    browse_file_list(
+                        selected_scan,
+                        sev_dir,
+                        severity_dir_filter,
+                        pretty_severity_label(sev_dir.name),
+                        args,
+                        use_sudo,
+                        skipped_total,
+                        reviewed_total,
+                        completed_total,
+                        is_msf_mode=False,
+                        workflow_mapper=workflow_mapper,
+                    )
+
+                # === Metasploit Module only ===
+                elif msf_in_selection:
+                    # Query database for metasploit plugins across all severities
+                    browse_file_list(
+                        selected_scan,
+                        None,  # No single severity dir
+                        None,  # No severity filter
+                        "Metasploit Module",
+                        args,
+                        use_sudo,
+                        skipped_total,
+                        reviewed_total,
+                        completed_total,
+                        is_msf_mode=True,
+                        workflow_mapper=workflow_mapper,
+                        has_metasploit_filter=True,
+                    )
+
+                # === Workflow Mapped only ===
+                elif workflow_in_selection:
+                    # Group files by workflow name using database records
+                    workflow_groups = group_files_by_workflow(workflow_files, workflow_mapper)
+
+                    browse_workflow_groups(
+                        selected_scan,
+                        workflow_groups,
+                        args,
+                        use_sudo,
+                        skipped_total,
+                        reviewed_total,
+                        completed_total,
+                        workflow_mapper,
+                    )
+
+            # End of severity loop - continue to scan selection loop
+            # (User pressed 'b' or 'q' from severity menu)
+
     else:
         # Filesystem mode is deprecated - require database mode
         err("The --export-root flag is deprecated for 'review' mode.")
@@ -2831,16 +3016,6 @@ def main(args: types.SimpleNamespace) -> None:
                     completed_total,
                     workflow_mapper,
                 )
-
-        # If single scan mode (DB-selected), handle based on user action
-        if _single_scan_mode:
-            if user_went_back:
-                # User chose to go back - reset single scan mode and continue to scan selection
-                _single_scan_mode = False
-                continue
-            else:
-                # User finished reviewing (or quit) - exit scan loop
-                break
 
     # Save session before showing summary
     if reviewed_total or completed_total or skipped_total:

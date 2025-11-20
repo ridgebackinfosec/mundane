@@ -16,20 +16,20 @@ def display_banner() -> None:
     """
     console = Console()
 
-    # Create banner text
+    # Create banner text with colors that work on both light and dark backgrounds
     banner_text = Text()
     banner_text.append("Mundane", style="bold cyan")
-    banner_text.append(" - by ", style="white")
-    banner_text.append("Ridgeback InfoSec, LLC", style="bold yellow")
-    banner_text.append("\n\n", style="white")
-    banner_text.append("📚 Check out our Offensive Tooling classes!\n", style="bright_white")
-    banner_text.append("   → ", style="white")
+    banner_text.append(" - by ")
+    banner_text.append("Ridgeback InfoSec, LLC", style="bold magenta")
+    banner_text.append("\n\n")
+    banner_text.append("📚 Check out our Offensive Tooling classes!\n", style="bold")
+    banner_text.append("   → ")
     banner_text.append("https://ridgebackinfosec.com/classes", style="bold blue underline")
 
     # Display as a panel
     panel = Panel(
         banner_text,
-        border_style="bright_blue",
+        border_style="blue",
         padding=(1, 2),
         expand=False
     )

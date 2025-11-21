@@ -226,8 +226,14 @@ def render_file_list_table(
         row_data.append(str(host_count))
 
         if show_severity:
-            # Get severity from plugin_file.severity_dir (e.g., "3_High")
-            sev_label = pretty_severity_label(plugin_file.severity_dir)
+            # Get severity from plugin metadata (via JOIN with plugins table)
+            # Reconstruct severity_dir format like "3_High" for display
+            if plugin.severity_label:
+                sev_dir_format = f"{plugin.severity_int}_{plugin.severity_label}"
+            else:
+                # Fallback if severity_label not set
+                sev_dir_format = f"{plugin.severity_int}_Severity_{plugin.severity_int}"
+            sev_label = pretty_severity_label(sev_dir_format)
             sev_colored = severity_cell(sev_label)
             row_data.append(sev_colored)
 

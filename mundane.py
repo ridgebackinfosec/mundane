@@ -268,9 +268,51 @@ def _plugin_details_line(path: Path) -> Optional[str]:
     return None
 
 
+def bulk_extract_cves_for_plugins(plugins: List[tuple[int, str]]) -> None:
+    """
+    Extract and display CVEs for multiple plugins (database-only mode).
+
+    Fetches Tenable plugin pages for each plugin, extracts CVEs,
+    and displays a consolidated list organized by plugin.
+
+    Args:
+        plugins: List of (plugin_id, plugin_name) tuples
+    """
+    from mundane_pkg.cve_operations import fetch_and_store_cves
+
+    header("CVE Extraction for Filtered Findings")
+    info(f"Extracting CVEs from {len(plugins)} finding(s)...\n")
+
+    results = {}  # plugin_name -> list of CVEs
+
+    with Progress(
+        SpinnerColumn(style="cyan"),
+        TextColumn("[progress.description]{task.description}"),
+        TimeElapsedColumn(),
+        console=_console_global,
+        transient=True,
+    ) as progress:
+        task = progress.add_task("Fetching plugin pages...", total=len(plugins))
+
+        for plugin_id, plugin_name in plugins:
+            try:
+                # Fetch and store CVEs (uses cache if available)
+                cves = fetch_and_store_cves(plugin_id)
+                if cves:
+                    results[plugin_name] = cves
+            except Exception:
+                # Silently skip failed fetches
+                pass
+
+            progress.advance(task)
+
+    # Display results (same logic as file-based version)
+    _display_bulk_cve_results(results)
+
+
 def bulk_extract_cves_for_files(files: List[Path]) -> None:
     """
-    Extract and display CVEs for multiple plugin files.
+    Extract and display CVEs for multiple plugin files (legacy file-based mode).
 
     Fetches Tenable plugin pages for each file, extracts CVEs,
     and displays a consolidated list organized by plugin.
@@ -310,6 +352,17 @@ def bulk_extract_cves_for_files(files: List[Path]) -> None:
                 pass
 
             progress.advance(task)
+
+    # Display results
+    _display_bulk_cve_results(results)
+
+
+def _display_bulk_cve_results(results: dict[str, list[str]]) -> None:
+    """Display CVE extraction results in separated or combined format.
+
+    Args:
+        results: Dictionary mapping plugin name/filename to list of CVEs
+    """
 
     # Display results
     if results:
@@ -821,7 +874,7 @@ def handle_file_view(
                 warn("Database not available - cannot mark file as reviewed")
                 continue
             try:
-                if mark_review_complete(plugin_file):
+                if mark_review_complete(plugin_file, plugin):
                     return "mark_complete"
             except Exception as exc:
                 warn(f"Failed to mark file: {exc}")
@@ -1766,9 +1819,10 @@ def handle_file_list_actions(
                 page_idx,
             )
 
-        # Extract Path objects from (PluginFile, Plugin) tuples
-        candidate_paths = [Path(pf.file_path) for pf, p in candidates]
-        bulk_extract_cves_for_files(candidate_paths)
+        # Extract plugin info from (PluginFile, Plugin) tuples for CVE extraction
+        # Pass list of (plugin_id, plugin_name) tuples instead of file paths
+        plugin_info_list = [(p.plugin_id, p.plugin_name) for pf, p in candidates]
+        bulk_extract_cves_for_plugins(plugin_info_list)
         return None, file_filter, reviewed_filter, group_filter, sort_mode, page_idx
 
     if ans == "m":
@@ -2106,14 +2160,14 @@ def browse_file_list(
             (pf, p)
             for (pf, p) in unreviewed
             if (file_filter.lower() in p.plugin_name.lower())
-            and (group_filter is None or Path(pf.file_path).name in group_filter[1])
+            and (group_filter is None or f"Plugin {p.plugin_id}: {p.plugin_name}" in group_filter[1])
         ]
 
         # Apply sorting
         if sort_mode == "hosts":
             display = sorted(
                 candidates,
-                key=lambda record: (-get_counts_for(record[0])[0], natural_key(Path(record[0].file_path).name)),
+                key=lambda record: (-get_counts_for(record[0])[0], natural_key(record[1].plugin_name)),
             )
         elif sort_mode == "plugin_id":
             # Sort by plugin ID (numeric ascending)

@@ -104,11 +104,12 @@ def list_dirs(directory: Path) -> list[Path]:
     )
 
 
-def mark_review_complete(plugin_file) -> bool:
+def mark_review_complete(plugin_file, plugin=None) -> bool:
     """Mark a file as review complete in the database.
 
     Args:
         plugin_file: PluginFile object to mark as completed
+        plugin: Optional Plugin object for display name
 
     Returns:
         True if successful, False otherwise
@@ -124,7 +125,12 @@ def mark_review_complete(plugin_file) -> bool:
         with db_transaction() as conn:
             plugin_file.update_review_state("completed", conn=conn)
 
-        ok(f"Marked as review complete: {Path(plugin_file.file_path).name}")
+        # Display plugin metadata instead of filename
+        if plugin:
+            display_name = f"Plugin {plugin.plugin_id}: {plugin.plugin_name}"
+        else:
+            display_name = f"Plugin {plugin_file.plugin_id}"
+        ok(f"Marked as review complete: {display_name}")
         return True
 
     except Exception as e:
@@ -134,11 +140,12 @@ def mark_review_complete(plugin_file) -> bool:
         return False
 
 
-def undo_review_complete(plugin_file) -> bool:
+def undo_review_complete(plugin_file, plugin=None) -> bool:
     """Remove review complete status from the database.
 
     Args:
         plugin_file: PluginFile object to mark as pending
+        plugin: Optional Plugin object for display name
 
     Returns:
         True if successful, False otherwise
@@ -154,7 +161,12 @@ def undo_review_complete(plugin_file) -> bool:
         with db_transaction() as conn:
             plugin_file.update_review_state("pending", conn=conn)
 
-        ok(f"Removed review complete marker: {Path(plugin_file.file_path).name}")
+        # Display plugin metadata instead of filename
+        if plugin:
+            display_name = f"Plugin {plugin.plugin_id}: {plugin.plugin_name}"
+        else:
+            display_name = f"Plugin {plugin_file.plugin_id}"
+        ok(f"Removed review complete marker: {display_name}")
         return True
 
     except Exception as e:

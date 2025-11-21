@@ -385,10 +385,10 @@ def analyze_inclusions(files: Union[list[Path], list['PluginFile'], list[tuple['
     groups = []
     for maximal_file in sorted(
         maximals,
-        key=lambda p: (-len(cover_map[p]), natural_key(p.name)),
+        key=lambda p: (-len(cover_map[p]), natural_key(p)),
     ):
         covered = sorted(
-            list(cover_map[maximal_file]), key=lambda p: natural_key(p.name)
+            list(cover_map[maximal_file]), key=lambda p: natural_key(p)
         )
         groups.append((maximal_file, covered))
 
@@ -404,14 +404,14 @@ def analyze_inclusions(files: Union[list[Path], list['PluginFile'], list[tuple['
         groups_table.add_column("Covers", justify="right", no_wrap=True)
         groups_table.add_column("Covered files (sample)")
         for i, (root, covered_list) in enumerate(groups, 1):
-            sample_names = [p.name for p in covered_list[:8]]
+            sample_names = covered_list[:8]
             sample = "\n".join(sample_names) + (
                 f"\n... (+{len(covered_list)-8} more)"
                 if len(covered_list) > 8
                 else ""
             )
             groups_table.add_row(
-                str(i), root.name, str(len(covered_list)), sample or "—"
+                str(i), root, str(len(covered_list)), sample or "—"
             )
         _console_global.print(groups_table)
     else:
@@ -423,7 +423,7 @@ def analyze_inclusions(files: Union[list[Path], list['PluginFile'], list[tuple['
     # Convert back to name groups (root + covered) for filtering behavior
     name_groups = []
     for root, covered_list in groups:
-        names = [root.name] + [p.name for p in covered_list]
+        names = [root] + covered_list
         name_groups.append(names)
     return name_groups
 

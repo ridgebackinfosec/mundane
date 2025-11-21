@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from rich import box
 from rich.console import Console
@@ -243,7 +243,7 @@ def render_file_list_table(
 
 
 def render_compare_tables(
-    parsed: list[tuple[Path, list[str], set[str], dict[str, set[str]], bool]],
+    parsed: list[tuple[Union[Path, str], list[str], set[str], dict[str, set[str]], bool]],
     host_intersection: set[str],
     host_union: set[str],
     port_intersection: set[str],
@@ -256,7 +256,7 @@ def render_compare_tables(
     """Render comparison results showing host/port analysis across files.
 
     Args:
-        parsed: List of (file, hosts, ports, combos, had_explicit) tuples
+        parsed: List of (file_or_display_name, hosts, ports, combos, had_explicit) tuples
         host_intersection: Set of hosts common to all files
         host_union: Set of all hosts across all files
         port_intersection: Set of ports common to all files
@@ -307,7 +307,7 @@ def render_compare_tables(
     ):
         files_table.add_row(
             str(i),
-            file_path.name,
+            file_path if isinstance(file_path, str) else file_path.name,
             str(len(hosts)),
             str(len(ports_set)),
             "Yes" if had_explicit else "No",

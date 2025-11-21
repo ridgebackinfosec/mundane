@@ -202,24 +202,24 @@ def _file_raw_payload_text(plugin_file: "PluginFile") -> str:
     return content
 
 
-def _file_raw_paged_text(plugin_file: "PluginFile") -> str:
+def _file_raw_paged_text(plugin_file: "PluginFile", plugin: "Plugin") -> str:
     """
     Prepare raw file content for paged viewing with metadata from database.
 
     Args:
         plugin_file: PluginFile database object
+        plugin: Plugin metadata object
 
     Returns:
         Formatted string with file info and content
     """
-    from pathlib import Path
-    filename = Path(plugin_file.file_path).name
+    display_name = f"Plugin {plugin.plugin_id}: {plugin.plugin_name}"
 
     # Get content from database
     content = _file_raw_payload_text(plugin_file)
     size_bytes = len(content.encode('utf-8'))
 
-    lines = [f"Showing: {filename} ({size_bytes} bytes from database)"]
+    lines = [f"Showing: {display_name} ({size_bytes} bytes from database)"]
     lines.append(content)
     return "\n".join(lines)
 
@@ -688,20 +688,20 @@ def _grouped_payload_text(plugin_file: "PluginFile") -> str:
     return "\n".join(out) + ("\n" if out else "")
 
 
-def _grouped_paged_text(plugin_file: "PluginFile") -> str:
+def _grouped_paged_text(plugin_file: "PluginFile", plugin: "Plugin") -> str:
     """
     Prepare grouped host:port content for paged viewing from database.
 
     Args:
         plugin_file: PluginFile database object
+        plugin: Plugin metadata object
 
     Returns:
         Formatted string with header and grouped content
     """
-    from pathlib import Path
     body = _grouped_payload_text(plugin_file)
-    filename = Path(plugin_file.file_path).name
-    return f"Grouped view: {filename}\n{body}"
+    display_name = f"Plugin {plugin.plugin_id}: {plugin.plugin_name}"
+    return f"Grouped view: {display_name}\n{body}"
 
 
 # === Hosts-only helpers ===
@@ -722,20 +722,20 @@ def _hosts_only_payload_text(plugin_file: "PluginFile") -> str:
     return "\n".join(hosts) + ("\n" if hosts else "")
 
 
-def _hosts_only_paged_text(plugin_file: "PluginFile") -> str:
+def _hosts_only_paged_text(plugin_file: "PluginFile", plugin: "Plugin") -> str:
     """
     Prepare hosts-only content for paged viewing from database.
 
     Args:
         plugin_file: PluginFile database object
+        plugin: Plugin metadata object
 
     Returns:
         Formatted string with header and host list
     """
-    from pathlib import Path
     body = _hosts_only_payload_text(plugin_file)
-    filename = Path(plugin_file.file_path).name
-    return f"Hosts-only view: {filename}\n{body}"
+    display_name = f"Plugin {plugin.plugin_id}: {plugin.plugin_name}"
+    return f"Hosts-only view: {display_name}\n{body}"
 
 
 # === File viewing workflow ===
@@ -744,6 +744,7 @@ def _hosts_only_paged_text(plugin_file: "PluginFile") -> str:
 def handle_file_view(
     chosen: Path,
     plugin_file: Optional["PluginFile"] = None,
+    plugin: Optional["Plugin"] = None,
     plugin_url: Optional[str] = None,
     workflow_mapper: Optional[WorkflowMapper] = None,
     scan_dir: Optional[Path] = None,
@@ -759,6 +760,7 @@ def handle_file_view(
     Args:
         chosen: Plugin file to view
         plugin_file: PluginFile database object (None if database not available)
+        plugin: Plugin metadata object (None if database not available)
         plugin_url: Optional Tenable plugin URL for CVE extraction
         workflow_mapper: Optional workflow mapper for plugin workflows
         scan_dir: Scan directory for tool workflow
@@ -908,15 +910,20 @@ def handle_file_view(
             warn("Database not available - cannot view file contents")
             continue
 
+        # Check if plugin is available for display
+        if plugin is None:
+            warn("Plugin metadata not available - cannot view file contents")
+            continue
+
         # Default to grouped
         if format_choice in ("", "g", "grouped"):
-            text = _grouped_paged_text(plugin_file)
+            text = _grouped_paged_text(plugin_file, plugin)
             payload = _grouped_payload_text(plugin_file)
         elif format_choice in ("h", "hosts", "hosts-only"):
-            text = _hosts_only_paged_text(plugin_file)
+            text = _hosts_only_paged_text(plugin_file, plugin)
             payload = _hosts_only_payload_text(plugin_file)
         elif format_choice in ("r", "raw"):
-            text = _file_raw_paged_text(plugin_file)
+            text = _file_raw_paged_text(plugin_file, plugin)
             payload = _file_raw_payload_text(plugin_file)
         else:
             warn("Invalid format choice.")
@@ -1402,16 +1409,19 @@ def process_single_file(
         tokens = [line for line in lines if line.strip()]
         hosts, ports_str = parse_hosts_ports(tokens) if tokens else ([], "")
 
+    # Construct display name from plugin metadata
+    display_name = f"Plugin {plugin.plugin_id}: {plugin.plugin_name}"
+
     if not hosts:
         info("File is empty (no hosts found). This usually means the vulnerability doesn't affect any hosts.")
-        skipped_total.append(chosen.name)
+        skipped_total.append(display_name)
         return
 
     # Build Rich Panel preview
     content = Text()
 
-    # Check for Metasploit module
-    is_msf = chosen.name.lower().endswith("-msf.txt")
+    # Check for Metasploit module from plugin metadata
+    is_msf = plugin.has_metasploit
 
     # Add centered MSF indicator below title if applicable
     if is_msf:
@@ -1469,6 +1479,7 @@ def process_single_file(
     result = handle_file_view(
         chosen,
         plugin_file=plugin_file,
+        plugin=plugin,
         plugin_url=plugin_url,
         workflow_mapper=workflow_mapper,
         scan_dir=scan_dir,
@@ -1482,15 +1493,15 @@ def process_single_file(
     # Handle result from file view
     if result == "back":
         # User chose to go back - add to reviewed list
-        reviewed_total.append(chosen.name)
+        reviewed_total.append(display_name)
         return
     elif result == "mark_complete":
         # File was marked as reviewed
-        completed_total.append(chosen.name)
+        completed_total.append(display_name)
         return
     else:
         # Implicit completion - add to reviewed list
-        reviewed_total.append(chosen.name)
+        reviewed_total.append(display_name)
         return
 
 
@@ -1614,14 +1625,14 @@ def handle_file_list_actions(
         ]
 
         for idx, (plugin_file, plugin) in enumerate(filtered_reviewed, 1):
-            file_name = Path(plugin_file.file_path).name
+            display_name = f"Plugin {plugin.plugin_id}: {plugin.plugin_name}"
             if sev_map:  # MSF mode with severity labels (deprecated)
-                # Use severity_dir from plugin_file instead of sev_map
-                sev_label = pretty_severity_label(plugin_file.severity_dir)
+                # Get severity label from plugin metadata
+                sev_label = plugin.severity_label or f"Severity {plugin.severity_int}"
                 sev_col = colorize_severity_label(sev_label)
-                print(f"[{idx}] {fmt_reviewed(file_name)}  — {sev_col}")
+                print(f"[{idx}] {fmt_reviewed(display_name)}  — {sev_col}")
             else:
-                print(f"[{idx}] {fmt_reviewed(file_name)}")
+                print(f"[{idx}] {fmt_reviewed(display_name)}")
 
         print_action_menu([
             ("?", "Help"),
@@ -1812,9 +1823,8 @@ def handle_file_list_actions(
                 page_idx,
             )
 
-        # Pass PluginFile objects directly for database queries
-        candidate_files = [pf for pf, _ in candidates]
-        groups = compare_filtered(candidate_files)
+        # Pass (PluginFile, Plugin) tuples for database queries with plugin info
+        groups = compare_filtered(candidates)
         if groups:
             visible = min(VISIBLE_GROUPS, len(groups))
             opts = " | ".join(f"g{i+1}" for i in range(visible))
@@ -2211,7 +2221,8 @@ def browse_file_list(
                 for plugin_file, plugin in candidates:
                     if mark_review_complete(plugin_file):
                         marked += 1
-                        completed_total.append(Path(plugin_file.file_path).name)
+                        display_name = f"Plugin {plugin.plugin_id}: {plugin.plugin_name}"
+                        completed_total.append(display_name)
                     progress.advance(task)
             ok(f"Summary: {marked} marked, {len(candidates)-marked} skipped.")
             continue
@@ -2223,10 +2234,21 @@ def browse_file_list(
                 global_idx = int(ans) - 1
                 chosen_record = display[global_idx]
 
-            # Extract file path and severity dir from record
+            # Extract plugin info from record
             plugin_file, plugin = chosen_record
-            chosen_path = Path(plugin_file.file_path)
-            chosen_sev_dir = scan_dir / plugin_file.severity_dir if is_msf_mode else sev_dir
+
+            # Create synthetic path for legacy code that still uses chosen.name
+            # In database-only mode, construct a name from plugin ID
+            synthetic_name = f"{plugin.plugin_id}_{plugin.plugin_name.replace(' ', '_').replace('/', '_')}.txt"
+            chosen_path = Path(synthetic_name)
+
+            # Get severity directory from plugin metadata
+            if is_msf_mode:
+                # Construct severity directory name from plugin severity
+                sev_label = plugin.severity_label or f"Severity_{plugin.severity_int}"
+                chosen_sev_dir = scan_dir / f"{plugin.severity_int}_{sev_label}"
+            else:
+                chosen_sev_dir = sev_dir
 
             # Process the file
             process_single_file(

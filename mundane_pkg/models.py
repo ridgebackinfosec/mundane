@@ -447,10 +447,9 @@ class PluginFile:
             # Build query with JOIN
             query = """
                 SELECT
-                    pf.file_id, pf.scan_id, pf.plugin_id, pf.file_path, pf.severity_dir,
+                    pf.file_id, pf.scan_id, pf.plugin_id,
                     pf.review_state, pf.reviewed_at, pf.reviewed_by, pf.review_notes,
-                    pf.host_count, pf.port_count, pf.file_created_at, pf.file_modified_at,
-                    pf.last_parsed_at,
+                    pf.host_count, pf.port_count,
                     p.plugin_id as p_plugin_id, p.plugin_name, p.severity_int, p.severity_label,
                     p.has_metasploit, p.cvss3_score, p.cvss2_score, p.cves,
                     p.plugin_url, p.metadata_fetched_at
@@ -461,13 +460,27 @@ class PluginFile:
             params: list[Any] = [scan_id]
 
             # Add optional filters
+            # severity_dir filter now uses severity_int from plugins table
             if severity_dir is not None:
-                query += " AND pf.severity_dir = ?"
-                params.append(severity_dir)
+                # Parse severity_dir format like "4_Critical" to extract severity_int
+                try:
+                    severity_int = int(severity_dir.split('_')[0])
+                    query += " AND p.severity_int = ?"
+                    params.append(severity_int)
+                except (ValueError, IndexError):
+                    pass  # Invalid format, skip filter
             elif severity_dirs is not None and len(severity_dirs) > 0:
-                placeholders = ",".join("?" * len(severity_dirs))
-                query += f" AND pf.severity_dir IN ({placeholders})"
-                params.extend(severity_dirs)
+                # Parse multiple severity_dirs to extract severity_ints
+                severity_ints = []
+                for sd in severity_dirs:
+                    try:
+                        severity_ints.append(int(sd.split('_')[0]))
+                    except (ValueError, IndexError):
+                        pass
+                if severity_ints:
+                    placeholders = ",".join("?" * len(severity_ints))
+                    query += f" AND p.severity_int IN ({placeholders})"
+                    params.extend(severity_ints)
 
             if review_state is not None:
                 query += " AND pf.review_state = ?"
@@ -493,39 +506,34 @@ class PluginFile:
 
             results = []
             for row in rows:
-                # Create PluginFile from row (columns 0-13)
+                # Create PluginFile from row (columns 0-8)
                 plugin_file = cls(
                     file_id=row[0],
                     scan_id=row[1],
                     plugin_id=row[2],
-                    file_path=row[3],
-                    severity_dir=row[4],
-                    review_state=row[5],
-                    reviewed_at=row[6],
-                    reviewed_by=row[7],
-                    review_notes=row[8],
-                    host_count=row[9],
-                    port_count=row[10],
-                    file_created_at=row[11],
-                    file_modified_at=row[12],
-                    last_parsed_at=row[13]
+                    review_state=row[3],
+                    reviewed_at=row[4],
+                    reviewed_by=row[5],
+                    review_notes=row[6],
+                    host_count=row[7],
+                    port_count=row[8]
                 )
 
-                # Create Plugin from row (columns 14-23)
-                cves_json = row[21]
+                # Create Plugin from row (columns 9-18)
+                cves_json = row[16]
                 cves = json.loads(cves_json) if cves_json else None
 
                 plugin = Plugin(
-                    plugin_id=row[14],
-                    plugin_name=row[15],
-                    severity_int=row[16],
-                    severity_label=row[17],
-                    has_metasploit=bool(row[18]),
-                    cvss3_score=row[19],
-                    cvss2_score=row[20],
+                    plugin_id=row[9],
+                    plugin_name=row[10],
+                    severity_int=row[11],
+                    severity_label=row[12],
+                    has_metasploit=bool(row[13]),
+                    cvss3_score=row[14],
+                    cvss2_score=row[15],
                     cves=cves,
-                    plugin_url=row[22],
-                    metadata_fetched_at=row[23]
+                    plugin_url=row[17],
+                    metadata_fetched_at=row[18]
                 )
 
                 results.append((plugin_file, plugin))
@@ -551,19 +559,30 @@ class PluginFile:
             where reviewed means review_state == 'completed'
         """
         with db_transaction(conn) as c:
-            # Count total files in this severity
+            # Parse severity_dir to get severity_int (e.g., "4_Critical" -> 4)
+            try:
+                severity_int = int(severity_dir.split('_')[0])
+            except (ValueError, IndexError):
+                # Invalid format, return zeros
+                return (0, 0, 0)
+
+            # Count total files in this severity (JOIN with plugins to filter by severity_int)
             total_row = query_one(
                 c,
-                "SELECT COUNT(*) FROM plugin_files WHERE scan_id = ? AND severity_dir = ?",
-                (scan_id, severity_dir)
+                """SELECT COUNT(*) FROM plugin_files pf
+                   JOIN plugins p ON pf.plugin_id = p.plugin_id
+                   WHERE pf.scan_id = ? AND p.severity_int = ?""",
+                (scan_id, severity_int)
             )
             total_count = total_row[0] if total_row else 0
 
             # Count reviewed files (review_state = 'completed')
             reviewed_row = query_one(
                 c,
-                "SELECT COUNT(*) FROM plugin_files WHERE scan_id = ? AND severity_dir = ? AND review_state = 'completed'",
-                (scan_id, severity_dir)
+                """SELECT COUNT(*) FROM plugin_files pf
+                   JOIN plugins p ON pf.plugin_id = p.plugin_id
+                   WHERE pf.scan_id = ? AND p.severity_int = ? AND pf.review_state = 'completed'""",
+                (scan_id, severity_int)
             )
             reviewed_count = reviewed_row[0] if reviewed_row else 0
 

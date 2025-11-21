@@ -148,32 +148,34 @@ Plugin metadata - one row per Nessus plugin ID.
 
 ### plugin_files
 
-Exported .txt files - one row per plugin per scan.
+Finding records - one row per plugin per scan.
+
+**Schema Changes in v1.9.0**: Streamlined to remove duplicate/unnecessary columns. Removed `file_path`, `severity_dir`, `file_created_at`, `file_modified_at`, and `last_parsed_at`.
 
 | Column | Type | Description |
 |---|---|---|
 | `file_id` | INTEGER | Primary key |
 | `scan_id` | INTEGER | Foreign key to scans |
 | `plugin_id` | INTEGER | Foreign key to plugins |
-| `file_path` | TEXT | Absolute path to .txt file (unique) |
-| `severity_dir` | TEXT | e.g., "3_High", "4_Critical" |
 | `review_state` | TEXT | 'pending', 'reviewed', 'completed', 'skipped' |
-| `reviewed_at` | TIMESTAMP | When file was reviewed |
+| `reviewed_at` | TIMESTAMP | When finding was reviewed |
 | `reviewed_by` | TEXT | User tracking (future feature) |
 | `review_notes` | TEXT | User notes (future feature) |
-| `host_count` | INTEGER | Number of unique hosts |
-| `port_count` | INTEGER | Number of unique ports |
-| `file_created_at` | TIMESTAMP | File creation time |
-| `file_modified_at` | TIMESTAMP | File modification time |
-| `last_parsed_at` | TIMESTAMP | Last time file was parsed |
+| `host_count` | INTEGER | Number of unique hosts affected |
+| `port_count` | INTEGER | Number of unique ports affected |
+
+**Constraints**:
+- `UNIQUE(scan_id, plugin_id)` - Each scan can only have one record per plugin
 
 **Review State Values**:
 - `pending` - Not yet reviewed
-- `reviewed` - File opened/viewed
+- `reviewed` - Finding opened/viewed
 - `completed` - Marked as REVIEW_COMPLETE
 - `skipped` - Intentionally skipped
 
 **Relationships**: Belongs to one scan and one plugin. Has many plugin_file_hosts and tool_executions.
+
+**Note**: Severity information (e.g., "4_Critical") is obtained via JOIN with the plugins table.
 
 ---
 
@@ -660,5 +662,37 @@ Version 1.8.19 completed the migration from dual-mode to database-only architect
 
 ---
 
-**Last Updated**: 2025-01-20 (v1.8.19 - Database-Only Migration Complete)
+## Migration Notes (v1.9.0)
+
+### Schema Optimization
+
+Version 1.9.0 streamlined the `plugin_files` table to eliminate redundancy:
+
+**Schema Changes**:
+1. ✅ Removed `file_path` column - file paths are no longer stored in database
+2. ✅ Removed `severity_dir` column - severity info obtained via JOIN with `plugins` table
+3. ✅ Removed `file_created_at`, `file_modified_at`, `last_parsed_at` - unused timestamp tracking
+4. ✅ Added `UNIQUE(scan_id, plugin_id)` constraint - enforces one finding per plugin per scan
+5. ✅ Updated `get_severity_dirs_for_scan()` to derive severity labels from `severity_int` when empty
+
+**Breaking Changes**:
+- Each scan can only have **one** PluginFile record per plugin (enforced by UNIQUE constraint)
+- `PluginFile.get_by_path()` method removed (file_path column no longer exists)
+- Tool executions can no longer be linked to findings by file path
+
+**Database Migration**:
+As stated in TODO.md: "Users won't be upgrading tool versions, so existing DBs aren't a concern." Fresh database creation uses the new streamlined schema automatically.
+
+**Additional Changes**:
+- Fixed hosts column double-counting bug (unique hosts vs host:port pairs)
+- Replaced filename display with Plugin ID in review workflow
+- Updated import terminal messages for database-only clarity
+- Removed `--out-dir` flag (breaking change)
+- Unified terminology to "finding" across all user-facing text
+- Added `mundane list` command to display all scans
+- Added `mundane delete <scan_name>` command with confirmation
+
+---
+
+**Last Updated**: 2025-01-20 (v1.9.0 - Schema Optimization Complete)
 **Maintained By**: Ridgeback InfoSec, LLC

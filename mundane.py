@@ -2953,16 +2953,11 @@ def import_scan(
     nessus: Path = typer.Argument(
         ..., exists=True, readable=True, help="Path to a .nessus file"
     ),
-    review: bool = typer.Option(
-        False, "--review", help="Launch interactive review after export"
-    ),
 ) -> None:
     """
     Import .nessus file and export finding host lists to organized directory.
 
     Auto-detects scan name from .nessus file and exports to ~/.mundane/scans/<scan_name>.
-
-    Optionally launch interactive review after export completes.
     """
     from mundane_pkg.nessus_export import export_nessus_plugins, extract_scan_name_from_nessus
     from mundane_pkg.constants import SCANS_ROOT
@@ -2986,13 +2981,6 @@ def import_scan(
         # Check if it's the identical file
         if existing_scan.nessus_file_hash == new_file_hash:
             ok(f"Scan '{scan_name}' already imported (identical file). Skipping.")
-            if review:
-                warn("Launching review of existing scan instead...")
-                args = types.SimpleNamespace(export_root=str(out_dir), no_tools=False)
-                try:
-                    main(args)
-                except KeyboardInterrupt:
-                    warn("\nInterrupted — returning to shell.")
             raise typer.Exit(0)
 
         # Different file, same name - prompt user

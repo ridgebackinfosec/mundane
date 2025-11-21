@@ -248,13 +248,15 @@ mundane config-get default_tool
 
 ```bash
 # 1. Import your scan
-mundane import myscan.nessus --review
+mundane import myscan.nessus
+
+# 2. Review your findings
+mundane review
 
 # That's it! The import command will:
 #   - Parse your .nessus file
 #   - Load all findings into the database
 #   - Create reference files at ~/.mundane/scans/<scan_name>/
-#   - Launch the interactive review TUI
 ```
 
 **Already have a `.nessus` file?** Import it to get started:
@@ -273,9 +275,6 @@ Import findings from `.nessus` file into the database:
 ```bash
 # Import scan (auto-detect scan name, export to ~/.mundane/scans/<scan_name>)
 mundane import path/to/scan.nessus
-
-# Immediately start reviewing after import:
-mundane import path/to/scan.nessus --review
 ```
 
 ### 2) Review findings interactively
@@ -394,7 +393,7 @@ Control database behavior with these environment variables:
 
 ```bash
 # Import: Parse .nessus file and load findings into database
-mundane import <scan.nessus> [--review]
+mundane import <scan.nessus>
 
 # Interactive review (main workflow)
 mundane review [--no-tools] [--custom-workflows PATH] [--custom-workflows-only PATH]

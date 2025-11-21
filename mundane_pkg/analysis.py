@@ -1,8 +1,8 @@
-"""Data analysis functions for comparing and grouping plugin files.
+"""Data analysis functions for comparing and grouping plugin findings.
 
 This module provides functions to compare host/port combinations across
-multiple plugin export files, identify superset relationships, and generate
-scan statistics.
+multiple plugin findings from the database, identify superset relationships,
+and generate scan statistics.
 """
 
 import re

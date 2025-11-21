@@ -62,7 +62,6 @@ from mundane_pkg import (
     default_page_size,
     # fs:
     read_text_lines,
-    safe_print_file,
     build_results_paths,
     write_work_files,
     # tools:
@@ -2921,63 +2920,6 @@ def review(
         warn("\nInterrupted — goodbye.")
 
 
-@app.command(help="Preview a finding (raw or grouped).")
-def view(
-    file: Path = typer.Argument(..., exists=True, readable=True),
-    grouped: bool = typer.Option(
-        False, "--grouped", "-g", help="Show host:port,port,..."
-    ),
-) -> None:
-    """View a plugin file in raw or grouped format."""
-    if grouped:
-        print_grouped_hosts_ports(file)
-    else:
-        safe_print_file(file)
-
-
-@app.command(help="Compare findings and group identical host:port combos.")
-def compare(
-    paths: list[str] = typer.Argument(
-        ..., help="Files/dirs/globs to compare (e.g., '4_Critical/*.txt')."
-    )
-) -> None:
-    """Compare multiple plugin files and identify duplicates."""
-    out: list[Path] = []
-    for path_str in paths:
-        path = Path(path_str)
-        if path.is_dir():
-            out.extend([file for file in path.rglob("*.txt")])
-        else:
-            if any(ch in path_str for ch in ["*", "?", "["]):
-                out.extend(
-                    [
-                        Path(x)
-                        for x in map(str, Path().glob(path_str))
-                        if str(x).endswith(".txt")
-                    ]
-                )
-            else:
-                out.append(path)
-
-    files = [file for file in out if file.exists()]
-    if not files:
-        err("No findings found for comparison.")
-        raise typer.Exit(1)
-
-    _ = compare_filtered(files)
-
-
-@app.command(help="Show a scan summary for a scan directory.")
-def summary(
-    scan_dir: Path = typer.Argument(..., exists=True, dir_okay=True, file_okay=False),
-    top_ports: int = typer.Option(
-        DEFAULT_TOP_PORTS, "--top-ports", "-n", min=1, help="How many top ports to show."
-    ),
-) -> None:
-    """Display scan statistics and overview."""
-    show_scan_summary(scan_dir, top_ports_n=top_ports)
-
-
 def show_nessus_tool_suggestions(nessus_file: Path) -> None:
     """
     Display suggested tool commands after import export completes.
@@ -3200,8 +3142,8 @@ def list_scans() -> None:
     info("Use 'mundane review' to start reviewing a scan")
 
 
-@app.command(help="Delete a scan and all associated data")
-def delete(
+@app.command(name="delete-scan", help="Delete a scan and all associated data")
+def delete_scan(
     scan_name: str = typer.Argument(..., help="Name of scan to delete")
 ) -> None:
     """Delete a scan and all associated data from the database.

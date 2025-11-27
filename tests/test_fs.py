@@ -409,7 +409,7 @@ class TestDefaultPageSize:
         """Test page size with normal terminal."""
         with patch('shutil.get_terminal_size', return_value=type('obj', (), {'lines': 40, 'columns': 80})()):
             size = default_page_size()
-            assert size == 30  # 40 - 10
+            assert size == 25  # 40 - 15
 
     def test_default_page_size_small_terminal(self):
         """Test page size with small terminal."""

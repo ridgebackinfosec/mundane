@@ -239,7 +239,7 @@ def _plugin_id_from_filename(name_or_path: Union[Path, str]) -> Optional[str]:
     Extract Nessus plugin ID from filename.
 
     Handles both regular filenames (12345.txt) and review-complete
-    prefixed files (REVIEW_COMPLETE-12345.txt).
+    prefixed findings (REVIEW_COMPLETE-12345.txt).
 
     Args:
         name_or_path: Filename or Path object
@@ -311,7 +311,7 @@ def bulk_extract_cves_for_plugins(plugins: List[tuple[int, str]]) -> None:
 
 def bulk_extract_cves_for_files(files: List[Path]) -> None:
     """
-    Extract and display CVEs for multiple plugin files (legacy file-based mode).
+    Extract and display CVEs for multiple plugin findings (legacy file-based mode).
 
     Fetches Tenable plugin pages for each file, extracts CVEs,
     and displays a consolidated list organized by plugin.
@@ -321,7 +321,7 @@ def bulk_extract_cves_for_files(files: List[Path]) -> None:
     """
     from mundane_pkg.cve_operations import fetch_and_store_cves
 
-    header("CVE Extraction for Filtered Files")
+    header("CVE Extraction for Filtered Findings")
     info(f"Extracting CVEs from {len(files)} file(s)...\n")
 
     results = {}  # plugin_name -> list of CVEs
@@ -374,7 +374,7 @@ def _display_bulk_cve_results(results: dict[str, list[str]]) -> None:
             return
 
         if format_choice in ("c", "combined"):
-            # Combined list: all unique CVEs across all files
+            # Combined list: all unique CVEs across all findings
             all_cves = set()
             for cves in results.values():
                 all_cves.update(cves)
@@ -391,7 +391,7 @@ def _display_bulk_cve_results(results: dict[str, list[str]]) -> None:
                     info(f"{cve}")
                 print()  # Blank line between plugins
     else:
-        warn("No CVEs found for any of the filtered files.")
+        warn("No CVEs found for any of the filtered findings.")
 
     try:
         input("\nPress Enter to continue...")
@@ -404,7 +404,7 @@ def _color_unreviewed(count: int) -> str:
     Colorize unreviewed file count based on severity.
 
     Args:
-        count: Number of unreviewed files
+        count: Number of unreviewed findings
 
     Returns:
         ANSI-colored string
@@ -592,7 +592,7 @@ def show_scan_summary(
                 (scan_id,)
             )
 
-            # Count files with no hosts (empty files)
+            # Count findings with no hosts (empty findings)
             empty_files = query_all(
                 conn,
                 """
@@ -639,7 +639,7 @@ def show_scan_summary(
 
     # Build inline file stats with conditional display
     file_stats_parts = [
-        f"[cyan]Files:[/cyan] {total_files} total",
+        f"[cyan]Findings:[/cyan] {total_files} total",
         f"[cyan]Reviewed:[/cyan] [{review_color}]{reviewed_files} ({review_pct:.1f}%)[/{review_color}]"
     ]
     if empties > 0:
@@ -839,7 +839,7 @@ def handle_file_view(
         from rich.text import Text
         action_text = Text()
         action_text.append("[V] ", style="cyan")
-        action_text.append("View file / ", style=None)
+        action_text.append("View host(s) / ", style=None)
         action_text.append("[E] ", style="cyan")
         action_text.append("CVE info", style=None)
         if has_workflow:
@@ -847,12 +847,12 @@ def handle_file_view(
             action_text.append("[W] ", style="cyan")
             action_text.append("Workflow", style=None)
         action_text.append(" / ", style=None)
-        action_text.append("[B] ", style="cyan")
-        action_text.append("Back / ", style=None)
         action_text.append("[T] ", style="cyan")
         action_text.append("Run tool / ", style=None)
         action_text.append("[M] ", style="cyan")
-        action_text.append("Mark reviewed", style=None)
+        action_text.append("Mark reviewed / ", style=None)
+        action_text.append("[B] ", style="cyan")
+        action_text.append("Back", style=None)
 
         print(f"{C.CYAN}>> {C.RESET}", end="")
         _console.print(action_text)
@@ -1446,9 +1446,9 @@ def process_single_file(
         sev_dir: Severity directory
         args: Command-line arguments
         use_sudo: Whether sudo is available
-        skipped_total: List to track skipped files
-        reviewed_total: List to track reviewed files
-        completed_total: List to track completed files
+        skipped_total: List to track skipped findings
+        reviewed_total: List to track reviewed findings
+        completed_total: List to track completed findings
         show_severity: Whether to show severity label (for MSF mode)
         workflow_mapper: Optional workflow mapper for plugin workflows
     """
@@ -1641,12 +1641,12 @@ def handle_file_list_actions(
         return None, file_filter, reviewed_filter, group_filter, sort_mode, page_idx
 
     if ans == "o":
-        # Cycle through sort modes: plugin_id -> hosts -> name -> plugin_id
+        # Cycle through sort modes: plugin_id -> name -> hosts -> plugin_id
         if sort_mode == "plugin_id":
-            sort_mode = "hosts"
-        elif sort_mode == "hosts":
             sort_mode = "name"
-        else:  # name
+        elif sort_mode == "name":
+            sort_mode = "hosts"
+        else:  # hosts
             sort_mode = "plugin_id"
 
         sort_label = {
@@ -1668,7 +1668,7 @@ def handle_file_list_actions(
         return None, file_filter, reviewed_filter, group_filter, sort_mode, page_idx
 
     if ans == "r":
-        header("Reviewed files (read-only)")
+        header("Reviewed findings (read-only)")
         print(f"Current filter: '{reviewed_filter or '*'}'")
         filtered_reviewed = [
             (pf, p)
@@ -1718,9 +1718,9 @@ def handle_file_list_actions(
                 page_idx,
             )
         if choice == "u":
-            # Undo review-complete for one or more files
+            # Undo review-complete for one or more findings
             if not filtered_reviewed:
-                warn("No reviewed files to undo.")
+                warn("No reviewed findings to undo.")
                 return (
                     None,
                     file_filter,
@@ -1808,7 +1808,7 @@ def handle_file_list_actions(
 
     if ans == "e":
         if not candidates:
-            warn("No files match the current filter.")
+            warn("No findings match the current filter.")
             return (
                 None,
                 file_filter,
@@ -1826,7 +1826,7 @@ def handle_file_list_actions(
 
     if ans == "m":
         if not candidates:
-            warn("No files match the current filter.")
+            warn("No findings match the current filter.")
             return (
                 None,
                 file_filter,
@@ -1866,7 +1866,7 @@ def handle_file_list_actions(
 
     if ans == "h":
         if not candidates:
-            warn("No files match the current filter.")
+            warn("No findings match the current filter.")
             return (
                 None,
                 file_filter,
@@ -1890,14 +1890,14 @@ def handle_file_list_actions(
                 idx = int(choice[1:]) - 1
                 if 0 <= idx < len(groups):
                     group_filter = (idx + 1, set(groups[idx]))
-                    ok(f"Applied group filter #{idx+1} ({len(groups[idx])} files).")
+                    ok(f"Applied group filter #{idx+1} ({len(groups[idx])} findings).")
                     page_idx = 0
 
         return None, file_filter, reviewed_filter, group_filter, sort_mode, page_idx
 
     if ans == "i":
         if not candidates:
-            warn("No files match the current filter.")
+            warn("No findings match the current filter.")
             return (
                 None,
                 file_filter,
@@ -1923,7 +1923,7 @@ def handle_file_list_actions(
                     group_filter = (idx + 1, set(groups[idx]))
                     ok(
                         f"Applied superset group #{idx+1} "
-                        f"({len(groups[idx])} files)."
+                        f"({len(groups[idx])} findings)."
                     )
                     page_idx = 0
 
@@ -1932,7 +1932,7 @@ def handle_file_list_actions(
     # File selection logic
     if ans == "":
         if not page_items:
-            warn("No files match the current page/filter.")
+            warn("No findings match the current page/filter.")
             return (
                 None,
                 file_filter,
@@ -1983,10 +1983,10 @@ def browse_workflow_groups(
     workflow_mapper,
 ) -> None:
     """
-    Browse workflow groups and files within selected workflow.
+    Browse workflow groups and findings within selected workflow.
 
     Displays a menu of workflow names with file counts, allows selection,
-    then shows files for that workflow.
+    then shows findings for that workflow.
 
     Args:
         scan: Scan database object
@@ -2000,14 +2000,14 @@ def browse_workflow_groups(
     """
     scan_dir = Path(scan.export_root) / scan.scan_name
     if not workflow_groups:
-        warn("No files with mapped workflows found.")
+        warn("No findings with mapped workflows found.")
         return
 
     while True:
         # Build table of workflows
         from mundane_pkg import breadcrumb
-        bc = breadcrumb(scan_dir.name, "Workflow Mapped Files")
-        header(bc if bc else "Workflow Mapped Files - Select Workflow")
+        bc = breadcrumb(scan_dir.name, "Workflow Mapped Findings")
+        header(bc if bc else "Workflow Mapped Findings - Select Workflow")
 
         table = Table(title="Workflows", box=box.SIMPLE)
         table.add_column("#", style="cyan", justify="right")
@@ -2057,7 +2057,7 @@ def browse_workflow_groups(
         for plugin_file, plugin in workflow_files:
             plugin_ids.append(plugin.plugin_id)
 
-        # Browse files for this workflow using database query filtered by plugin IDs
+        # Browse findings for this workflow using database query filtered by plugin IDs
         browse_file_list(
             scan,
             None,  # No specific severity dir (workflow may span multiple severities)
@@ -2104,9 +2104,9 @@ def browse_file_list(
         workflow_mapper: Optional workflow mapper for plugin workflows
         args: Command-line arguments
         use_sudo: Whether sudo is available
-        skipped_total: List to track skipped files
-        reviewed_total: List to track reviewed files
-        completed_total: List to track completed files
+        skipped_total: List to track skipped findings
+        reviewed_total: List to track reviewed findings
+        completed_total: List to track completed findings
         is_msf_mode: If True, display severity labels in reviewed list
         has_metasploit_filter: Optional filter for metasploit plugins
         plugin_ids_filter: Optional list of specific plugin IDs to include
@@ -2136,7 +2136,7 @@ def browse_file_list(
         return (plugin_file.host_count or 0, "")
 
     while True:
-        # Query database for files with plugin info
+        # Query database for findings with plugin info
         all_records = PluginFile.get_by_scan_with_plugin(
             scan_id=scan.scan_id,
             severity_dir=severity_dir_filter,
@@ -2185,11 +2185,11 @@ def browse_file_list(
 
         try:
             from mundane_pkg import breadcrumb
-            filter_info = f"filtered: '{file_filter}'" if file_filter else "Files"
+            filter_info = f"filtered: '{file_filter}'" if file_filter else "Findings"
             bc = breadcrumb(scan_dir.name, severity_label, filter_info)
             header(bc if bc else f"Severity: {severity_label}")
             status = (
-                f"Unreviewed files ({len(unreviewed)}). "
+                f"Unreviewed findings ({len(unreviewed)}). "
                 f"Current filter: '{file_filter or '*'}'"
             )
             if group_filter:
@@ -2268,7 +2268,7 @@ def browse_file_list(
                 transient=True,
             ) as progress:
                 task = progress.add_task(
-                    "Marking files as review complete...", total=len(candidates)
+                    "Marking findings as review complete...", total=len(candidates)
                 )
                 for plugin_file, plugin in candidates:
                     if mark_review_complete(plugin_file):
@@ -2337,9 +2337,9 @@ def show_session_statistics(
 
     Args:
         session_start_time: Datetime when session started
-        reviewed_total: List of reviewed (not marked complete) files
-        completed_total: List of marked complete files
-        skipped_total: List of skipped (empty) files
+        reviewed_total: List of reviewed (not marked complete) findings
+        completed_total: List of marked complete findings
+        skipped_total: List of skipped (empty) findings
         scan_dir: Scan directory for severity analysis
         scan_id: Optional scan ID for database queries
     """
@@ -2364,15 +2364,15 @@ def show_session_statistics(
     overall_table.add_column("Count", justify="right", style="yellow")
 
     overall_table.add_row("Session Duration", duration_str)
-    overall_table.add_row("Files Reviewed (not marked)", str(len(reviewed_total)))
-    overall_table.add_row("Files Marked Complete", str(len(completed_total)))
-    overall_table.add_row("Files Skipped (empty)", str(len(skipped_total)))
-    overall_table.add_row("Total Files Processed", str(len(reviewed_total) + len(completed_total) + len(skipped_total)))
+    overall_table.add_row("Findings Reviewed (not marked)", str(len(reviewed_total)))
+    overall_table.add_row("Findings Marked Complete", str(len(completed_total)))
+    overall_table.add_row("Findings Skipped (empty)", str(len(skipped_total)))
+    overall_table.add_row("Total Findings Processed", str(len(reviewed_total) + len(completed_total) + len(skipped_total)))
 
     console.print(overall_table)
     print()
 
-    # Per-severity breakdown (for completed files only)
+    # Per-severity breakdown (for completed findings only)
     if completed_total:
         severity_counts = {}
 
@@ -2381,7 +2381,7 @@ def show_session_statistics(
             from mundane_pkg.models import PluginFile
             from mundane_pkg.database import db_transaction, query_all
 
-            # Query database for completed files grouped by severity
+            # Query database for completed findings grouped by severity
             with db_transaction() as conn:
                 rows = query_all(
                     conn,
@@ -2597,9 +2597,9 @@ def main(args: types.SimpleNamespace) -> None:
                 session_date = datetime.fromisoformat(previous_session.session_start)
                 header("Previous Session Found")
                 info(f"Session started: {session_date.strftime('%Y-%m-%d %H:%M:%S')}")
-                info(f"Reviewed: {previous_session.reviewed_count} files")
-                info(f"Completed: {previous_session.completed_count} files")
-                info(f"Skipped: {previous_session.skipped_count} files")
+                info(f"Reviewed: {previous_session.reviewed_count} findings")
+                info(f"Completed: {previous_session.completed_count} findings")
+                info(f"Skipped: {previous_session.skipped_count} findings")
                 try:
                     resume = yesno("Resume this session?", default="y")
                 except KeyboardInterrupt:
@@ -2791,7 +2791,7 @@ def main(args: types.SimpleNamespace) -> None:
 
                 # === Workflow Mapped only ===
                 elif workflow_in_selection:
-                    # Group files by workflow name using database records
+                    # Group findings by workflow name using database records
                     workflow_groups = group_files_by_workflow(workflow_files, workflow_mapper)
 
                     browse_workflow_groups(
@@ -2832,7 +2832,7 @@ def main(args: types.SimpleNamespace) -> None:
     # Session summary with rich statistics (only if work was done)
     if reviewed_total or completed_total or skipped_total:
         # Note: scan_dir is defined only if user entered a scan
-        # Since we have reviewed/completed/skipped files, scan_dir must be defined
+        # Since we have reviewed/completed/skipped findings, scan_dir must be defined
         show_session_statistics(
             session_start_time,
             reviewed_total,
@@ -2967,7 +2967,7 @@ def import_scan(
     # Determine output directory (always use SCANS_ROOT/<scan_name>)
     out_dir = SCANS_ROOT / scan_name
     info(f"Using scan name: {scan_name}")
-    info(f"Finding files location: {out_dir}")
+    info(f"Findings location: {out_dir}")
 
     # Check for duplicate imports
     from mundane_pkg.database import compute_file_hash
@@ -3053,7 +3053,7 @@ def import_scan(
             _console_global.print(sev_table)
 
         print()  # Blank line after table
-        info(f"Reference files saved to: {out_dir.resolve()}")
+        info(f"Reference findings saved to: {out_dir.resolve()}")
         info("Next: mundane review")
 
     except Exception as e:

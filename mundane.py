@@ -841,7 +841,9 @@ def handle_file_view(
         action_text.append("[V] ", style="cyan")
         action_text.append("View host(s) / ", style=None)
         action_text.append("[E] ", style="cyan")
-        action_text.append("CVE info", style=None)
+        action_text.append("CVE info / ", style=None)
+        action_text.append("[I] ", style="cyan")
+        action_text.append("Finding Info", style=None)
         if has_workflow:
             action_text.append(" / ", style=None)
             action_text.append("[W] ", style="cyan")
@@ -939,6 +941,15 @@ def handle_file_view(
             except Exception as exc:
                 warn(f"Failed to fetch CVE information: {exc}")
 
+            continue
+
+        # Handle Finding Info action
+        if action_choice in ("i", "info"):
+            # Redisplay the preview panel
+            if plugin is None or sev_dir is None:
+                warn("Plugin metadata not available - cannot display finding info")
+                continue
+            _display_finding_preview(plugin, plugin_file, sev_dir, chosen)
             continue
 
         # Handle View file action
@@ -1421,53 +1432,31 @@ def run_tool_workflow(
 # === File processing workflow ===
 
 
-def process_single_file(
-    chosen: Path,
+def _display_finding_preview(
     plugin: "Plugin",
     plugin_file: Optional["PluginFile"],
-    scan_dir: Path,
     sev_dir: Path,
-    args: types.SimpleNamespace,
-    use_sudo: bool,
-    skipped_total: List[str],
-    reviewed_total: List[str],
-    completed_total: List[str],
-    show_severity: bool = False,
-    workflow_mapper: Optional[WorkflowMapper] = None,
+    chosen: Path,
 ) -> None:
-    """
-    Process a single plugin file: preview, view, run tools, mark complete.
+    """Display finding preview panel with metadata.
 
     Args:
-        chosen: Selected plugin file
         plugin: Plugin metadata object
         plugin_file: PluginFile database object (None if database not available)
-        scan_dir: Scan directory
-        sev_dir: Severity directory
-        args: Command-line arguments
-        use_sudo: Whether sudo is available
-        skipped_total: List to track skipped findings
-        reviewed_total: List to track reviewed findings
-        completed_total: List to track completed findings
-        show_severity: Whether to show severity label (for MSF mode)
-        workflow_mapper: Optional workflow mapper for plugin workflows
+        sev_dir: Severity directory path
+        chosen: File path (for URL extraction)
     """
-    # Get hosts and ports from database instead of reading file
+    from rich.text import Text
+    from rich.panel import Panel
+
+    # Get hosts and ports from database
     if plugin_file is not None:
         hosts, ports_str = plugin_file.get_hosts_and_ports()
     else:
-        # Fallback to file reading if database not available (backward compatibility)
+        # Fallback to file reading if database not available
         lines = read_text_lines(chosen)
         tokens = [line for line in lines if line.strip()]
         hosts, ports_str = parse_hosts_ports(tokens) if tokens else ([], "")
-
-    # Construct display name from plugin metadata
-    display_name = f"Plugin {plugin.plugin_id}: {plugin.plugin_name}"
-
-    if not hosts:
-        info("File is empty (no hosts found). This usually means the vulnerability doesn't affect any hosts.")
-        skipped_total.append(display_name)
-        return
 
     # Build Rich Panel preview
     content = Text()
@@ -1526,6 +1515,68 @@ def process_single_file(
 
     _console_global.print()  # Blank line before panel
     _console_global.print(panel)
+
+
+def process_single_file(
+    chosen: Path,
+    plugin: "Plugin",
+    plugin_file: Optional["PluginFile"],
+    scan_dir: Path,
+    sev_dir: Path,
+    args: types.SimpleNamespace,
+    use_sudo: bool,
+    skipped_total: List[str],
+    reviewed_total: List[str],
+    completed_total: List[str],
+    show_severity: bool = False,
+    workflow_mapper: Optional[WorkflowMapper] = None,
+) -> None:
+    """
+    Process a single plugin file: preview, view, run tools, mark complete.
+
+    Args:
+        chosen: Selected plugin file
+        plugin: Plugin metadata object
+        plugin_file: PluginFile database object (None if database not available)
+        scan_dir: Scan directory
+        sev_dir: Severity directory
+        args: Command-line arguments
+        use_sudo: Whether sudo is available
+        skipped_total: List to track skipped findings
+        reviewed_total: List to track reviewed findings
+        completed_total: List to track completed findings
+        show_severity: Whether to show severity label (for MSF mode)
+        workflow_mapper: Optional workflow mapper for plugin workflows
+    """
+    # Get hosts and ports from database instead of reading file
+    if plugin_file is not None:
+        hosts, ports_str = plugin_file.get_hosts_and_ports()
+    else:
+        # Fallback to file reading if database not available (backward compatibility)
+        lines = read_text_lines(chosen)
+        tokens = [line for line in lines if line.strip()]
+        hosts, ports_str = parse_hosts_ports(tokens) if tokens else ([], "")
+
+    # Construct display name from plugin metadata
+    display_name = f"Plugin {plugin.plugin_id}: {plugin.plugin_name}"
+
+    if not hosts:
+        info("File is empty (no hosts found). This usually means the vulnerability doesn't affect any hosts.")
+        skipped_total.append(display_name)
+        return
+
+    # Display finding preview panel
+    _display_finding_preview(plugin, plugin_file, sev_dir, chosen)
+
+    # Extract plugin URL for handle_file_view
+    plugin_url = None
+    pd_line = _plugin_details_line(chosen)
+    if pd_line:
+        try:
+            match = re.search(r"(https?://[^\s)\]\}>,;]+)", pd_line)
+            plugin_url = match.group(1) if match else None
+        except Exception:
+            pass
 
     # View file and handle actions
     result = handle_file_view(

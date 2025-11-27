@@ -1907,9 +1907,8 @@ def handle_file_list_actions(
                 page_idx,
             )
 
-        # Pass PluginFile objects directly for database queries
-        candidate_files = [pf for pf, _ in candidates]
-        groups = analyze_inclusions(candidate_files)
+        # Pass full (PluginFile, Plugin) tuples to preserve display names
+        groups = analyze_inclusions(candidates)
         if groups:
             visible = min(VISIBLE_GROUPS, len(groups))
             opts = " | ".join(f"g{i+1}" for i in range(visible))

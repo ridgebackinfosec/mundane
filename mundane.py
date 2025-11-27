@@ -839,7 +839,7 @@ def handle_file_view(
         from rich.text import Text
         action_text = Text()
         action_text.append("[V] ", style="cyan")
-        action_text.append("View file / ", style=None)
+        action_text.append("View host(s) / ", style=None)
         action_text.append("[E] ", style="cyan")
         action_text.append("CVE info", style=None)
         if has_workflow:
@@ -847,12 +847,12 @@ def handle_file_view(
             action_text.append("[W] ", style="cyan")
             action_text.append("Workflow", style=None)
         action_text.append(" / ", style=None)
-        action_text.append("[B] ", style="cyan")
-        action_text.append("Back / ", style=None)
         action_text.append("[T] ", style="cyan")
         action_text.append("Run tool / ", style=None)
         action_text.append("[M] ", style="cyan")
-        action_text.append("Mark reviewed", style=None)
+        action_text.append("Mark reviewed / ", style=None)
+        action_text.append("[B] ", style="cyan")
+        action_text.append("Back", style=None)
 
         print(f"{C.CYAN}>> {C.RESET}", end="")
         _console.print(action_text)
@@ -1641,12 +1641,12 @@ def handle_file_list_actions(
         return None, file_filter, reviewed_filter, group_filter, sort_mode, page_idx
 
     if ans == "o":
-        # Cycle through sort modes: plugin_id -> hosts -> name -> plugin_id
+        # Cycle through sort modes: plugin_id -> name -> hosts -> plugin_id
         if sort_mode == "plugin_id":
-            sort_mode = "hosts"
-        elif sort_mode == "hosts":
             sort_mode = "name"
-        else:  # name
+        elif sort_mode == "name":
+            sort_mode = "hosts"
+        else:  # hosts
             sort_mode = "plugin_id"
 
         sort_label = {
@@ -2185,7 +2185,7 @@ def browse_file_list(
 
         try:
             from mundane_pkg import breadcrumb
-            filter_info = f"filtered: '{file_filter}'" if file_filter else "Files"
+            filter_info = f"filtered: '{file_filter}'" if file_filter else "Findings"
             bc = breadcrumb(scan_dir.name, severity_label, filter_info)
             header(bc if bc else f"Severity: {severity_label}")
             status = (

@@ -243,11 +243,11 @@ def default_page_size() -> int:
     """Calculate a sensible default page size based on terminal height.
 
     Returns:
-        Number of items per page (minimum 8, max terminal_height - 10)
+        Number of items per page (minimum 8, max terminal_height - 15)
     """
     try:
         terminal_height = shutil.get_terminal_size((80, 24)).lines
-        return max(8, terminal_height - 10)
+        return max(8, terminal_height - 15)
     except Exception:
         return 12
 

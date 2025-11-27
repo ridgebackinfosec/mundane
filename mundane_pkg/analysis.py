@@ -1,8 +1,8 @@
-"""Data analysis functions for comparing and grouping plugin files.
+"""Data analysis functions for comparing and grouping plugin findings.
 
 This module provides functions to compare host/port combinations across
-multiple plugin export files, identify superset relationships, and generate
-scan statistics.
+multiple plugin findings from the database, identify superset relationships,
+and generate scan statistics.
 """
 
 import re
@@ -34,7 +34,7 @@ from .render import render_compare_tables
 _console_global = Console()
 
 @log_timing
-def compare_filtered(files: Union[list[Path], list['PluginFile']]) -> list[list[str]]:
+def compare_filtered(files: Union[list[Path], list['PluginFile'], list[tuple['PluginFile', 'Plugin']]]) -> list[list[str]]:
     """Compare host/port combinations across multiple filtered files.
 
     Parses each file, computes intersections and unions of hosts and ports,
@@ -42,10 +42,10 @@ def compare_filtered(files: Union[list[Path], list['PluginFile']]) -> list[list[
     comparison tables.
 
     Args:
-        files: List of file paths or PluginFile objects to compare
+        files: List of file paths, PluginFile objects, or (PluginFile, Plugin) tuples to compare
 
     Returns:
-        List of groups where each group is a list of filenames with
+        List of groups where each group is a list of plugin identifiers with
         identical host:port combinations, sorted by group size descending
     """
     if not files:
@@ -55,9 +55,22 @@ def compare_filtered(files: Union[list[Path], list['PluginFile']]) -> list[list[
     header("Filtered Files: Host/Port Comparison")
     info(f"Files compared: {len(files)}")
 
-    # Detect if we have PluginFile objects or Path objects
-    from .models import PluginFile
-    use_database = files and isinstance(files[0], PluginFile)
+    # Detect what type of input we have
+    from .models import PluginFile, Plugin
+    if files and isinstance(files[0], tuple) and len(files[0]) == 2:
+        # (PluginFile, Plugin) tuples - extract PluginFiles
+        plugin_files = [pf for pf, _ in files]
+        plugins_map = {pf.plugin_id: plugin for pf, plugin in files}
+        use_database = True
+    elif files and isinstance(files[0], PluginFile):
+        # Just PluginFile objects (need to query plugins separately for display)
+        plugin_files = files
+        plugins_map = {}  # Will be populated if needed
+        use_database = True
+    else:
+        # Path objects (legacy file-based mode)
+        plugin_files = None
+        use_database = False
 
     parsed = []
     with Progress(
@@ -75,7 +88,7 @@ def compare_filtered(files: Union[list[Path], list['PluginFile']]) -> list[list[
             # Database mode: query all hosts/ports in a single batch
             from .database import db_transaction, query_all
 
-            file_ids = [pf.file_id for pf in files]
+            file_ids = [pf.file_id for pf in plugin_files]
             with db_transaction() as conn:
                 rows = query_all(
                     conn,
@@ -89,13 +102,12 @@ def compare_filtered(files: Union[list[Path], list['PluginFile']]) -> list[list[
                 )
 
             # Group results by file_id
-            from collections import defaultdict
             hosts_by_file = defaultdict(list)
             for row in rows:
                 hosts_by_file[row['file_id']].append(row)
 
             # Process each PluginFile
-            for pf in files:
+            for pf in plugin_files:
                 file_rows = hosts_by_file.get(pf.file_id, [])
 
                 # Extract hosts and ports from database rows
@@ -115,9 +127,15 @@ def compare_filtered(files: Union[list[Path], list['PluginFile']]) -> list[list[
                         combos[host].add(port)
                         had_explicit = True
 
-                # Create virtual Path object for filename display
-                file_path = Path(pf.file_path)
-                parsed.append((file_path, hosts, ports_set, combos, had_explicit))
+                # Create display identifier from plugin info (not filename)
+                if pf.plugin_id in plugins_map:
+                    plugin = plugins_map[pf.plugin_id]
+                    display_name = f"Plugin {plugin.plugin_id}: {plugin.plugin_name}"
+                else:
+                    # Fallback if plugin info not available
+                    display_name = f"Plugin {pf.plugin_id}"
+
+                parsed.append((display_name, hosts, ports_set, combos, had_explicit))
                 progress.advance(task)
         else:
             # File-based mode: parse each file individually
@@ -174,8 +192,8 @@ def compare_filtered(files: Union[list[Path], list['PluginFile']]) -> list[list[
         task = progress.add_task(
             "Grouping identical host:port combos...", total=len(parsed)
         )
-        for (file_path, h, p, c, e), sig in zip(parsed, combo_signatures):
-            groups_dict[sig].append(file_path.name)
+        for (display_name, h, p, c, e), sig in zip(parsed, combo_signatures):
+            groups_dict[sig].append(display_name)
             progress.advance(task)
 
     with Progress(
@@ -205,18 +223,18 @@ def compare_filtered(files: Union[list[Path], list['PluginFile']]) -> list[list[
 
 
 @log_timing
-def analyze_inclusions(files: Union[list[Path], list['PluginFile']]) -> list[list[str]]:
+def analyze_inclusions(files: Union[list[Path], list['PluginFile'], list[tuple['PluginFile', 'Plugin']]]) -> list[list[str]]:
     """Analyze superset relationships across filtered files.
 
     Identifies which files are supersets of others (contain all their
     host:port combinations) and groups them accordingly.
 
     Args:
-        files: List of file paths or PluginFile objects to analyze
+        files: List of file paths, PluginFile objects, or (PluginFile, Plugin) tuples to analyze
 
     Returns:
         List of groups where each group is [superset_name, *covered_names],
-        representing files that are fully covered by the superset
+        representing plugins that are fully covered by the superset
     """
     if not files:
         warn("No files selected for superset analysis.")
@@ -225,9 +243,22 @@ def analyze_inclusions(files: Union[list[Path], list['PluginFile']]) -> list[lis
     header("Filtered Files: Superset / Coverage Analysis")
     info(f"Files analyzed: {len(files)}")
 
-    # Detect if we have PluginFile objects or Path objects
-    from .models import PluginFile
-    use_database = files and isinstance(files[0], PluginFile)
+    # Detect what type of input we have
+    from .models import PluginFile, Plugin
+    if files and isinstance(files[0], tuple) and len(files[0]) == 2:
+        # (PluginFile, Plugin) tuples - extract PluginFiles
+        plugin_files = [pf for pf, _ in files]
+        plugins_map = {pf.plugin_id: plugin for pf, plugin in files}
+        use_database = True
+    elif files and isinstance(files[0], PluginFile):
+        # Just PluginFile objects
+        plugin_files = files
+        plugins_map = {}
+        use_database = True
+    else:
+        # Path objects (legacy file-based mode)
+        plugin_files = None
+        use_database = False
 
     parsed = []
     item_sets = {}
@@ -244,7 +275,7 @@ def analyze_inclusions(files: Union[list[Path], list['PluginFile']]) -> list[lis
             # Database mode: query all hosts/ports in a single batch
             from .database import db_transaction, query_all
 
-            file_ids = [pf.file_id for pf in files]
+            file_ids = [pf.file_id for pf in plugin_files]
             with db_transaction() as conn:
                 rows = query_all(
                     conn,
@@ -258,13 +289,12 @@ def analyze_inclusions(files: Union[list[Path], list['PluginFile']]) -> list[lis
                 )
 
             # Group results by file_id
-            from collections import defaultdict
             hosts_by_file = defaultdict(list)
             for row in rows:
                 hosts_by_file[row['file_id']].append(row)
 
             # Process each PluginFile
-            for pf in files:
+            for pf in plugin_files:
                 file_rows = hosts_by_file.get(pf.file_id, [])
 
                 # Extract hosts and ports from database rows
@@ -284,10 +314,16 @@ def analyze_inclusions(files: Union[list[Path], list['PluginFile']]) -> list[lis
                         combos[host].add(port)
                         had_explicit = True
 
-                # Create virtual Path object for compatibility
-                file_path = Path(pf.file_path)
-                parsed.append((file_path, hosts, ports_set, combos, had_explicit))
-                item_sets[file_path] = build_item_set(
+                # Create display identifier from plugin info (not filename)
+                if pf.plugin_id in plugins_map:
+                    plugin = plugins_map[pf.plugin_id]
+                    display_name = f"Plugin {plugin.plugin_id}: {plugin.plugin_name}"
+                else:
+                    # Fallback if plugin info not available
+                    display_name = f"Plugin {pf.plugin_id}"
+
+                parsed.append((display_name, hosts, ports_set, combos, had_explicit))
+                item_sets[display_name] = build_item_set(
                     hosts, ports_set, combos, had_explicit
                 )
                 progress.advance(task)
@@ -303,45 +339,45 @@ def analyze_inclusions(files: Union[list[Path], list['PluginFile']]) -> list[lis
                 )
                 progress.advance(task)
 
-    # Extract Path objects from parsed results for compatibility
-    file_paths = [file_path for file_path, _, _, _, _ in parsed]
+    # Extract display names from parsed results
+    display_names = [display_name for display_name, _, _, _, _ in parsed]
 
-    # Build coverage map: for each file, which others does it fully include?
-    cover_map = {file_path: set() for file_path in file_paths}
-    for i, file_a in enumerate(file_paths):
-        items_a = item_sets[file_a]
-        for j, file_b in enumerate(file_paths):
+    # Build coverage map: for each plugin, which others does it fully include?
+    cover_map = {display_name: set() for display_name in display_names}
+    for i, name_a in enumerate(display_names):
+        items_a = item_sets[name_a]
+        for j, name_b in enumerate(display_names):
             if i == j:
                 continue
-            items_b = item_sets[file_b]
+            items_b = item_sets[name_b]
             if items_b.issubset(items_a):
-                cover_map[file_a].add(file_b)
+                cover_map[name_a].add(name_b)
 
-    # Maximals = files not strictly contained by any other
+    # Maximals = plugins not strictly contained by any other
     maximals = []
-    for file_a in file_paths:
-        items_a = item_sets[file_a]
+    for name_a in display_names:
+        items_a = item_sets[name_a]
         if not any(
-            (items_a < item_sets[file_b])
-            for file_b in file_paths
-            if file_b is not file_a
+            (items_a < item_sets[name_b])
+            for name_b in display_names
+            if name_b is not name_a
         ):
-            maximals.append(file_a)
+            maximals.append(name_a)
 
     # Render summary table
     summary = Table(
         title=None, box=box.SIMPLE, show_lines=False, pad_edge=False
     )
     summary.add_column("#", justify="right", no_wrap=True)
-    summary.add_column("File")
+    summary.add_column("Plugin")
     summary.add_column("Items", justify="right", no_wrap=True)
     summary.add_column("Covers", justify="right", no_wrap=True)
-    for i, file_path in enumerate(file_paths, 1):
+    for i, display_name in enumerate(display_names, 1):
         summary.add_row(
             str(i),
-            file_path.name,
-            str(len(item_sets[file_path])),
-            str(len(cover_map[file_path])),
+            display_name,
+            str(len(item_sets[display_name])),
+            str(len(cover_map[display_name])),
         )
     _console_global.print(summary)
 
@@ -349,10 +385,10 @@ def analyze_inclusions(files: Union[list[Path], list['PluginFile']]) -> list[lis
     groups = []
     for maximal_file in sorted(
         maximals,
-        key=lambda p: (-len(cover_map[p]), natural_key(p.name)),
+        key=lambda p: (-len(cover_map[p]), natural_key(p)),
     ):
         covered = sorted(
-            list(cover_map[maximal_file]), key=lambda p: natural_key(p.name)
+            list(cover_map[maximal_file]), key=lambda p: natural_key(p)
         )
         groups.append((maximal_file, covered))
 
@@ -368,14 +404,14 @@ def analyze_inclusions(files: Union[list[Path], list['PluginFile']]) -> list[lis
         groups_table.add_column("Covers", justify="right", no_wrap=True)
         groups_table.add_column("Covered files (sample)")
         for i, (root, covered_list) in enumerate(groups, 1):
-            sample_names = [p.name for p in covered_list[:8]]
+            sample_names = covered_list[:8]
             sample = "\n".join(sample_names) + (
                 f"\n... (+{len(covered_list)-8} more)"
                 if len(covered_list) > 8
                 else ""
             )
             groups_table.add_row(
-                str(i), root.name, str(len(covered_list)), sample or "—"
+                str(i), root, str(len(covered_list)), sample or "—"
             )
         _console_global.print(groups_table)
     else:
@@ -387,7 +423,7 @@ def analyze_inclusions(files: Union[list[Path], list['PluginFile']]) -> list[lis
     # Convert back to name groups (root + covered) for filtering behavior
     name_groups = []
     for root, covered_list in groups:
-        names = [root.name] + [p.name for p in covered_list]
+        names = [root] + covered_list
         name_groups.append(names)
     return name_groups
 

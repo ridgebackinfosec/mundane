@@ -305,22 +305,20 @@ class Plugin:
 
 @dataclass
 class PluginFile:
-    """Represents an exported plugin .txt file for a specific scan."""
+    """Represents a finding (plugin instance) for a specific scan.
+
+    Streamlined in v1.9.0 - removed duplicate/unnecessary fields.
+    """
 
     file_id: Optional[int] = None
     scan_id: int = 0
     plugin_id: int = 0
-    file_path: str = ""
-    severity_dir: str = ""
     review_state: str = "pending"  # 'pending', 'reviewed', 'completed', 'skipped'
     reviewed_at: Optional[str] = None
     reviewed_by: Optional[str] = None
     review_notes: Optional[str] = None
     host_count: int = 0
     port_count: int = 0
-    file_created_at: Optional[str] = None
-    file_modified_at: Optional[str] = None
-    last_parsed_at: Optional[str] = None
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> PluginFile:
@@ -336,17 +334,12 @@ class PluginFile:
             file_id=row["file_id"],
             scan_id=row["scan_id"],
             plugin_id=row["plugin_id"],
-            file_path=row["file_path"],
-            severity_dir=row["severity_dir"],
             review_state=row["review_state"],
             reviewed_at=row["reviewed_at"],
             reviewed_by=row["reviewed_by"],
             review_notes=row["review_notes"],
             host_count=row["host_count"],
-            port_count=row["port_count"],
-            file_created_at=row["file_created_at"],
-            file_modified_at=row["file_modified_at"],
-            last_parsed_at=row["last_parsed_at"]
+            port_count=row["port_count"]
         )
 
     def save(self, conn: Optional[sqlite3.Connection] = None) -> int:
@@ -364,15 +357,13 @@ class PluginFile:
                 cursor = c.execute(
                     """
                     INSERT INTO plugin_files (
-                        scan_id, plugin_id, file_path, severity_dir, review_state,
-                        reviewed_at, reviewed_by, review_notes, host_count, port_count,
-                        file_created_at, file_modified_at, last_parsed_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        scan_id, plugin_id, review_state,
+                        reviewed_at, reviewed_by, review_notes, host_count, port_count
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (self.scan_id, self.plugin_id, self.file_path, self.severity_dir,
-                     self.review_state, self.reviewed_at, self.reviewed_by, self.review_notes,
-                     self.host_count, self.port_count, self.file_created_at,
-                     self.file_modified_at, self.last_parsed_at)
+                    (self.scan_id, self.plugin_id, self.review_state,
+                     self.reviewed_at, self.reviewed_by, self.review_notes,
+                     self.host_count, self.port_count)
                 )
                 self.file_id = cursor.lastrowid
             else:
@@ -381,12 +372,11 @@ class PluginFile:
                     """
                     UPDATE plugin_files
                     SET review_state=?, reviewed_at=?, reviewed_by=?, review_notes=?,
-                        host_count=?, port_count=?, file_modified_at=?, last_parsed_at=?
+                        host_count=?, port_count=?
                     WHERE file_id=?
                     """,
                     (self.review_state, self.reviewed_at, self.reviewed_by, self.review_notes,
-                     self.host_count, self.port_count, self.file_modified_at,
-                     self.last_parsed_at, self.file_id)
+                     self.host_count, self.port_count, self.file_id)
                 )
 
         return self.file_id
@@ -404,21 +394,6 @@ class PluginFile:
         """
         with db_transaction(conn) as c:
             row = query_one(c, "SELECT * FROM plugin_files WHERE file_id = ?", (file_id,))
-            return cls.from_row(row) if row else None
-
-    @classmethod
-    def get_by_path(cls, file_path: str, conn: Optional[sqlite3.Connection] = None) -> Optional[PluginFile]:
-        """Retrieve plugin file by path.
-
-        Args:
-            file_path: Path to file
-            conn: Database connection
-
-        Returns:
-            PluginFile instance or None if not found
-        """
-        with db_transaction(conn) as c:
-            row = query_one(c, "SELECT * FROM plugin_files WHERE file_path = ?", (file_path,))
             return cls.from_row(row) if row else None
 
     def update_review_state(
@@ -472,10 +447,9 @@ class PluginFile:
             # Build query with JOIN
             query = """
                 SELECT
-                    pf.file_id, pf.scan_id, pf.plugin_id, pf.file_path, pf.severity_dir,
+                    pf.file_id, pf.scan_id, pf.plugin_id,
                     pf.review_state, pf.reviewed_at, pf.reviewed_by, pf.review_notes,
-                    pf.host_count, pf.port_count, pf.file_created_at, pf.file_modified_at,
-                    pf.last_parsed_at,
+                    pf.host_count, pf.port_count,
                     p.plugin_id as p_plugin_id, p.plugin_name, p.severity_int, p.severity_label,
                     p.has_metasploit, p.cvss3_score, p.cvss2_score, p.cves,
                     p.plugin_url, p.metadata_fetched_at
@@ -486,13 +460,27 @@ class PluginFile:
             params: list[Any] = [scan_id]
 
             # Add optional filters
+            # severity_dir filter now uses severity_int from plugins table
             if severity_dir is not None:
-                query += " AND pf.severity_dir = ?"
-                params.append(severity_dir)
+                # Parse severity_dir format like "4_Critical" to extract severity_int
+                try:
+                    severity_int = int(severity_dir.split('_')[0])
+                    query += " AND p.severity_int = ?"
+                    params.append(severity_int)
+                except (ValueError, IndexError):
+                    pass  # Invalid format, skip filter
             elif severity_dirs is not None and len(severity_dirs) > 0:
-                placeholders = ",".join("?" * len(severity_dirs))
-                query += f" AND pf.severity_dir IN ({placeholders})"
-                params.extend(severity_dirs)
+                # Parse multiple severity_dirs to extract severity_ints
+                severity_ints = []
+                for sd in severity_dirs:
+                    try:
+                        severity_ints.append(int(sd.split('_')[0]))
+                    except (ValueError, IndexError):
+                        pass
+                if severity_ints:
+                    placeholders = ",".join("?" * len(severity_ints))
+                    query += f" AND p.severity_int IN ({placeholders})"
+                    params.extend(severity_ints)
 
             if review_state is not None:
                 query += " AND pf.review_state = ?"
@@ -518,39 +506,34 @@ class PluginFile:
 
             results = []
             for row in rows:
-                # Create PluginFile from row (columns 0-13)
+                # Create PluginFile from row (columns 0-8)
                 plugin_file = cls(
                     file_id=row[0],
                     scan_id=row[1],
                     plugin_id=row[2],
-                    file_path=row[3],
-                    severity_dir=row[4],
-                    review_state=row[5],
-                    reviewed_at=row[6],
-                    reviewed_by=row[7],
-                    review_notes=row[8],
-                    host_count=row[9],
-                    port_count=row[10],
-                    file_created_at=row[11],
-                    file_modified_at=row[12],
-                    last_parsed_at=row[13]
+                    review_state=row[3],
+                    reviewed_at=row[4],
+                    reviewed_by=row[5],
+                    review_notes=row[6],
+                    host_count=row[7],
+                    port_count=row[8]
                 )
 
-                # Create Plugin from row (columns 14-23)
-                cves_json = row[21]
+                # Create Plugin from row (columns 9-18)
+                cves_json = row[16]
                 cves = json.loads(cves_json) if cves_json else None
 
                 plugin = Plugin(
-                    plugin_id=row[14],
-                    plugin_name=row[15],
-                    severity_int=row[16],
-                    severity_label=row[17],
-                    has_metasploit=bool(row[18]),
-                    cvss3_score=row[19],
-                    cvss2_score=row[20],
+                    plugin_id=row[9],
+                    plugin_name=row[10],
+                    severity_int=row[11],
+                    severity_label=row[12],
+                    has_metasploit=bool(row[13]),
+                    cvss3_score=row[14],
+                    cvss2_score=row[15],
                     cves=cves,
-                    plugin_url=row[22],
-                    metadata_fetched_at=row[23]
+                    plugin_url=row[17],
+                    metadata_fetched_at=row[18]
                 )
 
                 results.append((plugin_file, plugin))
@@ -576,19 +559,30 @@ class PluginFile:
             where reviewed means review_state == 'completed'
         """
         with db_transaction(conn) as c:
-            # Count total files in this severity
+            # Parse severity_dir to get severity_int (e.g., "4_Critical" -> 4)
+            try:
+                severity_int = int(severity_dir.split('_')[0])
+            except (ValueError, IndexError):
+                # Invalid format, return zeros
+                return (0, 0, 0)
+
+            # Count total files in this severity (JOIN with plugins to filter by severity_int)
             total_row = query_one(
                 c,
-                "SELECT COUNT(*) FROM plugin_files WHERE scan_id = ? AND severity_dir = ?",
-                (scan_id, severity_dir)
+                """SELECT COUNT(*) FROM plugin_files pf
+                   JOIN plugins p ON pf.plugin_id = p.plugin_id
+                   WHERE pf.scan_id = ? AND p.severity_int = ?""",
+                (scan_id, severity_int)
             )
             total_count = total_row[0] if total_row else 0
 
             # Count reviewed files (review_state = 'completed')
             reviewed_row = query_one(
                 c,
-                "SELECT COUNT(*) FROM plugin_files WHERE scan_id = ? AND severity_dir = ? AND review_state = 'completed'",
-                (scan_id, severity_dir)
+                """SELECT COUNT(*) FROM plugin_files pf
+                   JOIN plugins p ON pf.plugin_id = p.plugin_id
+                   WHERE pf.scan_id = ? AND p.severity_int = ? AND pf.review_state = 'completed'""",
+                (scan_id, severity_int)
             )
             reviewed_count = reviewed_row[0] if reviewed_row else 0
 
@@ -640,9 +634,8 @@ class PluginFile:
     ) -> list[str]:
         """Get distinct severity directories for a scan, sorted by severity level.
 
-        Queries the database for all unique severity_dir values associated with
-        plugin files for the given scan, ordered from highest to lowest severity
-        (e.g., ["4_Critical", "3_High", "2_Medium", "1_Low", "0_Info"]).
+        Reconstructs severity directory names from plugins table.
+        Returns names like ["4_Critical", "3_High", "2_Medium", "1_Low", "0_Info"].
 
         Args:
             scan_id: Scan ID to query
@@ -655,14 +648,22 @@ class PluginFile:
             rows = query_all(
                 c,
                 """
-                SELECT DISTINCT severity_dir
-                FROM plugin_files
-                WHERE scan_id = ?
-                ORDER BY severity_dir DESC
+                SELECT DISTINCT p.severity_int, p.severity_label
+                FROM plugin_files pf
+                JOIN plugins p ON pf.plugin_id = p.plugin_id
+                WHERE pf.scan_id = ?
+                ORDER BY p.severity_int DESC
                 """,
                 (scan_id,)
             )
-            return [row[0] for row in rows] if rows else []
+            # Construct severity_dir format: "4_Critical", "3_High", etc.
+            # Derive label from severity_int if empty
+            severity_map = {4: "Critical", 3: "High", 2: "Medium", 1: "Low", 0: "Info"}
+            result = []
+            for row in rows:
+                label = row['severity_label'] if row['severity_label'] else severity_map.get(row['severity_int'], "Unknown")
+                result.append(f"{row['severity_int']}_{label}")
+            return result
 
     def get_hosts_and_ports(self, conn: Optional[sqlite3.Connection] = None) -> tuple[list[str], str]:
         """Retrieve hosts and formatted port string from database.

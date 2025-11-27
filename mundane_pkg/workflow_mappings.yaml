@@ -27,7 +27,7 @@ version: "1.0"
 
 workflows:
   - plugin_id: "40984"
-    workflow_name: "Investigat Browsable Web Directories"
+    workflow_name: "Investigate Browsable Web Directories"
     description: "Check for any filenames and content with confidential data."
     steps:
       - title: "Use wget to recursively download the contents of the browsable web directories and their subfolders"

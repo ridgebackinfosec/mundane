@@ -22,45 +22,31 @@ A modernized **TUI helper** to review Nessus findings quickly and kick off focus
 
 ---
 
-## Breaking Changes
+## Database-Only Architecture (v1.9.0+)
 
-### Version 1.8.0 - Review Mode Now Requires Database
+**As of version 1.9.0**, Mundane uses a **database-only architecture**. All finding data, review state, and session tracking is stored in SQLite at `~/.mundane/mundane.db`.
 
-**The `--export-root` flag has been deprecated for `mundane review`.**
+**What this means:**
+- ✅ All scan data centralized in one database
+- ✅ Fast queries and filtering
+- ✅ Cross-scan analysis and reporting
+- ✅ Persistent review progress and tool execution history
+- ✅ `.txt` files are created as reference only (data lives in database)
 
-All review operations now use the database for improved performance and feature support. Filesystem-only review mode is no longer supported.
-
-**Migration Guide:**
-
+**Primary Workflow:**
 ```bash
-# ❌ Old (deprecated - will show error):
-mundane review --export-root /path/to/scan
+# Step 1: Import a .nessus scan
+mundane import scan.nessus
 
-# ✅ New (required workflow):
-# Step 1: Import your scan into the database
-mundane import /path/to/scan.nessus --export-root /path/to/scan
-
-# Step 2: Run review without --export-root
+# Step 2: Review findings interactively
 mundane review  # Select scan from database
+
+# Step 3: List all scans
+mundane list
+
+# Step 4: Delete a scan
+mundane delete-scan <scan_name>
 ```
-
-**Why this change?**
-
-Database mode provides:
-- ✅ Workflow mapping support
-- ✅ Metasploit module detection
-- ✅ Session and progress tracking
-- ✅ Faster file counting and filtering
-- ✅ CVE caching and persistence
-
-**What if I already have exported files?**
-
-Simply import them into the database:
-```bash
-mundane import existing_scan.nessus --export-root /path/to/existing/export
-```
-
-The import command will recognize existing files and update the database without re-exporting.
 
 ---
 
@@ -172,7 +158,7 @@ Environment variables override config file settings:
 | `MUNDANE_RESULTS_ROOT` | Root directory for tool artifacts | `~/.mundane/artifacts` |
 | `NPH_RESULTS_ROOT` | (Deprecated) Legacy name for `MUNDANE_RESULTS_ROOT` | - |
 | `MUNDANE_USE_DB` | Enable SQLite database integration | `1` (enabled) |
-| `MUNDANE_DB_ONLY` | Use database-only mode (skip JSON session files) | `0` (dual-mode) |
+| `MUNDANE_DB_ONLY` | Database-only mode (always enabled since v1.8.19) | `1` (enabled) |
 | `MUNDANE_LOG` | Log file path | `~/.mundane/mundane.log` |
 | `MUNDANE_DEBUG` | DEBUG logging when truthy (`1`, `true`, `on`) | off |
 | `MUNDANE_PROMPT` | Enable confirmation prompts | on |
@@ -262,39 +248,36 @@ mundane config-get default_tool
 
 ```bash
 # 1. Import your scan
-python mundane.py import myscan.nessus --review
+mundane import myscan.nessus
+
+# 2. Review your findings
+mundane review
 
 # That's it! The import command will:
 #   - Parse your .nessus file
-#   - Export all plugins to ~/.mundane/scans/<scan_name>/
-#   - Launch the interactive review TUI
+#   - Load all findings into the database
+#   - Create reference files at ~/.mundane/scans/<scan_name>/
 ```
 
-**Already have exported plugin files?** Import them into the database first:
+**Already have a `.nessus` file?** Import it to get started:
 
 ```bash
-# Import existing exports
-mundane import your_scan.nessus --export-root ~/.mundane/scans/<scan_name>
+# Import the scan
+mundane import your_scan.nessus
 
 # Then review from database
 mundane review
 ```
 
-### 1) Import plugins from a `.nessus`
-Import plugin hostlists from `.nessus` file:
+### 1) Import findings from a `.nessus` scan
+Import findings from `.nessus` file into the database:
 
 ```bash
-# Auto-detect scan name and export to ~/.mundane/scans/<scan_name>
-python mundane.py import path/to/scan.nessus
-
-# Immediately start reviewing after import:
-python mundane.py import path/to/scan.nessus --review
-
-# Customize output location:
-python mundane.py import scan.nessus --out-dir ./custom_location
+# Import scan (auto-detect scan name, export to ~/.mundane/scans/<scan_name>)
+mundane import path/to/scan.nessus
 ```
 
-### 2) Review exports interactively
+### 2) Review findings interactively
 
 **Database mode (required):**
 ```bash
@@ -302,7 +285,7 @@ mundane review
 ```
 Displays a list of available scans from the database. Select the scan you want to review.
 
-**Note:** The `--export-root` flag has been deprecated. All scans must be imported into the database first using `mundane import`.
+**Note:** All scans must be imported into the database first using `mundane import`.
 
 ---
 
@@ -353,12 +336,11 @@ Displays a list of available scans from the database. Select the scan you want t
   - `nmap` (profiles and UDP handling supported)
   - `netexec` / `nxc`
   - **Custom templates** with placeholder substitution
-- **Compare** plugin hostlists across severities.
-- **Coverage/superset** analysis across files.
-- **Bulk mark** reviewed files as `REVIEW_COMPLETE-...`.
-- **Scan overview** summaries (totals, top ports, identical groups).
-- **Progress indicators** for cloning, parsing, exporting, or running tools.
-- **Registry-driven tool system** (nmap/netexec/metasploit today; others can be added later).
+- **Host comparison** - Compare plugin findings across hosts within the TUI
+- **Superset analysis** - Identify findings that cover all hosts of other findings
+- **Bulk mark** reviewed findings as complete
+- **Progress indicators** for importing, parsing, and running tools
+- **Registry-driven tool system** (nmap/netexec/metasploit today; others can be added later)
 
 ---
 
@@ -400,39 +382,27 @@ Control database behavior with these environment variables:
 
 | Variable | Description | Default |
 |---|---|---|
-| `MUNDANE_USE_DB` | Enable database integration (`1`, `true`, `on`) | `1` (enabled) |
-| `MUNDANE_DB_ONLY` | Skip JSON session files, use only database | `0` (dual-mode) |
+| `MUNDANE_USE_DB` | Enable database integration | `1` (enabled) |
+| `MUNDANE_DB_ONLY` | Database-only mode (always enabled since v1.8.19) | `1` (enabled) |
 
-**Examples:**
-```bash
-# Use database-only mode (no JSON session files)
-export MUNDANE_DB_ONLY=1
-mundane review
-
-**Note:** Database mode is now required for review. The `MUNDANE_USE_DB=0` legacy mode is no longer supported for review operations.
-```
-
-**Note**: Dual-mode (default) ensures compatibility with existing workflows while enabling database features.
+**Note:** Database mode is now required for all operations. All scan data, review state, and session tracking is stored in SQLite at `~/.mundane/mundane.db`.
 
 ---
 
 ## Commands (common)
 
 ```bash
-# Import: export plugin files from a .nessus scan (then optionally review)
-python mundane.py import <scan.nessus> [--out-dir DIR] [--review]
+# Import: Parse .nessus file and load findings into database
+mundane import <scan.nessus>
 
-# Interactive review (main workflow - requires database)
+# Interactive review (main workflow)
 mundane review [--no-tools] [--custom-workflows PATH] [--custom-workflows-only PATH]
 
-# Summarize a scan directory
-python mundane.py summary ./nessus_plugin_hosts/<ScanName> [--top-ports 10]
+# List all imported scans with statistics
+mundane list
 
-# Compare/group identical host:port combos across files
-python mundane.py compare 4_Critical/*.txt
-
-# Quick file preview
-python mundane.py view nessus_plugin_hosts/<Scan>/<Severity>/<Plugin>.txt [--grouped]
+# Delete a scan and all associated data
+mundane delete-scan <scan_name>
 
 # Config management
 mundane config-init                    # Create example config file

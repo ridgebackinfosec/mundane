@@ -292,9 +292,17 @@ class TestNessusExport:
         assert scan.scan_name == result.scan_name
 
         # Verify plugin files were created in database for each severity
+        # Use get_by_scan_with_plugin to filter by severity_int via JOIN
         for sev_int in result.severities.keys():
-            plugin_files = PluginFile.get_by_scan(scan.scan_id, temp_db)
-            sev_files = [pf for pf in plugin_files if pf.file_path.find(f"/{sev_int}_") != -1]
+            # Construct severity_dir format for filtering (e.g., "4_Critical")
+            from mundane_pkg.nessus_export import _severity_label_from_int
+            sev_label = _severity_label_from_int(sev_int)
+            sev_dir = f"{sev_int}_{sev_label}"
+
+            # Query plugin files for this severity
+            sev_files = PluginFile.get_by_scan_with_plugin(
+                scan.scan_id, temp_db, severity_dirs=[sev_dir]
+            )
             assert len(sev_files) > 0
 
     @pytest.mark.skip(reason="File-based export deprecated; database-only mode now")

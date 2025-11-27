@@ -522,13 +522,9 @@ def _write_to_database(
                 plugin_file = PluginFile(
                     scan_id=scan_id,
                     plugin_id=plugin_id,
-                    file_path=str(file_path.resolve()),
-                    severity_dir=sev_dir,
                     review_state="pending",
                     host_count=len(unique_hosts),
-                    port_count=len(ports) if ports else 0,
-                    file_created_at=now_iso(),
-                    last_parsed_at=now_iso()
+                    port_count=len(ports) if ports else 0
                 )
 
                 file_id = plugin_file.save(conn)

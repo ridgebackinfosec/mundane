@@ -1,7 +1,8 @@
-"""Host and port parsing from Nessus plugin export files.
+"""Host and port parsing for Nessus plugin findings.
 
 This module provides functions to parse host:port combinations from
-plugin export files, supporting IPv4, IPv6 (bracketed), and hostname formats.
+plugin data (database and reference files), supporting IPv4, IPv6 (bracketed),
+and hostname formats.
 """
 
 from __future__ import annotations

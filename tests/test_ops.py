@@ -173,6 +173,7 @@ class TestLogToolExecution:
             assert execution_id is not None
 
     @pytest.mark.integration
+    @pytest.mark.skip(reason="v1.9.0: file_path column removed, cannot link executions by path")
     def test_log_execution_with_file_link(self, temp_db, temp_dir):
         """Test logging execution linked to a plugin file."""
         from mundane_pkg.models import Scan, Plugin, PluginFile
@@ -189,8 +190,7 @@ class TestLogToolExecution:
 
         pf = PluginFile(
             scan_id=scan_id,
-            plugin_id=12345,
-            file_path=str(file_path.resolve())
+            plugin_id=12345
         )
         pf.save(temp_db)
 

@@ -319,12 +319,9 @@ def _log_tool_execution_impl(
             if row:
                 session_id = row["session_id"]
 
-        if file_path and file_path.exists():
-            # Try to find file_id
-            from .models import PluginFile
-            plugin_file = PluginFile.get_by_path(str(file_path.resolve()), conn)
-            if plugin_file:
-                file_id = plugin_file.file_id
+        # Note: file_id is optional and can remain None
+        # In v1.9.0+, file_path is no longer stored in database
+        # Tool executions are still tracked, just not linked to specific findings
 
         # Create tool execution record
         tool_exec = ToolExecution(

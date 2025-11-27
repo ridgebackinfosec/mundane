@@ -184,9 +184,9 @@ class TestForeignKeyConstraints:
 
         # Insert plugin file
         temp_db.execute(
-            """INSERT INTO plugin_files (scan_id, plugin_id, file_path, severity_dir)
-               VALUES (?, ?, ?, ?)""",
-            (scan_id, 12345, "/tmp/test/plugin.txt", "2_high")
+            """INSERT INTO plugin_files (scan_id, plugin_id)
+               VALUES (?, ?)""",
+            (scan_id, 12345)
         )
 
         temp_db.commit()
@@ -204,9 +204,9 @@ class TestForeignKeyConstraints:
         """Test that invalid foreign keys are rejected."""
         with pytest.raises(sqlite3.IntegrityError):
             temp_db.execute(
-                """INSERT INTO plugin_files (scan_id, plugin_id, file_path)
-                   VALUES (?, ?, ?)""",
-                (9999, 12345, "/tmp/test/plugin.txt")  # scan_id 9999 doesn't exist
+                """INSERT INTO plugin_files (scan_id, plugin_id)
+                   VALUES (?, ?)""",
+                (9999, 12345)  # scan_id 9999 doesn't exist
             )
             temp_db.commit()
 

@@ -2124,6 +2124,15 @@ def browse_workflow_groups(
             plugin_ids_filter=plugin_ids if plugin_ids else None,
         )
 
+        # Refresh workflow files from database to get updated review_state values
+        # This ensures the statistics display shows current counts after marking files reviewed
+        from mundane_pkg.models import PluginFile
+        refreshed_files = PluginFile.get_by_scan_with_plugin(
+            scan_id=scan.scan_id,
+            plugin_ids=plugin_ids if plugin_ids else None,
+        )
+        workflow_groups[workflow_name] = refreshed_files
+
 
 # === Unified file list browser ===
 
@@ -2858,17 +2867,6 @@ def main(args: types.SimpleNamespace) -> None:
 
             # End of severity loop - continue to scan selection loop
             # (User pressed 'b' or 'q' from severity menu)
-
-    else:
-        # Filesystem mode is deprecated - require database mode
-        err("The --export-root flag is deprecated for 'review' mode.")
-        err("")
-        err("Please import your scan into the database first:")
-        err(f"  mundane import <nessus_file>")
-        err("")
-        err("Then run review without --export-root:")
-        err("  mundane review")
-        return
 
     # Save session before showing summary
     if reviewed_total or completed_total or skipped_total:

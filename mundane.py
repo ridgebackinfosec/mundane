@@ -2124,6 +2124,14 @@ def browse_workflow_groups(
             plugin_ids_filter=plugin_ids if plugin_ids else None,
         )
 
+        # Refresh workflow files from database to get updated review_state values
+        # This ensures the statistics display shows current counts after marking files reviewed
+        refreshed_files = PluginFile.get_by_scan_with_plugin(
+            scan_id=scan.scan_id,
+            plugin_ids=plugin_ids if plugin_ids else None,
+        )
+        workflow_groups[workflow_name] = refreshed_files
+
 
 # === Unified file list browser ===
 

@@ -114,6 +114,7 @@ from rich import box
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+from rich.prompt import Prompt
 from rich.table import Table
 from rich.text import Text
 from rich.traceback import install as rich_tb_install
@@ -1300,20 +1301,68 @@ def run_tool_workflow(
                 for idx, msf_name in enumerate(plugin_obj.metasploit_names, start=1):
                     print(f"  {idx}. {msf_name}")
 
-                # Build msfconsole one-liners
-                print("\n" + fmt_action("Search commands (module names):"))
+                # Build list of all commands
+                one_liners = []
                 for msf_name in plugin_obj.metasploit_names:
                     cmd = f"msfconsole -q -x 'search {msf_name}; exit'"
-                    print(f"  {cmd}")
+                    one_liners.append(cmd)
 
-                # Also show CVE-based searches if available
                 if plugin_obj.cves:
-                    print("\n" + fmt_action("Search commands (CVEs):"))
                     for cve in plugin_obj.cves:
                         cmd = f"msfconsole -q -x 'search {cve}; exit'"
-                        print(f"  {cmd}")
+                        one_liners.append(cmd)
 
-                input("\nPress Enter to continue...")
+                # Interactive command selection loop
+                while True:
+                    print("\n" + fmt_action("Available commands:"))
+                    for idx, cmd in enumerate(one_liners, start=1):
+                        print(f"  {idx}. {cmd}")
+
+                    try:
+                        answer = Prompt.ask(
+                            "\nRun which command? (number or [n] None)",
+                            default="n"
+                        )
+
+                        if answer and answer.strip().lower() != "n":
+                            try:
+                                selection = int(answer.strip())
+                                if 1 <= selection <= len(one_liners):
+                                    selected_cmd = one_liners[selection - 1]
+
+                                    # Execute command with confirmation
+                                    from mundane_pkg.ops import run_command_with_progress
+                                    import shutil
+
+                                    info(f"\nExecuting: {selected_cmd}\n")
+                                    confirm = input("Confirm? [y/N]: ").strip().lower()
+
+                                    if confirm in ("y", "yes"):
+                                        shell_exec = shutil.which("bash") or shutil.which("sh")
+                                        if shell_exec:
+                                            run_command_with_progress(
+                                                selected_cmd,
+                                                shell=True,
+                                                executable=shell_exec
+                                            )
+                                            ok("\nCommand completed.")
+                                        else:
+                                            warn("No shell found (bash/sh).")
+                                    else:
+                                        info("Execution skipped.")
+
+                                    continue  # Show menu again
+                                else:
+                                    warn("Invalid selection.")
+                                    continue
+                            except ValueError:
+                                warn("Invalid selection.")
+                                continue
+                        else:
+                            break  # Exit loop
+                    except (KeyboardInterrupt, EOFError):
+                        info("\nReturning to menu.")
+                        break
             except Exception as exc:
                 warn(f"Failed to retrieve Metasploit information: {exc}")
 

@@ -228,6 +228,7 @@ class Plugin:
     has_metasploit: bool = False
     cvss3_score: Optional[float] = None
     cvss2_score: Optional[float] = None
+    metasploit_names: Optional[list[str]] = None  # JSON array
     cves: Optional[list[str]] = None  # JSON array
     plugin_url: Optional[str] = None
     metadata_fetched_at: Optional[str] = None
@@ -242,6 +243,9 @@ class Plugin:
         Returns:
             Plugin instance
         """
+        metasploit_names_json = row["metasploit_names"]
+        metasploit_names = json.loads(metasploit_names_json) if metasploit_names_json else None
+
         cves_json = row["cves"]
         cves = json.loads(cves_json) if cves_json else None
 
@@ -253,6 +257,7 @@ class Plugin:
             has_metasploit=bool(row["has_metasploit"]),
             cvss3_score=row["cvss3_score"],
             cvss2_score=row["cvss2_score"],
+            metasploit_names=metasploit_names,
             cves=cves,
             plugin_url=row["plugin_url"],
             metadata_fetched_at=row["metadata_fetched_at"]
@@ -267,6 +272,7 @@ class Plugin:
         Returns:
             plugin_id
         """
+        metasploit_names_json = json.dumps(self.metasploit_names) if self.metasploit_names else None
         cves_json = json.dumps(self.cves) if self.cves else None
 
         with db_transaction(conn) as c:
@@ -274,12 +280,12 @@ class Plugin:
                 """
                 INSERT OR REPLACE INTO plugins (
                     plugin_id, plugin_name, severity_int, severity_label,
-                    has_metasploit, cvss3_score, cvss2_score, cves,
+                    has_metasploit, cvss3_score, cvss2_score, metasploit_names, cves,
                     plugin_url, metadata_fetched_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (self.plugin_id, self.plugin_name, self.severity_int, self.severity_label,
-                 self.has_metasploit, self.cvss3_score, self.cvss2_score, cves_json,
+                 self.has_metasploit, self.cvss3_score, self.cvss2_score, metasploit_names_json, cves_json,
                  self.plugin_url, self.metadata_fetched_at)
             )
 

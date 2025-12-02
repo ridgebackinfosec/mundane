@@ -39,13 +39,16 @@ CREATE TABLE IF NOT EXISTS plugins (
     cvss3_score REAL,                   -- CVSS v3 base score
     cvss2_score REAL,                   -- CVSS v2 base score (fallback)
 
-    -- CVE associations (JSON array, NULL until manually fetched by user)
+    -- Metasploit module names (JSON array, extracted from .nessus XML)
+    metasploit_names TEXT,              -- JSON: ["Chargen Probe Utility", "Another Module"]
+
+    -- CVE associations (JSON array, extracted from .nessus XML)
     cves TEXT,                          -- JSON: ["CVE-2023-1234", "CVE-2023-5678"]
 
     -- Tenable plugin URL
     plugin_url TEXT,                    -- https://www.tenable.com/plugins/nessus/{plugin_id}
 
-    -- Metadata fetch timestamp (when user manually fetched CVEs)
+    -- Metadata fetch timestamp (deprecated - CVEs now extracted from XML)
     metadata_fetched_at TIMESTAMP,
 
     CONSTRAINT severity_range CHECK (severity_int BETWEEN 0 AND 4)

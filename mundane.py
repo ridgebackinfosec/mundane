@@ -269,88 +269,69 @@ def _plugin_details_line(path: Path) -> Optional[str]:
 
 def bulk_extract_cves_for_plugins(plugins: List[tuple[int, str]]) -> None:
     """
-    Extract and display CVEs for multiple plugins (database-only mode).
+    Display CVEs for multiple plugins from database (read-only, no web scraping).
 
-    Fetches Tenable plugin pages for each plugin, extracts CVEs,
-    and displays a consolidated list organized by plugin.
+    Queries the database for CVEs associated with each plugin and displays
+    a consolidated list organized by plugin.
 
     Args:
         plugins: List of (plugin_id, plugin_name) tuples
     """
-    from mundane_pkg.cve_operations import fetch_and_store_cves
+    from mundane_pkg.models import Plugin
+    from mundane_pkg.database import get_connection
 
-    header("CVE Extraction for Filtered Findings")
-    info(f"Extracting CVEs from {len(plugins)} finding(s)...\n")
+    header("CVE Information for Filtered Findings")
+    info(f"Displaying CVEs from {len(plugins)} finding(s)...\n")
 
     results = {}  # plugin_name -> list of CVEs
 
-    with Progress(
-        SpinnerColumn(style="cyan"),
-        TextColumn("[progress.description]{task.description}"),
-        TimeElapsedColumn(),
-        console=_console_global,
-        transient=True,
-    ) as progress:
-        task = progress.add_task("Fetching plugin pages...", total=len(plugins))
-
+    # Query database (instant, no progress bar needed)
+    with get_connection() as conn:
         for plugin_id, plugin_name in plugins:
             try:
-                # Fetch and store CVEs (uses cache if available)
-                cves = fetch_and_store_cves(plugin_id)
-                if cves:
-                    results[plugin_name] = cves
+                plugin = Plugin.get_by_id(plugin_id, conn=conn)
+                if plugin and plugin.cves:
+                    results[plugin_name] = plugin.cves
             except Exception:
-                # Silently skip failed fetches
+                # Silently skip failed queries
                 pass
 
-            progress.advance(task)
-
-    # Display results (same logic as file-based version)
+    # Display results
     _display_bulk_cve_results(results)
 
 
 def bulk_extract_cves_for_files(files: List[Path]) -> None:
     """
-    Extract and display CVEs for multiple plugin findings (legacy file-based mode).
+    Display CVEs for multiple plugin findings from database (read-only, no web scraping).
 
-    Fetches Tenable plugin pages for each file, extracts CVEs,
-    and displays a consolidated list organized by plugin.
+    Queries the database for CVEs associated with each plugin file and displays
+    a consolidated list organized by plugin.
 
     Args:
-        files: List of plugin file paths to extract CVEs from
+        files: List of plugin file paths to display CVEs for
     """
-    from mundane_pkg.cve_operations import fetch_and_store_cves
+    from mundane_pkg.models import Plugin
+    from mundane_pkg.database import get_connection
 
-    header("CVE Extraction for Filtered Findings")
-    info(f"Extracting CVEs from {len(files)} file(s)...\n")
+    header("CVE Information for Filtered Findings")
+    info(f"Displaying CVEs from {len(files)} file(s)...\n")
 
     results = {}  # plugin_name -> list of CVEs
 
-    with Progress(
-        SpinnerColumn(style="cyan"),
-        TextColumn("[progress.description]{task.description}"),
-        TimeElapsedColumn(),
-        console=_console_global,
-        transient=True,
-    ) as progress:
-        task = progress.add_task("Fetching plugin pages...", total=len(files))
-
+    # Query database (instant, no progress bar needed)
+    with get_connection() as conn:
         for file_path in files:
             plugin_id = _plugin_id_from_filename(file_path)
             if not plugin_id:
-                progress.advance(task)
                 continue
 
             try:
-                # Fetch and store CVEs (uses cache if available)
-                cves = fetch_and_store_cves(int(plugin_id))
-                if cves:
-                    results[file_path.name] = cves
+                plugin = Plugin.get_by_id(int(plugin_id), conn=conn)
+                if plugin and plugin.cves:
+                    results[file_path.name] = plugin.cves
             except Exception:
-                # Silently skip failed fetches
+                # Silently skip failed queries
                 pass
-
-            progress.advance(task)
 
     # Display results
     _display_bulk_cve_results(results)
@@ -908,7 +889,7 @@ def handle_file_view(
                 display_workflow(workflow)
             continue
 
-        # Handle CVE info option
+        # Handle CVE info option (read-only from database)
         if action_choice in ("e", "cve"):
             # Get plugin ID from filename
             plugin_id = _plugin_id_from_filename(chosen)
@@ -916,30 +897,24 @@ def handle_file_view(
                 warn("Cannot extract plugin ID from filename.")
                 continue
 
-            from mundane_pkg.cve_operations import fetch_and_store_cves, has_cached_cves
+            from mundane_pkg.models import Plugin
+            from mundane_pkg.database import get_connection
 
-            # Fetch and store CVEs
+            # Query CVEs from database (no web scraping)
             try:
                 header("CVE Information")
 
-                # Check if we have cached CVEs
-                is_cached = has_cached_cves(int(plugin_id))
-                if is_cached:
-                    info("Using cached CVEs from database...")
-                else:
-                    info("Fetching finding page from Tenable...")
+                with get_connection() as conn:
+                    plugin_obj = Plugin.get_by_id(int(plugin_id), conn=conn)
 
-                cves = fetch_and_store_cves(int(plugin_id))
-
-                if cves:
-                    source = "(cached)" if is_cached else "(fetched & stored)"
-                    info(f"Found {len(cves)} CVE(s) {source}:")
-                    for cve in cves:
+                if plugin_obj and plugin_obj.cves:
+                    info(f"Found {len(plugin_obj.cves)} CVE(s):")
+                    for cve in plugin_obj.cves:
                         info(f"  {cve}")
                 else:
-                    warn("No CVEs found on finding page.")
+                    warn("No CVEs associated with this finding.")
             except Exception as exc:
-                warn(f"Failed to fetch CVE information: {exc}")
+                warn(f"Failed to retrieve CVE information: {exc}")
 
             continue
 
@@ -1299,15 +1274,49 @@ def run_tool_workflow(
         # Build context once, pass to all workflows (no more per-tool params!)
         # ====================================================================
 
-        # Special handling for metasploit (doesn't use standard workflow)
+        # Special handling for metasploit (read-only from database)
         if tool_choice == "metasploit":
-            if plugin_url:
-                from mundane_pkg import tools as _tools
+            from mundane_pkg.models import Plugin
+            from mundane_pkg.database import get_connection
 
-                try:
-                    _tools.interactive_msf_search(plugin_url)
-                except Exception:
-                    warn("Metasploit search failed; continuing to tool menu.")
+            plugin_id = _plugin_id_from_filename(chosen)
+            if not plugin_id:
+                warn("Cannot extract plugin ID from filename.")
+                continue
+
+            # Query Metasploit module names from database (no web scraping)
+            try:
+                header("Metasploit Module Information")
+
+                with get_connection() as conn:
+                    plugin_obj = Plugin.get_by_id(int(plugin_id), conn=conn)
+
+                if not plugin_obj or not plugin_obj.metasploit_names:
+                    warn("No Metasploit modules associated with this finding.")
+                    continue
+
+                # Display available module names
+                info(f"Found {len(plugin_obj.metasploit_names)} Metasploit module(s):")
+                for idx, msf_name in enumerate(plugin_obj.metasploit_names, start=1):
+                    print(f"  {idx}. {msf_name}")
+
+                # Build msfconsole one-liners
+                print("\n" + fmt_action("Search commands (module names):"))
+                for msf_name in plugin_obj.metasploit_names:
+                    cmd = f"msfconsole -q -x 'search {msf_name}; exit'"
+                    print(f"  {cmd}")
+
+                # Also show CVE-based searches if available
+                if plugin_obj.cves:
+                    print("\n" + fmt_action("Search commands (CVEs):"))
+                    for cve in plugin_obj.cves:
+                        cmd = f"msfconsole -q -x 'search {cve}; exit'"
+                        print(f"  {cmd}")
+
+                pause()
+            except Exception as exc:
+                warn(f"Failed to retrieve Metasploit information: {exc}")
+
             continue
 
         # Build unified context for all other tools

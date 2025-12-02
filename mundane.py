@@ -1313,7 +1313,7 @@ def run_tool_workflow(
                         cmd = f"msfconsole -q -x 'search {cve}; exit'"
                         print(f"  {cmd}")
 
-                pause()
+                input("\nPress Enter to continue...")
             except Exception as exc:
                 warn(f"Failed to retrieve Metasploit information: {exc}")
 

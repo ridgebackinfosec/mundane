@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS plugins (
     has_metasploit BOOLEAN DEFAULT 0,
     cvss3_score REAL,
     cvss2_score REAL,
+    metasploit_names TEXT,
     cves TEXT,
     plugin_url TEXT,
     metadata_fetched_at TIMESTAMP,

@@ -14,6 +14,7 @@ Integrated into mundane with enhancements:
 from __future__ import annotations
 
 import ipaddress
+import re
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from dataclasses import dataclass
@@ -251,6 +252,29 @@ def _build_index_stream(
                 # Check for Metasploit module availability
                 msf_flag = truthy(elem.findtext("exploit_framework_metasploit"))
 
+                # Extract CVE tags from XML
+                cve_elements = elem.findall("cve")
+                cves = []
+                for cve_elem in cve_elements:
+                    if cve_elem.text:
+                        cve_text = cve_elem.text.strip().upper()
+                        # Validate CVE format: CVE-YYYY-NNNNN
+                        if re.match(r'^CVE-\d{4}-\d{4,}$', cve_text):
+                            cves.append(cve_text)
+                # Sort and deduplicate CVEs
+                cves = sorted(set(cves)) if cves else None
+
+                # Extract Metasploit module names from XML
+                msf_name_elements = elem.findall("metasploit_name")
+                msf_names = []
+                for msf_elem in msf_name_elements:
+                    if msf_elem.text:
+                        name = msf_elem.text.strip()
+                        if name:
+                            msf_names.append(name)
+                # Sort and deduplicate module names
+                msf_names = sorted(set(msf_names)) if msf_names else None
+
                 # Store or merge plugin metadata (keep highest severity)
                 pname = (elem.attrib.get("pluginName") or "").strip()
                 existing = plugins.get(pid)
@@ -261,6 +285,8 @@ def _build_index_stream(
                         "severity_int": sev_int,
                         "severity_label": severity_label_from_int(sev_int),
                         "msf": msf_flag,
+                        "msf_names": msf_names,
+                        "cves": cves,
                     }
                 else:
                     # Keep highest severity across all instances
@@ -273,6 +299,16 @@ def _build_index_stream(
                     # Fill name if previously blank
                     if not existing.get("name") and pname:
                         existing["name"] = pname
+                    # Merge Metasploit module names (deduplicate)
+                    if msf_names:
+                        existing_names = existing.get("msf_names") or []
+                        merged_names = list(set(existing_names + msf_names))
+                        existing["msf_names"] = sorted(merged_names) if merged_names else None
+                    # Merge CVEs (deduplicate)
+                    if cves:
+                        existing_cves = existing.get("cves") or []
+                        merged_cves = list(set(existing_cves + cves))
+                        existing["cves"] = sorted(merged_cves) if merged_cves else None
 
                 # Record host:port combination
                 port = elem.attrib.get("port", "0")
@@ -493,6 +529,8 @@ def _write_to_database(
                     has_metasploit=meta.get("msf", False),
                     cvss3_score=meta.get("cvss3"),
                     cvss2_score=meta.get("cvss2"),
+                    metasploit_names=meta.get("msf_names"),
+                    cves=meta.get("cves"),
                     plugin_url=f"https://www.tenable.com/plugins/nessus/{plugin_id}"
                 )
                 plugin.save(conn)

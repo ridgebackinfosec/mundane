@@ -39,6 +39,7 @@ def sample_plugin(test_db: Path) -> Plugin:
         has_metasploit=True,
         cvss3_score=7.5,
         cvss2_score=None,
+        metasploit_names=None,
         cves=None,
         plugin_url="https://www.tenable.com/plugins/nessus/11356",
         metadata_fetched_at=None

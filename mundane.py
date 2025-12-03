@@ -15,6 +15,8 @@ if str(_here) not in sys.path:
     sys.path.insert(0, str(_here))
 
 from mundane_pkg import (
+    # version
+    __version__,
     # logging
     setup_logging,
     # ops
@@ -3048,18 +3050,19 @@ _console = _console_global
 def _root(
     ctx: typer.Context,
     quiet: bool = typer.Option(False, "-q", "--quiet", help="Suppress startup banner"),
-    version: bool = typer.Option(False, "--version", help="Show version and exit")
+    version: bool = typer.Option(False, "--version", help="Show version and exit"),
+    help_flag: bool = typer.Option(False, "--help", "-h", help="Show help message")
 ) -> None:
     """Modern CLI for mundane."""
     import sys
 
     # Handle --version flag
     if version:
-        print("Mundane version 1.10.x")
+        print(f"mundane version {__version__}")
         sys.exit(0)
 
-    # If no command provided, show banner + help
-    if ctx.invoked_subcommand is None:
+    # Handle --help or no command (both show help with banner)
+    if help_flag or ctx.invoked_subcommand is None:
         from mundane_pkg.banner import display_banner
         display_banner()
         print(ctx.get_help())

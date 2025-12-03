@@ -75,8 +75,8 @@ from .config import (
     get_config_path,
     create_example_config,
 )
-from .nessus_export import (
-    export_nessus_plugins,
+from .nessus_import import (
+    import_nessus_file,
     ExportResult,
 )
 from .database import (

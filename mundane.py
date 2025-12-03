@@ -3037,18 +3037,35 @@ def main(args: types.SimpleNamespace) -> None:
 # === Typer CLI ===
 
 app = typer.Typer(
-    no_args_is_help=True,
+    no_args_is_help=False,
     add_completion=False,
     help="mundane — faster review & tooling runner",
 )
 _console = _console_global
 
 
-@app.callback()
+@app.callback(invoke_without_command=True)
 def _root(
-    quiet: bool = typer.Option(False, "-q", "--quiet", help="Suppress startup banner")
+    ctx: typer.Context,
+    quiet: bool = typer.Option(False, "-q", "--quiet", help="Suppress startup banner"),
+    version: bool = typer.Option(False, "--version", help="Show version and exit")
 ) -> None:
     """Modern CLI for mundane."""
+    import sys
+
+    # Handle --version flag
+    if version:
+        print("Mundane version 1.10.x")
+        sys.exit(0)
+
+    # If no command provided, show banner + help
+    if ctx.invoked_subcommand is None:
+        from mundane_pkg.banner import display_banner
+        display_banner()
+        print(ctx.get_help())
+        sys.exit(0)
+
+    # Otherwise, show banner unless -q flag used
     if not quiet:
         from mundane_pkg.banner import display_banner
         display_banner()
@@ -3144,7 +3161,7 @@ def import_scan(
 
     Auto-detects scan name from .nessus file and exports to ~/.mundane/scans/<scan_name>.
     """
-    from mundane_pkg.nessus_export import export_nessus_plugins, extract_scan_name_from_nessus
+    from mundane_pkg.nessus_import import import_nessus_file, extract_scan_name_from_nessus
     from mundane_pkg.constants import SCANS_ROOT
 
     # Always extract scan name from .nessus file for consistency with database
@@ -3207,7 +3224,7 @@ def import_scan(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        result = export_nessus_plugins(
+        result = import_nessus_file(
             nessus_file=nessus,
             output_dir=out_dir,
             scan_name=scan_name,
@@ -3221,7 +3238,7 @@ def import_scan(
             from rich.table import Table
             from rich import box
             from mundane_pkg.render import severity_cell
-            from mundane_pkg.nessus_export import severity_label_from_int
+            from mundane_pkg.nessus_import import severity_label_from_int
 
             print()  # Blank line before table
             info("Severity Breakdown:")

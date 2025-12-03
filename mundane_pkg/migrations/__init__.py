@@ -2,6 +2,45 @@
 
 Each migration is a separate file that defines schema changes.
 Migrations are applied automatically when the database is initialized.
+
+## Migration System Architecture
+
+The migration system uses an abstract base class pattern:
+
+1. **Migration base class**: Defines the interface that all migrations must implement
+   - `version` property: Returns migration version number (int)
+   - `description` property: Returns human-readable description (str)
+   - `upgrade()` method: Applies the migration changes
+   - `downgrade()` method: Optional rollback (not implemented by default)
+
+2. **Migration registry**: `get_all_migrations()` returns all migration instances
+   - Imports all migration modules
+   - Creates instances of each migration class
+   - Returns sorted list (by version number)
+
+3. **Automatic execution**: Migrations run in `initialize_database()`
+   - Checks current schema version from `schema_version` table
+   - Filters to pending migrations (version > current_version)
+   - Executes migrations in order
+   - Records each migration in `schema_version` table
+
+## Creating New Migrations
+
+See docs/DATABASE.md "Schema Migrations" section for complete guide.
+
+Quick steps:
+1. Create `migration_XXX_description.py` with Migration class
+2. Add import and instance to `get_all_migrations()`
+3. Update SCHEMA_VERSION in database.py
+4. Update schema.sql documentation
+
+## Design Decisions
+
+- **One-way migrations**: No downgrade support (simplifies implementation)
+- **Idempotent**: Migrations check if changes exist before applying
+- **Version tracking**: Simple integer versioning (no timestamps)
+- **Automatic execution**: Runs on every startup (fast with version check)
+- **Sequential numbering**: Enforces linear migration history
 """
 
 import sqlite3

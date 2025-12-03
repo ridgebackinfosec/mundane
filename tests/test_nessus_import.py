@@ -1,14 +1,14 @@
-"""Tests for nessus_export module (Nessus XML parsing and plugin export)."""
+"""Tests for nessus_import module (Nessus XML parsing and database import)."""
 
 import ipaddress
 from pathlib import Path
 
 import pytest
 
-from mundane_pkg.nessus_export import (
+from mundane_pkg.nessus_import import (
     ExportResult,
     cvss_to_sev,
-    export_nessus_plugins,
+    import_nessus_file,
     extract_scan_name_from_nessus,
     is_ip,
     sanitize_filename,
@@ -268,14 +268,14 @@ class TestExtractScanNameFromNessus:
 # ========== Export Integration Tests ==========
 
 
-class TestNessusExport:
-    """Tests for Nessus export functionality."""
+class TestNessusImport:
+    """Tests for Nessus import functionality."""
 
-    @pytest.mark.skip(reason="File-based export deprecated; see TestNessusExportDatabaseIntegration for database tests")
+    @pytest.mark.skip(reason="File-based export deprecated; see TestNessusImportDatabaseIntegration for database tests")
     @pytest.mark.integration
     def test_export_creates_database_records(self, minimal_nessus_fixture, temp_dir, temp_db):
         """Test that export creates database records (database-only mode)."""
-        result = export_nessus_plugins(
+        result = import_nessus_file(
             minimal_nessus_fixture,
             temp_dir,
             use_database=True
@@ -295,7 +295,7 @@ class TestNessusExport:
         # Use get_by_scan_with_plugin to filter by severity_int via JOIN
         for sev_int in result.severities.keys():
             # Construct severity_dir format for filtering (e.g., "4_Critical")
-            from mundane_pkg.nessus_export import _severity_label_from_int
+            from mundane_pkg.nessus_import import _severity_label_from_int
             sev_label = _severity_label_from_int(sev_int)
             sev_dir = f"{sev_int}_{sev_label}"
 
@@ -309,7 +309,7 @@ class TestNessusExport:
     @pytest.mark.integration
     def test_export_creates_plugin_files(self, minimal_nessus_fixture, temp_dir):
         """Test that plugin files are created."""
-        result = export_nessus_plugins(
+        result = import_nessus_file(
             minimal_nessus_fixture,
             temp_dir,
             use_database=False
@@ -328,7 +328,7 @@ class TestNessusExport:
     @pytest.mark.integration
     def test_export_file_content_format(self, minimal_nessus_fixture, temp_dir):
         """Test that plugin file content is correctly formatted."""
-        result = export_nessus_plugins(
+        result = import_nessus_file(
             minimal_nessus_fixture,
             temp_dir,
             include_ports=True,
@@ -359,7 +359,7 @@ class TestNessusExport:
     @pytest.mark.integration
     def test_export_without_ports(self, minimal_nessus_fixture, temp_dir):
         """Test export with ports disabled."""
-        result = export_nessus_plugins(
+        result = import_nessus_file(
             minimal_nessus_fixture,
             temp_dir,
             include_ports=False,
@@ -392,7 +392,7 @@ class TestNessusExport:
     @pytest.mark.integration
     def test_export_result_structure(self, minimal_nessus_fixture, temp_dir):
         """Test that ExportResult contains correct data."""
-        result = export_nessus_plugins(
+        result = import_nessus_file(
             minimal_nessus_fixture,
             temp_dir,
             use_database=False
@@ -411,7 +411,7 @@ class TestNessusExport:
     @pytest.mark.integration
     def test_export_host_deduplication(self, minimal_nessus_fixture, temp_dir):
         """Test that duplicate host:port entries are deduplicated."""
-        result = export_nessus_plugins(
+        result = import_nessus_file(
             minimal_nessus_fixture,
             temp_dir,
             use_database=False
@@ -435,7 +435,7 @@ class TestNessusExport:
     def test_export_handles_special_characters_in_name(self, sample_nessus_xml, temp_dir):
         """Test that special characters in plugin names are sanitized."""
         # This test uses the fixture from conftest.py
-        result = export_nessus_plugins(
+        result = import_nessus_file(
             sample_nessus_xml,
             temp_dir,
             use_database=False
@@ -460,7 +460,7 @@ class TestNessusExport:
     @pytest.mark.integration
     def test_export_large_scan(self, goad_nessus_fixture, temp_dir):
         """Test exporting large real-world scan (GOAD)."""
-        result = export_nessus_plugins(
+        result = import_nessus_file(
             goad_nessus_fixture,
             temp_dir,
             use_database=False
@@ -478,8 +478,8 @@ class TestNessusExport:
         assert len(txt_files) == result.plugins_exported
 
 
-class TestNessusExportDatabaseIntegration:
-    """Tests for Nessus export with database integration."""
+class TestNessusImportDatabaseIntegration:
+    """Tests for Nessus import with database integration."""
 
     @pytest.fixture(autouse=True)
     def mock_db_for_export(self, monkeypatch, temp_db):
@@ -512,7 +512,7 @@ class TestNessusExportDatabaseIntegration:
     @pytest.mark.integration
     def test_export_populates_database(self, minimal_nessus_fixture, temp_dir, temp_db):
         """Test that export writes to database."""
-        result = export_nessus_plugins(
+        result = import_nessus_file(
             minimal_nessus_fixture,
             temp_dir,
             use_database=True
@@ -542,22 +542,22 @@ class TestNessusExportDatabaseIntegration:
         assert host_count > 0
 
 
-class TestNessusExportEdgeCases:
-    """Tests for edge cases in Nessus export."""
+class TestNessusImportEdgeCases:
+    """Tests for edge cases in Nessus import."""
 
     def test_export_nonexistent_file(self, temp_dir):
         """Test exporting nonexistent file raises error."""
         nonexistent = temp_dir / "nonexistent.nessus"
 
         with pytest.raises(FileNotFoundError):
-            export_nessus_plugins(nonexistent, temp_dir, use_database=False)
+            import_nessus_file(nonexistent, temp_dir, use_database=False)
 
     @pytest.mark.skip(reason="File-based export deprecated; database-only mode now")
     def test_export_to_nonexistent_output_dir(self, minimal_nessus_fixture, temp_dir):
         """Test export creates output directory if missing."""
         output_dir = temp_dir / "new_dir" / "nested"
 
-        result = export_nessus_plugins(
+        result = import_nessus_file(
             minimal_nessus_fixture,
             output_dir,
             use_database=False
@@ -571,14 +571,14 @@ class TestNessusExportEdgeCases:
     def test_export_idempotent(self, minimal_nessus_fixture, temp_dir):
         """Test that running export twice handles existing files."""
         # First export
-        result1 = export_nessus_plugins(
+        result1 = import_nessus_file(
             minimal_nessus_fixture,
             temp_dir,
             use_database=False
         )
 
         # Second export (should handle existing directory)
-        result2 = export_nessus_plugins(
+        result2 = import_nessus_file(
             minimal_nessus_fixture,
             temp_dir,
             use_database=False
@@ -658,7 +658,7 @@ class TestCVEAndMetasploitExtraction:
         """Verify CVEs are extracted from .nessus XML during import."""
         from mundane_pkg.models import Plugin
 
-        result = export_nessus_plugins(
+        result = import_nessus_file(
             nessus_with_cves_and_msf,
             temp_dir,
             use_database=True
@@ -684,7 +684,7 @@ class TestCVEAndMetasploitExtraction:
         """Verify Metasploit module names are extracted from .nessus XML during import."""
         from mundane_pkg.models import Plugin
 
-        result = export_nessus_plugins(
+        result = import_nessus_file(
             nessus_with_cves_and_msf,
             temp_dir,
             use_database=True
@@ -717,7 +717,7 @@ class TestCVEAndMetasploitExtraction:
         """Verify plugins without CVEs store None, not empty list."""
         from mundane_pkg.models import Plugin
 
-        result = export_nessus_plugins(
+        result = import_nessus_file(
             nessus_with_cves_and_msf,
             temp_dir,
             use_database=True
@@ -734,7 +734,7 @@ class TestCVEAndMetasploitExtraction:
         """Verify plugins without Metasploit names store None, not empty list."""
         from mundane_pkg.models import Plugin
 
-        result = export_nessus_plugins(
+        result = import_nessus_file(
             nessus_with_cves_and_msf,
             temp_dir,
             use_database=True
@@ -754,7 +754,7 @@ class TestCVEAndMetasploitExtraction:
         from mundane_pkg.models import Plugin
 
         # First import
-        export_nessus_plugins(
+        import_nessus_file(
             nessus_with_cves_and_msf,
             temp_dir,
             use_database=True
@@ -780,7 +780,7 @@ class TestCVEAndMetasploitExtraction:
         assert plugin_check_10043.metasploit_names == ["STALE_MODULE"], "Stale data should be saved"
 
         # Re-import same file
-        export_nessus_plugins(
+        import_nessus_file(
             nessus_with_cves_and_msf,
             temp_dir,
             use_database=True

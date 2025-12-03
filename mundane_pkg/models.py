@@ -781,6 +781,49 @@ class PluginFile:
 
             return lines
 
+    def get_plugin_outputs_by_host(
+        self,
+        conn: Optional[sqlite3.Connection] = None
+    ) -> list[tuple[str, Optional[int], Optional[str]]]:
+        """Retrieve all plugin outputs grouped by host:port.
+
+        Queries the plugin_file_hosts table and returns plugin output for each
+        host:port combination. Used by the Finding Details UI action.
+
+        Args:
+            conn: Database connection
+
+        Returns:
+            List of (host, port, plugin_output) tuples, sorted (IPs first, then hostnames)
+            Example: [
+                ("192.168.1.1", 80, "Path: C:\\...\\nInstalled version: 9.52"),
+                ("192.168.1.1", 443, "Server: nginx/1.18.0"),
+                ("example.com", 80, None)  # No plugin output for this host
+            ]
+        """
+        if self.file_id is None:
+            log_error("Cannot get plugin outputs for unsaved PluginFile (file_id is None)")
+            return []
+
+        with db_transaction(conn) as c:
+            # Query all host:port:plugin_output combinations for this file
+            rows = query_all(
+                c,
+                """
+                SELECT host, port, plugin_output
+                FROM plugin_file_hosts
+                WHERE file_id = ?
+                ORDER BY is_ipv4 DESC, is_ipv6 DESC, host ASC, port ASC
+                """,
+                (self.file_id,)
+            )
+
+            if not rows:
+                return []
+
+            # Return as list of tuples (host, port, plugin_output)
+            return [(row[0], row[1], row[2]) for row in rows]
+
 
 # ========== Model: ToolExecution ==========
 

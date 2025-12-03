@@ -79,11 +79,6 @@ from .nessus_export import (
     export_nessus_plugins,
     ExportResult,
 )
-from .cve_operations import (
-    fetch_and_store_cves,
-    get_cached_cves,
-    has_cached_cves,
-)
 from .database import (
     get_database_path,
     get_connection,

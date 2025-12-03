@@ -21,34 +21,16 @@ def temp_db() -> Generator[sqlite3.Connection, None, None]:
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
 
-    # Initialize schema
+    # Initialize schema using production SCHEMA_SQL (single source of truth)
+    from mundane_pkg.database import SCHEMA_SQL
+
     conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("PRAGMA journal_mode=WAL")
 
-    # Load schema from schema.sql
-    schema_path = Path(__file__).parent.parent / "schema.sql"
-    if schema_path.exists():
-        with open(schema_path) as f:
-            schema_sql = f.read()
-            # Use executescript which handles multiple statements
-            # but disable foreign keys temporarily since executescript creates implicit transactions
-            conn.execute("PRAGMA foreign_keys=OFF")
-            conn.executescript(schema_sql)
-            conn.execute("PRAGMA foreign_keys=ON")
-    else:
-        # Fallback: use initialize_database but with temp path
-        import tempfile
-        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-            temp_path = Path(f.name)
-        initialize_database(temp_path)
-        # Copy schema to in-memory
-        import shutil
-        disk_conn = sqlite3.connect(str(temp_path))
-        for line in disk_conn.iterdump():
-            if line not in ('BEGIN;', 'COMMIT;'):
-                conn.execute(line)
-        disk_conn.close()
-        temp_path.unlink()
+    # Execute base schema - disable foreign keys temporarily for executescript
+    conn.execute("PRAGMA foreign_keys=OFF")
+    conn.executescript(SCHEMA_SQL)
+    conn.execute("PRAGMA foreign_keys=ON")
 
     conn.commit()
 

@@ -549,11 +549,6 @@ def _write_to_database(
                 plugin.save(conn)
 
                 # Create plugin file entry
-                sev_dir = f"{meta['severity_int']}_{meta['severity_label']}"
-                msf_suffix = "-MSF" if meta.get("msf") else ""
-                fname = f"{plugin_id}_{sanitize_filename(meta['name'])}{msf_suffix}.txt"
-                file_path = base_scan_dir / sev_dir / fname
-
                 hosts = plugin_hosts.get(plugin_id_str, set())
 
                 # Count unique hosts and ports for this plugin
@@ -580,8 +575,6 @@ def _write_to_database(
                 plugin_file = PluginFile(
                     scan_id=scan_id,
                     plugin_id=plugin_id,
-                    file_path=str(file_path),
-                    severity_dir=sev_dir,
                     review_state="pending",
                     host_count=len(unique_hosts),
                     port_count=len(ports) if ports else 0

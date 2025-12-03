@@ -37,8 +37,14 @@ DATABASE_PATH = get_database_path()
 
 # ========== Schema ==========
 
-SCHEMA_VERSION = 1
-"""Current schema version for migrations."""
+SCHEMA_VERSION = 2
+"""Current schema version for migrations.
+
+Version history:
+- 0: Initial schema (no version tracking)
+- 1: Added plugin_output column to plugin_file_hosts
+- 2: Removed file_path and severity_dir columns from plugin_files (database-only mode)
+"""
 
 SCHEMA_SQL = """
 -- See schema.sql for full documentation
@@ -77,8 +83,6 @@ CREATE TABLE IF NOT EXISTS plugin_files (
     file_id INTEGER PRIMARY KEY AUTOINCREMENT,
     scan_id INTEGER NOT NULL,
     plugin_id INTEGER NOT NULL,
-    file_path TEXT NOT NULL,
-    severity_dir TEXT NOT NULL,
     review_state TEXT DEFAULT 'pending',
     reviewed_at TIMESTAMP,
     reviewed_by TEXT,
@@ -252,7 +256,10 @@ def db_transaction(
 # ========== Schema Initialization ==========
 
 def initialize_database(database_path: Optional[Path] = None) -> bool:
-    """Initialize database schema if not exists.
+    """Initialize database schema and run migrations.
+
+    This function creates the base schema using CREATE TABLE IF NOT EXISTS,
+    then applies any pending migrations to bring existing databases up to date.
 
     Args:
         database_path: Path to database file (default: DATABASE_PATH)
@@ -264,20 +271,43 @@ def initialize_database(database_path: Optional[Path] = None) -> bool:
 
     try:
         with db_transaction(database_path=db_path) as conn:
-            # Execute schema
+            # Execute base schema (CREATE TABLE IF NOT EXISTS)
             conn.executescript(SCHEMA_SQL)
 
-            # Check/update schema version
+            # Get current schema version
             cursor = conn.execute("SELECT version FROM schema_version ORDER BY version DESC LIMIT 1")
             row = cursor.fetchone()
             current_version = row[0] if row else 0
 
-            if current_version < SCHEMA_VERSION:
+            # Run pending migrations
+            from .migrations import get_all_migrations
+            all_migrations = get_all_migrations()
+            pending_migrations = [m for m in all_migrations if m.version > current_version]
+
+            if pending_migrations:
+                log_info(f"Running {len(pending_migrations)} pending database migration(s)...")
+                for migration in pending_migrations:
+                    log_info(f"  Applying migration {migration.version}: {migration.description}")
+                    migration.upgrade(conn)
+
+                    # Record migration as applied
+                    conn.execute(
+                        "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
+                        (migration.version,)
+                    )
+
+                final_version = pending_migrations[-1].version
+                log_info(f"Database schema updated to version {final_version}")
+            elif current_version == 0:
+                # Fresh database - set version to latest or SCHEMA_VERSION
+                latest_version = max(m.version for m in all_migrations) if all_migrations else SCHEMA_VERSION
                 conn.execute(
                     "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
-                    (SCHEMA_VERSION,)
+                    (latest_version,)
                 )
-                log_info(f"Database schema initialized (version {SCHEMA_VERSION})")
+                log_info(f"Database schema initialized (version {latest_version})")
+            else:
+                log_info(f"Database schema is up to date (version {current_version})")
 
         return True
 

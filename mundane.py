@@ -2581,10 +2581,11 @@ def show_session_statistics(
                 rows = query_all(
                     conn,
                     """
-                    SELECT severity_dir, COUNT(*) as count
-                    FROM plugin_files
-                    WHERE scan_id = ? AND review_state = 'completed'
-                    GROUP BY severity_dir
+                    SELECT p.severity_label, COUNT(*) as count
+                    FROM plugin_files pf
+                    JOIN plugins p ON pf.plugin_id = p.plugin_id
+                    WHERE pf.scan_id = ? AND pf.review_state = 'completed'
+                    GROUP BY p.severity_label
                     """,
                     (scan_id,)
                 )
@@ -3152,7 +3153,7 @@ def import_scan(
     # Determine output directory (always use SCANS_ROOT/<scan_name>)
     out_dir = SCANS_ROOT / scan_name
     info(f"Using scan name: {scan_name}")
-    info(f"Findings location: {out_dir}")
+    # info(f"Findings location: {out_dir}")
 
     # Check for duplicate imports
     from mundane_pkg.database import compute_file_hash

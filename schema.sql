@@ -5,6 +5,11 @@
 -- and generated artifacts. This file serves as reference documentation.
 --
 -- Database location: ~/.mundane/mundane.db (global, cross-scan queries)
+--
+-- IMPORTANT: This file is DOCUMENTATION ONLY
+-- - Actual schema initialization: mundane_pkg/database.py (SCHEMA_SQL)
+-- - Schema migrations: mundane_pkg/migrations/
+-- - When updating schema: Update database.py AND create a migration file
 -- ============================================================================
 
 -- ============================================================================
@@ -61,29 +66,18 @@ CREATE INDEX IF NOT EXISTS idx_plugins_name ON plugins(plugin_name);
 -- ============================================================================
 -- PLUGIN_FILES: Findings per scan (one per plugin per scan)
 -- ============================================================================
--- Streamlined in v1.9.0: Removed duplicate/unnecessary columns
---   - severity_dir: duplicates plugins.severity_int (use JOIN)
---   - file_path: not needed in DB-only (can construct if needed)
---   - file_created_at, file_modified_at, last_parsed_at: unused
--- ============================================================================
 CREATE TABLE IF NOT EXISTS plugin_files (
     file_id INTEGER PRIMARY KEY AUTOINCREMENT,
     scan_id INTEGER NOT NULL,
     plugin_id INTEGER NOT NULL,
-
-    -- Review state (replaces REVIEW_COMPLETE- file prefix)
-    review_state TEXT DEFAULT 'pending', -- 'pending', 'reviewed', 'completed', 'skipped'
+    review_state TEXT DEFAULT 'pending',
     reviewed_at TIMESTAMP,
-    reviewed_by TEXT,                    -- Future: user tracking
-    review_notes TEXT,                   -- Future: user notes
-
-    -- Host/port summary (denormalized for performance)
+    reviewed_by TEXT,
+    review_notes TEXT,
     host_count INTEGER DEFAULT 0,
     port_count INTEGER DEFAULT 0,
-
     FOREIGN KEY (scan_id) REFERENCES scans(scan_id) ON DELETE CASCADE,
     FOREIGN KEY (plugin_id) REFERENCES plugins(plugin_id),
-
     CONSTRAINT valid_review_state CHECK (review_state IN ('pending', 'reviewed', 'completed', 'skipped')),
     CONSTRAINT unique_scan_plugin UNIQUE (scan_id, plugin_id)
 );

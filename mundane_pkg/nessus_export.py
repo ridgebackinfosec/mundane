@@ -280,9 +280,6 @@ def _build_index_stream(
                 plugin_output = None
                 if plugin_output_elem is not None and plugin_output_elem.text:
                     plugin_output = plugin_output_elem.text.strip()
-                    # DEBUG: Log first few extractions
-                    if len([v for s in plugin_hosts.values() for v in s if v[1] is not None]) < 5:
-                        log_info(f"DEBUG: Extracted plugin_output for plugin {pid}: {len(plugin_output)} chars")
 
                 # Store or merge plugin metadata (keep highest severity)
                 pname = (elem.attrib.get("pluginName") or "").strip()
@@ -496,7 +493,9 @@ def _write_to_database(
         from .database import db_transaction, compute_file_hash
         from .models import Scan, Plugin, PluginFile, now_iso
         from .parsing import is_ipv4, is_ipv6
+        import time
 
+        start_time = time.time()
         log_info("Writing metadata to database...")
 
         with db_transaction() as conn:
@@ -526,8 +525,13 @@ def _write_to_database(
             scan_id = scan.save(conn)
 
             # Insert/update plugins and plugin files
-            for plugin_id_str, meta in plugins.items():
+            total_plugins = len(plugins)
+            for idx, (plugin_id_str, meta) in enumerate(plugins.items(), 1):
                 plugin_id = int(plugin_id_str)
+
+                # Show progress every 10 plugins or at milestones
+                if idx % 10 == 0 or idx == total_plugins:
+                    log_info(f"Processing plugin {idx}/{total_plugins}...")
 
                 # Create plugin metadata
                 plugin = Plugin(
@@ -555,7 +559,14 @@ def _write_to_database(
                 # Count unique hosts and ports for this plugin
                 unique_hosts = set()
                 ports = set()
-                for host_entry in hosts:
+                for host_entry_data in hosts:
+                    # Unpack tuple to get host_entry string (ignore plugin_output for counting)
+                    if isinstance(host_entry_data, tuple):
+                        host_entry, _ = host_entry_data  # Extract host:port, ignore plugin_output
+                    else:
+                        host_entry = host_entry_data  # Backward compatibility
+
+                    # Now parse host:port as before
                     if ":" in host_entry:
                         try:
                             host, port_str = host_entry.rsplit(":", 1)
@@ -569,6 +580,8 @@ def _write_to_database(
                 plugin_file = PluginFile(
                     scan_id=scan_id,
                     plugin_id=plugin_id,
+                    file_path=str(file_path),
+                    severity_dir=sev_dir,
                     review_state="pending",
                     host_count=len(unique_hosts),
                     port_count=len(ports) if ports else 0
@@ -611,7 +624,8 @@ def _write_to_database(
                         (file_id, host, port, is_v4, is_v6, plugin_output)
                     )
 
-        log_info(f"Database updated: {len(plugins)} plugins, {scan_id=}")
+        elapsed = time.time() - start_time
+        log_info(f"Database updated: {len(plugins)} plugins, {scan_id=} (took {elapsed:.1f}s)")
 
     except Exception as e:
         log_error(f"Failed to write to database: {e}")

@@ -319,6 +319,8 @@ class PluginFile:
     file_id: Optional[int] = None
     scan_id: int = 0
     plugin_id: int = 0
+    file_path: Optional[str] = None  # Required for backward compatibility with old schema
+    severity_dir: Optional[str] = None  # Required for backward compatibility with old schema
     review_state: str = "pending"  # 'pending', 'reviewed', 'completed', 'skipped'
     reviewed_at: Optional[str] = None
     reviewed_by: Optional[str] = None
@@ -363,11 +365,11 @@ class PluginFile:
                 cursor = c.execute(
                     """
                     INSERT INTO plugin_files (
-                        scan_id, plugin_id, review_state,
+                        scan_id, plugin_id, file_path, severity_dir, review_state,
                         reviewed_at, reviewed_by, review_notes, host_count, port_count
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (self.scan_id, self.plugin_id, self.review_state,
+                    (self.scan_id, self.plugin_id, self.file_path, self.severity_dir, self.review_state,
                      self.reviewed_at, self.reviewed_by, self.review_notes,
                      self.host_count, self.port_count)
                 )

@@ -3029,7 +3029,8 @@ def main(args: types.SimpleNamespace) -> None:
         # Clean up session (mark as ended in database)
         delete_session(selected_scan.scan_id)
 
-    ok("Done.")
+    print() # Empty line
+    ok("Now run \"mundane review\" to start reviewing findings.")
 
 
 # === Typer CLI ===
@@ -3212,7 +3213,7 @@ def import_scan(
             include_ports=True
         )
 
-        ok(f"Export complete: {result.plugins_exported} findings exported")
+        ok(f"Import complete: {result.plugins_exported} findings exported")
 
         # Display severity breakdown
         if result.severities:
@@ -3235,11 +3236,7 @@ def import_scan(
                     sev_table.add_row(severity_cell(sev_label), str(count))
 
             _console_global.print(sev_table)
-
-        print()  # Blank line after table
-        info(f"Reference findings saved to: {out_dir.resolve()}")
-        info("Next: mundane review")
-
+        
     except Exception as e:
         err(f"Export failed: {e}")
         raise typer.Exit(1)

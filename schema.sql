@@ -106,6 +106,9 @@ CREATE TABLE IF NOT EXISTS plugin_file_hosts (
     is_ipv4 BOOLEAN DEFAULT 0,
     is_ipv6 BOOLEAN DEFAULT 0,
 
+    -- Plugin output (extracted from .nessus <plugin_output> element)
+    plugin_output TEXT,                 -- Host-specific Nessus scanner output
+
     FOREIGN KEY (file_id) REFERENCES plugin_files(file_id) ON DELETE CASCADE,
 
     CONSTRAINT unique_file_host_port UNIQUE (file_id, host, port)

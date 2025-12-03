@@ -319,6 +319,8 @@ class PluginFile:
     file_id: Optional[int] = None
     scan_id: int = 0
     plugin_id: int = 0
+    file_path: Optional[str] = None  # Required for backward compatibility with old schema
+    severity_dir: Optional[str] = None  # Required for backward compatibility with old schema
     review_state: str = "pending"  # 'pending', 'reviewed', 'completed', 'skipped'
     reviewed_at: Optional[str] = None
     reviewed_by: Optional[str] = None
@@ -363,11 +365,11 @@ class PluginFile:
                 cursor = c.execute(
                     """
                     INSERT INTO plugin_files (
-                        scan_id, plugin_id, review_state,
+                        scan_id, plugin_id, file_path, severity_dir, review_state,
                         reviewed_at, reviewed_by, review_notes, host_count, port_count
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (self.scan_id, self.plugin_id, self.review_state,
+                    (self.scan_id, self.plugin_id, self.file_path, self.severity_dir, self.review_state,
                      self.reviewed_at, self.reviewed_by, self.review_notes,
                      self.host_count, self.port_count)
                 )
@@ -780,6 +782,49 @@ class PluginFile:
                     lines.append(host)
 
             return lines
+
+    def get_plugin_outputs_by_host(
+        self,
+        conn: Optional[sqlite3.Connection] = None
+    ) -> list[tuple[str, Optional[int], Optional[str]]]:
+        """Retrieve all plugin outputs grouped by host:port.
+
+        Queries the plugin_file_hosts table and returns plugin output for each
+        host:port combination. Used by the Finding Details UI action.
+
+        Args:
+            conn: Database connection
+
+        Returns:
+            List of (host, port, plugin_output) tuples, sorted (IPs first, then hostnames)
+            Example: [
+                ("192.168.1.1", 80, "Path: C:\\...\\nInstalled version: 9.52"),
+                ("192.168.1.1", 443, "Server: nginx/1.18.0"),
+                ("example.com", 80, None)  # No plugin output for this host
+            ]
+        """
+        if self.file_id is None:
+            log_error("Cannot get plugin outputs for unsaved PluginFile (file_id is None)")
+            return []
+
+        with db_transaction(conn) as c:
+            # Query all host:port:plugin_output combinations for this file
+            rows = query_all(
+                c,
+                """
+                SELECT host, port, plugin_output
+                FROM plugin_file_hosts
+                WHERE file_id = ?
+                ORDER BY is_ipv4 DESC, is_ipv6 DESC, host ASC, port ASC
+                """,
+                (self.file_id,)
+            )
+
+            if not rows:
+                return []
+
+            # Return as list of tuples (host, port, plugin_output)
+            return [(row[0], row[1], row[2]) for row in rows]
 
 
 # ========== Model: ToolExecution ==========

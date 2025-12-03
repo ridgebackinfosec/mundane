@@ -775,6 +775,64 @@ def _hosts_only_paged_text(plugin_file: "PluginFile", plugin: "Plugin") -> str:
 # === File viewing workflow ===
 
 
+def _build_plugin_output_details(
+    plugin_file: "PluginFile",
+    plugin: "Plugin"
+) -> Optional[str]:
+    """Build formatted text for plugin output details display.
+
+    Shows plugin_output data for each affected host:port combination.
+    If multiple hosts have the same output, shows all separately (no deduplication).
+
+    Args:
+        plugin_file: PluginFile database object
+        plugin: Plugin metadata object
+
+    Returns:
+        Formatted string for display via menu_pager(), or None if no outputs
+    """
+    from mundane_pkg.database import get_connection
+
+    # Get all plugin outputs from database
+    with get_connection() as conn:
+        outputs = plugin_file.get_plugin_outputs_by_host(conn)
+
+    if not outputs:
+        return None
+
+    # Filter out entries with no plugin_output (None or empty)
+    outputs_with_data = [
+        (host, port, output) for (host, port, output) in outputs
+        if output is not None and output.strip()
+    ]
+
+    if not outputs_with_data:
+        return None
+
+    # Build formatted output
+    lines = []
+    lines.append(f"Finding Details: {plugin.plugin_name} (Plugin {plugin.plugin_id})")
+    lines.append("=" * 80)
+    lines.append(f"Severity: {plugin.severity_label}")
+    lines.append(f"Total hosts with output: {len(outputs_with_data)}")
+    lines.append("")
+
+    # Display each host:port's plugin output
+    for idx, (host, port, output) in enumerate(outputs_with_data, 1):
+        # Format host:port
+        if port is not None:
+            host_display = f"{host}:{port}"
+        else:
+            host_display = host
+
+        lines.append(f"[{idx}/{len(outputs_with_data)}] Host: {host_display}")
+        lines.append("-" * 80)
+        lines.append(output)
+        lines.append("")  # Blank line between entries
+
+    return "\n".join(lines)
+
+
 def handle_file_view(
     chosen: Path,
     plugin_file: Optional["PluginFile"] = None,
@@ -825,7 +883,9 @@ def handle_file_view(
         action_text.append("[E] ", style="cyan")
         action_text.append("CVE info / ", style=None)
         action_text.append("[I] ", style="cyan")
-        action_text.append("Finding Info", style=None)
+        action_text.append("Finding Info / ", style=None)
+        action_text.append("[D] ", style="cyan")
+        action_text.append("Finding Details", style=None)
         if has_workflow:
             action_text.append(" / ", style=None)
             action_text.append("[W] ", style="cyan")
@@ -926,6 +986,23 @@ def handle_file_view(
                 warn("Plugin metadata not available - cannot display finding info")
                 continue
             _display_finding_preview(plugin, plugin_file, sev_dir, chosen)
+            continue
+
+        # Handle Finding Details action
+        if action_choice in ("d", "details"):
+            if plugin_file is None:
+                warn("Database not available - cannot display finding details")
+                continue
+
+            # Generate and display plugin output details
+            details_text = _build_plugin_output_details(plugin_file, plugin)
+
+            if details_text:
+                from mundane_pkg.render import menu_pager
+                menu_pager(details_text)
+            else:
+                warn("No plugin output available for this finding.")
+
             continue
 
         # Handle View file action
@@ -2952,7 +3029,8 @@ def main(args: types.SimpleNamespace) -> None:
         # Clean up session (mark as ended in database)
         delete_session(selected_scan.scan_id)
 
-    ok("Done.")
+    print() # Empty line
+    ok("Now run \"mundane review\" to start reviewing findings.")
 
 
 # === Typer CLI ===
@@ -3135,7 +3213,7 @@ def import_scan(
             include_ports=True
         )
 
-        ok(f"Export complete: {result.plugins_exported} findings exported")
+        ok(f"Import complete: {result.plugins_exported} findings")
 
         # Display severity breakdown
         if result.severities:
@@ -3158,11 +3236,7 @@ def import_scan(
                     sev_table.add_row(severity_cell(sev_label), str(count))
 
             _console_global.print(sev_table)
-
-        print()  # Blank line after table
-        info(f"Reference findings saved to: {out_dir.resolve()}")
-        info("Next: mundane review")
-
+        
     except Exception as e:
         err(f"Export failed: {e}")
         raise typer.Exit(1)

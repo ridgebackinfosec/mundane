@@ -3213,7 +3213,7 @@ def import_scan(
             include_ports=True
         )
 
-        ok(f"Import complete: {result.plugins_exported} findings exported")
+        ok(f"Import complete: {result.plugins_exported} findings")
 
         # Display severity breakdown
         if result.severities:

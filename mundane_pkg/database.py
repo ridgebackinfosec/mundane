@@ -77,6 +77,8 @@ CREATE TABLE IF NOT EXISTS plugin_files (
     file_id INTEGER PRIMARY KEY AUTOINCREMENT,
     scan_id INTEGER NOT NULL,
     plugin_id INTEGER NOT NULL,
+    file_path TEXT NOT NULL,
+    severity_dir TEXT NOT NULL,
     review_state TEXT DEFAULT 'pending',
     reviewed_at TIMESTAMP,
     reviewed_by TEXT,
@@ -100,6 +102,7 @@ CREATE TABLE IF NOT EXISTS plugin_file_hosts (
     port INTEGER,
     is_ipv4 BOOLEAN DEFAULT 0,
     is_ipv6 BOOLEAN DEFAULT 0,
+    plugin_output TEXT,
     FOREIGN KEY (file_id) REFERENCES plugin_files(file_id) ON DELETE CASCADE,
     CONSTRAINT unique_file_host_port UNIQUE (file_id, host, port)
 );

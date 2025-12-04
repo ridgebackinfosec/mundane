@@ -60,7 +60,7 @@ def print_action_menu(actions: list[tuple[str, str]]) -> None:
         action_text.append(f"[{key}] ", style="cyan")
         action_text.append(desc, style=None)
 
-    _console.print(f"{C.CYAN}>> {C.RESET}", end="")
+    _console.print("[cyan]>>[/cyan] ", end="")
     _console.print(action_text)
 
 

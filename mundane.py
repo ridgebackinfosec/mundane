@@ -993,7 +993,6 @@ def handle_file_view(
             details_text = _build_plugin_output_details(plugin_file, plugin)
 
             if details_text:
-                from mundane_pkg.render import menu_pager
                 menu_pager(details_text)
             else:
                 warn("No plugin output available for this finding.")
@@ -1424,7 +1423,6 @@ def run_tool_workflow(
                                     selected_cmd = one_liners[selection - 1]
 
                                     # Execute command with confirmation
-                                    from mundane_pkg.ops import run_command_with_progress
                                     import shutil
 
                                     info(f"\nExecuting: {selected_cmd}\n")

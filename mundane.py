@@ -3026,14 +3026,12 @@ def _root(
         _console_global.print(f"mundane version {__version__}")
         sys.exit(0)
 
-    # Handle --help or no command (both show help with banner)
+    # Handle --help or no command (show help without banner)
     if help_flag or ctx.invoked_subcommand is None:
-        from mundane_pkg.banner import display_banner
-        display_banner()
         _console_global.print(ctx.get_help())
         sys.exit(0)
 
-    # Otherwise, show banner unless -q flag used
+    # Show banner for commands unless -q flag used
     if not quiet:
         from mundane_pkg.banner import display_banner
         display_banner()

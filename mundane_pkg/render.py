@@ -13,6 +13,7 @@ from typing import Any, Optional, Union
 from rich import box
 from rich.console import Console
 from rich.panel import Panel
+from rich.prompt import Prompt
 from rich.table import Table
 from rich.text import Text
 
@@ -85,7 +86,7 @@ def menu_pager(text: str, page_size: Optional[int] = None) -> None:
         print("─" * 80)
         print_action_menu([("N", "Next page"), ("P", "Prev page"), ("B", "Back")])
         try:
-            answer = input("Action: ").strip().lower()
+            answer = Prompt.ask("Action", default="").strip().lower()
         except KeyboardInterrupt:
             warn("\nInterrupted — returning.")
             return

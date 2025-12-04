@@ -105,6 +105,7 @@ import subprocess
 import tempfile
 import types
 from collections import Counter
+from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -118,7 +119,8 @@ from rich import box
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
-from rich.prompt import Confirm, Prompt
+from rich.prompt import Confirm, IntPrompt, Prompt
+from rich.status import Status
 from rich.table import Table
 from rich.text import Text
 from rich.traceback import install as rich_tb_install
@@ -128,6 +130,32 @@ _console_global = Console()
 
 # Install pretty tracebacks, but suppress for Typer/Click exit exceptions
 rich_tb_install(show_locals=False, suppress=["typer", "click"])
+
+
+# === Enums for type-safe choices ===
+
+class DisplayFormat(str, Enum):
+    """Display format options for output."""
+    SEPARATED = "separated"
+    COMBINED = "combined"
+    JSON = "json"
+    CSV = "csv"
+    XML = "xml"
+
+
+class ViewFormat(str, Enum):
+    """View format options for file content display."""
+    RAW = "raw"
+    GROUPED = "grouped"
+    HOSTS_ONLY = "hosts"
+
+
+class SortMode(str, Enum):
+    """Sort mode options for file lists."""
+    SEVERITY = "severity"
+    UNREVIEWED = "unreviewed"
+    REVIEWED = "reviewed"
+    NAME = "name"
 
 
 def print_action_menu(actions: list[tuple[str, str]]) -> None:
@@ -316,9 +344,11 @@ def _display_bulk_cve_results(results: dict[str, list[str]]) -> None:
     if results:
         # Ask user for display format
         try:
-            format_choice = input(
-                "\nDisplay format: [S]eparated by file / [C]ombined list (default=S): "
-            ).strip().lower()
+            format_choice = Prompt.ask(
+                "\nDisplay format",
+                choices=["s", "separated", "c", "combined"],
+                default="s"
+            ).lower()
         except KeyboardInterrupt:
             return
 
@@ -343,7 +373,7 @@ def _display_bulk_cve_results(results: dict[str, list[str]]) -> None:
         warn("No CVEs found for any of the filtered findings.")
 
     try:
-        input("\nPress Enter to continue...")
+        Prompt.ask("\nPress Enter to continue", default="")
     except KeyboardInterrupt:
         pass
 
@@ -459,7 +489,7 @@ def choose_from_list(
 
     while True:
         try:
-            ans = input("Choose: ").strip().lower()
+            ans = Prompt.ask("Choose").strip().lower()
         except KeyboardInterrupt:
             warn("\nInterrupted — returning.")
             raise
@@ -868,7 +898,7 @@ def handle_file_view(
         _console.print("[cyan]>>[/cyan] ", end="")
         _console.print(action_text)
         try:
-            action_choice = input("Choose action: ").strip().lower()
+            action_choice = Prompt.ask("Choose action").strip().lower()
         except KeyboardInterrupt:
             # User cancelled - treat as back
             return "back"
@@ -984,7 +1014,11 @@ def handle_file_view(
             ("H", "Hosts only")
         ])
         try:
-            format_choice = input("Choose format (default=G): ").strip().lower()
+            format_choice = Prompt.ask(
+                "Choose format",
+                choices=["r", "raw", "g", "grouped", "h", "hosts"],
+                default="g"
+            ).lower()
         except KeyboardInterrupt:
             return
 
@@ -1017,7 +1051,10 @@ def handle_file_view(
 
         # Step 4: Offer to copy to clipboard
         try:
-            copy_choice = input("Copy to clipboard? [Y/N]: ").strip().lower()
+            if Confirm.ask("Copy to clipboard?", default=True):
+                copy_choice = "y"
+            else:
+                copy_choice = "n"
         except KeyboardInterrupt:
             continue
 
@@ -1069,7 +1106,7 @@ def display_workflow(workflow: Workflow) -> None:
 
     info("Press [Enter] to continue...")
     try:
-        input()
+        Prompt.ask("", default="")
     except KeyboardInterrupt:
         pass
 
@@ -1102,9 +1139,9 @@ def _build_nmap_workflow(ctx: "ToolContext") -> Optional["CommandResult"]:
         return None
 
     try:
-        extra = input(
-            "Enter additional NSE scripts "
-            "(comma-separated, no spaces, or Enter to skip): "
+        extra = Prompt.ask(
+            "Enter additional NSE scripts (comma-separated, no spaces, or Enter to skip)",
+            default=""
         ).strip()
     except KeyboardInterrupt:
         return None
@@ -1197,8 +1234,8 @@ def _build_custom_workflow(ctx: "ToolContext") -> Optional["CommandResult"]:
     custom_command_help(mapping)
 
     try:
-        template = input(
-            "\nEnter your command (placeholders allowed): "
+        template = Prompt.ask(
+            "\nEnter your command (placeholders allowed)"
         ).strip()
     except KeyboardInterrupt:
         return None
@@ -1253,16 +1290,19 @@ def run_tool_workflow(
         if do_sample:
             while True:
                 try:
-                    sample_count = input("How many hosts to sample? ").strip()
+                    sample_count = IntPrompt.ask(
+                        "How many hosts to sample?",
+                        default=min(10, len(hosts))
+                    )
                 except KeyboardInterrupt:
                     warn("\nInterrupted — not sampling.")
                     break
 
-                if not sample_count.isdigit() or int(sample_count) <= 0:
+                if sample_count <= 0:
                     warn("Enter a positive integer.")
                     continue
 
-                count = min(int(sample_count), len(hosts))
+                count = min(sample_count, len(hosts))
                 sample_hosts = random.sample(hosts, count)
                 ok(f"Sampling {count} host(s).")
                 break
@@ -1379,9 +1419,7 @@ def run_tool_workflow(
                                     import shutil
 
                                     info(f"\nExecuting: {selected_cmd}\n")
-                                    confirm = input("Confirm? [y/N]: ").strip().lower()
-
-                                    if confirm in ("y", "yes"):
+                                    if Confirm.ask("Confirm?", default=False):
                                         shell_exec = shutil.which("bash") or shutil.which("sh")
                                         if shell_exec:
                                             run_command_with_progress(
@@ -1784,7 +1822,7 @@ def handle_file_list_actions(
     if ans == "f":
         info("Filter help: Enter any text to match finding names (case-insensitive)")
         info("Examples: 'apache' matches 'Apache HTTP Server', 'ssl' matches 'SSL Certificate'")
-        file_filter = input("Enter substring to filter by (or press Enter for none): ").strip()
+        file_filter = Prompt.ask("Enter substring to filter by (or press Enter for none)", default="").strip()
         page_idx = 0
         return None, file_filter, reviewed_filter, group_filter, sort_mode, page_idx
 
@@ -1848,7 +1886,7 @@ def handle_file_list_actions(
         ])
 
         try:
-            choice = input("Action or [B]ack: ").strip().lower()
+            choice = Prompt.ask("Action or [B]ack").strip().lower()
         except KeyboardInterrupt:
             warn("\nInterrupted — returning.")
             return (
@@ -1884,7 +1922,7 @@ def handle_file_list_actions(
                 )
 
             try:
-                selection = input("Enter file number(s) to undo (e.g., 1 or 1,3,5) or [A]ll: ").strip()
+                selection = Prompt.ask("Enter file number(s) to undo (e.g., 1 or 1,3,5) or [A]ll").strip()
             except KeyboardInterrupt:
                 return (
                     None,
@@ -1928,7 +1966,7 @@ def handle_file_list_actions(
         if choice == "f":
             info("Filter help: Enter any text to match filenames (case-insensitive)")
             info("Examples: 'apache' matches 'Apache_2.4', 'ssl' matches 'SSL_Certificate'")
-            reviewed_filter = input("Enter substring to filter by (or press Enter for none): ").strip()
+            reviewed_filter = Prompt.ask("Enter substring to filter by (or press Enter for none)", default="").strip()
             return (
                 None,
                 file_filter,
@@ -1989,11 +2027,11 @@ def handle_file_list_actions(
                 page_idx,
             )
 
-        confirm_msg = (
-            f"You are about to mark {len(candidates)} items as review completed.\n"
-            "Type 'mark' to confirm, or anything else to cancel: "
+        confirm_prompt = (
+            f"[red]You are about to mark {len(candidates)} items as review completed.[/red]\n"
+            "Type 'mark' to confirm, or anything else to cancel"
         )
-        confirm = input(f"{C.RED}{confirm_msg}{C.RESET}").strip().lower()
+        confirm = Prompt.ask(confirm_prompt).strip().lower()
 
         if confirm != "mark":
             info("Canceled.")
@@ -2035,8 +2073,9 @@ def handle_file_list_actions(
             visible = min(VISIBLE_GROUPS, len(groups))
             opts = " | ".join(f"g{i+1}" for i in range(visible))
             ellipsis = " | etc." if len(groups) > VISIBLE_GROUPS else ""
-            choice = input(
-                f"\n[Enter] back | choose {opts}{ellipsis} to filter to a group: "
+            choice = Prompt.ask(
+                f"\n[Enter] back | choose {opts}{ellipsis} to filter to a group",
+                default=""
             ).strip().lower()
 
             if choice.startswith("g") and choice[1:].isdigit():
@@ -2066,8 +2105,9 @@ def handle_file_list_actions(
             visible = min(VISIBLE_GROUPS, len(groups))
             opts = " | ".join(f"g{i+1}" for i in range(visible))
             ellipsis = " | etc." if len(groups) > VISIBLE_GROUPS else ""
-            choice = input(
-                f"\n[Enter] back | choose {opts}{ellipsis} to filter to a group: "
+            choice = Prompt.ask(
+                f"\n[Enter] back | choose {opts}{ellipsis} to filter to a group",
+                default=""
             ).strip().lower()
 
             if choice.startswith("g") and choice[1:].isdigit():
@@ -2189,7 +2229,7 @@ def browse_workflow_groups(
         print_action_menu([("B", "Back")])
 
         try:
-            ans = input("Choose workflow: ").strip().lower()
+            ans = Prompt.ask("Choose workflow").strip().lower()
         except KeyboardInterrupt:
             warn("\nInterrupted — returning to severity menu.")
             return
@@ -2383,7 +2423,7 @@ def browse_file_list(
                 can_prev=can_prev,
             )
 
-            ans = input("Choose a file number, or action: ").strip().lower()
+            ans = Prompt.ask("Choose a file number, or action").strip().lower()
         except KeyboardInterrupt:
             warn("\nInterrupted — returning to severity menu.")
             break
@@ -2632,19 +2672,22 @@ def main(args: types.SimpleNamespace) -> None:
 
     if custom_workflows_only:
         # Replace mode: Use ONLY custom YAML
-        workflow_mapper = WorkflowMapper(yaml_path=custom_workflows_only)
+        with _console_global.status("[bold green]Loading custom workflows..."):
+            workflow_mapper = WorkflowMapper(yaml_path=custom_workflows_only)
         if workflow_mapper.count() > 0:
             info(f"Loaded {workflow_mapper.count()} custom workflow(s) from {custom_workflows_only} (defaults disabled)")
         else:
             warn(f"No workflows loaded from {custom_workflows_only}")
     else:
         # Default or supplement mode
-        workflow_mapper = WorkflowMapper()  # Load defaults
-        default_count = workflow_mapper.count()
+        with _console_global.status("[bold green]Loading workflows..."):
+            workflow_mapper = WorkflowMapper()  # Load defaults
+            default_count = workflow_mapper.count()
 
         if custom_workflows:
             # Supplement mode: Load custom YAML in addition to defaults
-            additional_count = workflow_mapper.load_additional_workflows(custom_workflows)
+            with _console_global.status("[bold green]Loading additional custom workflows..."):
+                additional_count = workflow_mapper.load_additional_workflows(custom_workflows)
             if additional_count > 0:
                 info(f"Loaded {default_count} default + {additional_count} custom workflow(s) from {custom_workflows}")
             else:
@@ -2683,7 +2726,8 @@ def main(args: types.SimpleNamespace) -> None:
         while True:
             # Get all scans from database
             try:
-                all_scans = Scan.get_all()
+                with _console_global.status("[bold green]Loading scans from database..."):
+                    all_scans = Scan.get_all()
             except Exception as e:
                 err(f"Failed to query scans from database: {e}")
                 return
@@ -2732,7 +2776,7 @@ def main(args: types.SimpleNamespace) -> None:
             print_action_menu([("Q", "Quit")])
 
             try:
-                ans = input("Choose scan: ").strip().lower()
+                ans = Prompt.ask("Choose scan").strip().lower()
             except KeyboardInterrupt:
                 warn("\nInterrupted — exiting.")
                 return
@@ -2856,7 +2900,7 @@ def main(args: types.SimpleNamespace) -> None:
                 info("Tip: Multi-select is supported (e.g., 1-3 or 1,3,5)")
 
                 try:
-                    ans = input("Choose: ").strip().lower()
+                    ans = Prompt.ask("Choose").strip().lower()
                 except KeyboardInterrupt:
                     warn("\nInterrupted — returning to scan menu.")
                     break
@@ -3166,7 +3210,7 @@ def import_scan(
         for choice in choices:
             _console_global.print(f"  {choice}")
 
-        ans = input("\nChoice [1-3]: ").strip()
+        ans = Prompt.ask("\nChoice", choices=["1", "2", "3"], default="3").strip()
 
         if ans == "1":
             info("Overwriting existing scan...")
@@ -3328,7 +3372,7 @@ def delete_scan(
     _console_global.print()  # Blank line
 
     try:
-        response = input("Type the scan name to confirm deletion: ").strip()
+        response = Prompt.ask("Type the scan name to confirm deletion").strip()
     except KeyboardInterrupt:
         _console_global.print()  # Newline after ^C
         info("Deletion cancelled")

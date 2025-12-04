@@ -94,7 +94,7 @@ def choose_nse_profile() -> tuple[list[str], bool]:
 
     while True:
         try:
-            answer = input("Choose: ").strip().lower()
+            answer = Prompt.ask("Choose").strip().lower()
         except KeyboardInterrupt:
             warn("\nInterrupted — returning to file menu.")
             return [], False
@@ -247,7 +247,7 @@ def choose_tool() -> Optional[str]:
 
     while True:
         try:
-            answer = input("Choose: ").strip().lower()
+            answer = Prompt.ask("Choose", default="" if default_tool else None).strip().lower()
         except KeyboardInterrupt:
             warn("\nInterrupted — returning to file menu.")
             return None
@@ -286,7 +286,7 @@ def choose_netexec_protocol() -> Optional[str]:
     
     while True:
         try:
-            answer = input("Choose protocol: ").strip().lower()
+            answer = Prompt.ask("Choose protocol", default="smb").strip().lower()
         except KeyboardInterrupt:
             warn("\nInterrupted — returning to file menu.")
             return None
@@ -378,7 +378,7 @@ def command_review_menu(cmd_list_or_str: list[str] | str) -> str:
 
     while True:
         try:
-            choice = input("Choose: ").strip()
+            choice = Prompt.ask("Choose", choices=["1", "2", "r", "run", "c", "copy", "b", "back", "q"]).strip()
         except KeyboardInterrupt:
             warn("\nInterrupted — returning to file menu.")
             return "cancel"

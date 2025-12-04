@@ -1,4 +1,6 @@
-"""Nessus .nessus XML parsing and plugin export functionality.
+"""Nessus .nessus XML parsing and database import functionality.
+
+Parses Nessus .nessus XML files and imports findings into the SQLite database.
 
 Adapted from DefensiveOrigins/NessusPluginHosts
 Repository: https://github.com/DefensiveOrigins/NessusPluginHosts
@@ -7,6 +9,7 @@ Contributors: DefensiveOrigins, ChrisTraynor
 Integrated into mundane with enhancements:
 - Type hints and comprehensive docstrings
 - Integration with mundane's logging infrastructure
+- Database-first import (no file creation required)
 - Rich progress reporting support
 - Cleaner API design for programmatic use
 """
@@ -365,7 +368,7 @@ def _write_plugin_file(
 
 
 @log_timing
-def export_nessus_plugins(
+def import_nessus_file(
     nessus_file: Path,
     output_dir: Path,
     *,
@@ -373,40 +376,32 @@ def export_nessus_plugins(
     include_ports: bool = True,
     use_database: bool = True
 ) -> ExportResult:
-    """Export all plugins from .nessus file to organized directory structure.
+    """Import Nessus scan from .nessus file into database.
 
-    Creates directory structure:
-        output_dir/
-          {scan_name}/
-            4_Critical/
-              {plugin_id}_{plugin_name}[-MSF].txt
-            3_High/
-            2_Medium/
-            1_Low/
-            0_Info/
+    Parses the .nessus XML file and populates the database with:
+    - Scan metadata (scan name, file path, hash)
+    - Plugin information (ID, name, severity, CVEs, Metasploit modules)
+    - Plugin files per scan (host counts, port counts, review state)
+    - Host:port combinations with plugin output
 
-    Each file contains one host:port per line, sorted with IPs first (by address),
-    then hostnames (alphabetically). Files with Metasploit modules available are
-    suffixed with "-MSF".
-
-    Also populates SQLite database with scan, plugin, and host metadata if enabled.
+    The output_dir parameter is used to set the scan's export_root in the database,
+    but no actual files are created (database-only mode).
 
     Args:
         nessus_file: Path to .nessus XML file to parse
-        output_dir: Root directory for export output
+        output_dir: Root directory path (stored in database but no files created)
         scan_name: Optional scan name (defaults to nessus_file.stem if not provided)
         include_ports: Whether to include port numbers in host listings (default: True)
         use_database: Whether to write metadata to database (default: True)
 
     Returns:
-        ExportResult with export statistics
+        ExportResult with import statistics
 
     Raises:
         ET.ParseError: If XML parsing fails
         FileNotFoundError: If .nessus file doesn't exist
-        PermissionError: If output directory is not writable
     """
-    log_info(f"Exporting Nessus plugins from {nessus_file} to {output_dir}")
+    log_info(f"Importing Nessus scan from {nessus_file}")
 
     # Parse .nessus file
     plugins, plugin_hosts = _build_index_stream(nessus_file, include_ports)
@@ -549,11 +544,6 @@ def _write_to_database(
                 plugin.save(conn)
 
                 # Create plugin file entry
-                sev_dir = f"{meta['severity_int']}_{meta['severity_label']}"
-                msf_suffix = "-MSF" if meta.get("msf") else ""
-                fname = f"{plugin_id}_{sanitize_filename(meta['name'])}{msf_suffix}.txt"
-                file_path = base_scan_dir / sev_dir / fname
-
                 hosts = plugin_hosts.get(plugin_id_str, set())
 
                 # Count unique hosts and ports for this plugin
@@ -580,8 +570,6 @@ def _write_to_database(
                 plugin_file = PluginFile(
                     scan_id=scan_id,
                     plugin_id=plugin_id,
-                    file_path=str(file_path),
-                    severity_dir=sev_dir,
                     review_state="pending",
                     host_count=len(unique_hosts),
                     port_count=len(ports) if ports else 0

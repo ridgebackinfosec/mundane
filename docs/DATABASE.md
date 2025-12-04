@@ -191,6 +191,7 @@ Host:port combinations - parsed from plugin .txt files.
 | `port` | INTEGER | Port number (NULL if no port) |
 | `is_ipv4` | BOOLEAN | IPv4 address flag |
 | `is_ipv6` | BOOLEAN | IPv6 address flag |
+| `plugin_output` | TEXT | Plugin output from Nessus scanner (host-specific) |
 
 **Relationships**: Belongs to one plugin_file
 
@@ -578,6 +579,142 @@ tool_executions
 - Deleting a scan removes all plugin_files, sessions, and dependent records
 - Deleting a plugin_file removes all hosts and workflow_executions
 - Deleting a session or tool_execution sets foreign keys to NULL (preserves artifacts)
+
+---
+
+## Schema Migrations
+
+Mundane uses an automated migration system to evolve the database schema over time. Migrations run automatically when the database is initialized.
+
+### How Migrations Work
+
+1. **Automatic execution**: Migrations run during `initialize_database()` on every startup
+2. **Version tracking**: Current schema version stored in `schema_version` table
+3. **Idempotent**: Migrations check if changes already exist before applying
+4. **One-way**: Migrations only support `upgrade()` (no downgrade)
+
+### Migration System Components
+
+- **Base class**: `mundane_pkg/migrations/Migration` (abstract base class)
+- **Registry**: `get_all_migrations()` in `mundane_pkg/migrations/__init__.py`
+- **Execution**: `initialize_database()` in `mundane_pkg/database.py`
+
+### Current Migrations
+
+| Version | Description | File |
+|---------|-------------|------|
+| 1 | Add plugin_output column to plugin_file_hosts | migration_001_plugin_output.py |
+| 2 | Remove file_path and severity_dir columns from plugin_files | migration_002_remove_filesystem_columns.py |
+
+### Creating a New Migration
+
+**Step 1: Create migration file**
+
+Create `mundane_pkg/migrations/migration_XXX_description.py`:
+
+```python
+"""Migration XXX: Brief description of what this migration does."""
+
+import sqlite3
+from . import Migration
+
+
+class MigrationXXX(Migration):
+    """Brief description."""
+
+    @property
+    def version(self) -> int:
+        return XXX  # Next sequential number
+
+    @property
+    def description(self) -> str:
+        return "Brief description for logging"
+
+    def upgrade(self, conn: sqlite3.Connection) -> None:
+        """Apply migration changes."""
+        # Check if change already exists (idempotent)
+        cursor = conn.execute("PRAGMA table_info(table_name)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        if "new_column" not in columns:
+            conn.execute("ALTER TABLE table_name ADD COLUMN new_column TEXT")
+            print("  [OK] Added new_column to table_name")
+        else:
+            print("  [OK] new_column already exists")
+```
+
+**Step 2: Register migration**
+
+Update `get_all_migrations()` in `mundane_pkg/migrations/__init__.py`:
+
+```python
+def get_all_migrations() -> List[Migration]:
+    from . import migration_001_plugin_output
+    from . import migration_002_remove_filesystem_columns
+    from . import migration_XXX_description  # Add import
+
+    migrations = [
+        migration_001_plugin_output.Migration001(),
+        migration_002_remove_filesystem_columns.Migration002(),
+        migration_XXX_description.MigrationXXX(),  # Add to list
+    ]
+    return sorted(migrations, key=lambda m: m.version)
+```
+
+**Step 3: Update schema version**
+
+Update version history in `mundane_pkg/database.py` (lines 40-46):
+
+```python
+SCHEMA_VERSION = XXX  # Update to new version
+"""Current schema version for migrations.
+
+Version history:
+- 0: Initial schema (no version tracking)
+- 1: Added plugin_output column to plugin_file_hosts
+- 2: Removed file_path and severity_dir columns from plugin_files
+- XXX: Description of your changes
+"""
+```
+
+**Step 4: Update documentation schema**
+
+Update `schema.sql` to reflect the new schema (documentation only).
+
+### Migration Best Practices
+
+1. **Make migrations idempotent**: Always check if changes exist before applying
+2. **Use PRAGMA table_info()**: Check column existence before ALTER TABLE
+3. **Preserve data**: When recreating tables, use INSERT INTO ... SELECT pattern
+4. **Print status**: Use `print("  [OK] ...")` for user feedback
+5. **Sequential numbering**: Use next available migration number
+6. **One change per migration**: Keep migrations focused and atomic
+
+### SQLite ALTER TABLE Limitations
+
+SQLite has limited ALTER TABLE support:
+- ✅ **Can do**: ADD COLUMN
+- ❌ **Cannot do**: DROP COLUMN (before 3.35.0), RENAME COLUMN, MODIFY COLUMN
+
+**Workaround for complex changes:**
+1. Create new table with desired schema
+2. Copy data: `INSERT INTO new_table SELECT ... FROM old_table`
+3. Drop old table: `DROP TABLE old_table`
+4. Rename: `ALTER TABLE new_table RENAME TO old_table`
+5. Recreate indexes
+
+See `migration_002_remove_filesystem_columns.py` for a complete example.
+
+### Testing Migrations
+
+**Fresh database test:**
+```bash
+rm ~/.mundane/mundane.db
+python -c "from mundane_pkg.database import initialize_database; initialize_database()"
+```
+
+**Upgrade test:**
+Create a test database with old schema and verify migration runs correctly.
 
 ---
 

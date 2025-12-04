@@ -13,6 +13,7 @@ from typing import Any, Optional, Union
 from rich import box
 from rich.console import Console
 from rich.panel import Panel
+from rich.prompt import Prompt
 from rich.table import Table
 from rich.text import Text
 
@@ -39,7 +40,7 @@ def print_action_menu(actions: list[tuple[str, str]]) -> None:
         action_text.append(f"[{key}] ", style="cyan")
         action_text.append(desc, style=None)
 
-    print(f"{C.CYAN}>> {C.RESET}", end="")
+    _console_global.print("[cyan]>>[/cyan] ", end="")
     _console_global.print(action_text)
 
 
@@ -85,7 +86,7 @@ def menu_pager(text: str, page_size: Optional[int] = None) -> None:
         print("─" * 80)
         print_action_menu([("N", "Next page"), ("P", "Prev page"), ("B", "Back")])
         try:
-            answer = input("Action: ").strip().lower()
+            answer = Prompt.ask("Action", default="").strip().lower()
         except KeyboardInterrupt:
             warn("\nInterrupted — returning.")
             return
@@ -323,8 +324,8 @@ def render_compare_tables(
             pad_edge=False
         )
         groups_table.add_column("#", justify="right", no_wrap=True, max_width=5)
-        groups_table.add_column("File count", justify="right", no_wrap=True, max_width=12)
-        groups_table.add_column("Files (sample)", overflow="fold")
+        groups_table.add_column("Count", justify="right", no_wrap=True, max_width=12)
+        groups_table.add_column("Findings (sample)", overflow="fold")
         for i, names in enumerate(groups_sorted, 1):
             sample = "\n".join(names[:8]) + (
                 f"\n... (+{len(names)-8} more)" if len(names) > 8 else ""

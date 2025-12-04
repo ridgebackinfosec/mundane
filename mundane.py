@@ -15,6 +15,8 @@ if str(_here) not in sys.path:
     sys.path.insert(0, str(_here))
 
 from mundane_pkg import (
+    # version
+    __version__,
     # logging
     setup_logging,
     # ops
@@ -45,7 +47,6 @@ from mundane_pkg import (
     err,
     info,
     fmt_action,
-    fmt_reviewed,
     cyan_label,
     colorize_severity_label,
     # render:
@@ -103,18 +104,22 @@ import subprocess
 import tempfile
 import types
 from collections import Counter
+from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from mundane_pkg.models import Plugin, PluginFile
 
 # === Third-party imports ===
+import click
 import typer
+from typer import Exit
 from rich import box
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
-from rich.prompt import Prompt
+from rich.prompt import Confirm, IntPrompt, Prompt
+from rich.status import Status
 from rich.table import Table
 from rich.text import Text
 from rich.traceback import install as rich_tb_install
@@ -122,45 +127,34 @@ from rich.traceback import install as rich_tb_install
 # Create a console for the interactive flow
 _console_global = Console()
 
-# Install pretty tracebacks (no try/except; fail loudly if Rich is absent)
-rich_tb_install(show_locals=False)
+# Install pretty tracebacks, but suppress for Typer/Click exit exceptions
+rich_tb_install(show_locals=False, suppress=["typer", "click"])
 
 
-def yesno(prompt: str, default: str = "y") -> bool:
-    """
-    Display a yes/no prompt with visible default value.
+# === Enums for type-safe choices ===
 
-    Args:
-        prompt: Question to ask the user
-        default: Default answer ('y' or 'n')
+class DisplayFormat(str, Enum):
+    """Display format options for output."""
+    SEPARATED = "separated"
+    COMBINED = "combined"
+    JSON = "json"
+    CSV = "csv"
+    XML = "xml"
 
-    Returns:
-        True if user answers yes, False if no
 
-    Raises:
-        KeyboardInterrupt: If user interrupts with Ctrl+C
-    """
-    default = (default or "y").lower()
-    if default not in ("y", "n"):
-        default = "y"
-    suffix = " [Y/n] " if default == "y" else " [y/N] "
+class ViewFormat(str, Enum):
+    """View format options for file content display."""
+    RAW = "raw"
+    GROUPED = "grouped"
+    HOSTS_ONLY = "hosts"
 
-    while True:
-        try:
-            ans = input(prompt.rstrip() + suffix).strip().lower()
-        except KeyboardInterrupt:
-            warn("\nInterrupted — returning to previous menu.")
-            raise
-        except EOFError:
-            ans = ""
 
-        if ans == "":
-            return default == "y"
-        if ans in ("y", "yes"):
-            return True
-        if ans in ("n", "no"):
-            return False
-        warn("Please answer 'y' or 'n'.")
+class SortMode(str, Enum):
+    """Sort mode options for file lists."""
+    SEVERITY = "severity"
+    UNREVIEWED = "unreviewed"
+    REVIEWED = "reviewed"
+    NAME = "name"
 
 
 def print_action_menu(actions: list[tuple[str, str]]) -> None:
@@ -177,7 +171,7 @@ def print_action_menu(actions: list[tuple[str, str]]) -> None:
         action_text.append(f"[{key}] ", style="cyan")
         action_text.append(desc, style=None)
 
-    print(f"{C.CYAN}>> {C.RESET}", end="")
+    _console_global.print("[cyan]>>[/cyan] ", end="")
     _console_global.print(action_text)
 
 
@@ -232,7 +226,7 @@ def page_text(text: str) -> None:
         text: Text content to display
     """
     with _console_global.pager(styles=True):
-        print(text, end="" if text.endswith("\n") else "\n")
+        _console_global.print(text, end="" if text.endswith("\n") else "\n")
 
 
 def _plugin_id_from_filename(name_or_path: Union[Path, str]) -> Optional[str]:
@@ -349,9 +343,10 @@ def _display_bulk_cve_results(results: dict[str, list[str]]) -> None:
     if results:
         # Ask user for display format
         try:
-            format_choice = input(
-                "\nDisplay format: [S]eparated by file / [C]ombined list (default=S): "
-            ).strip().lower()
+            format_choice = Prompt.ask(
+                "\nDisplay format",
+                default="s"
+            ).lower()
         except KeyboardInterrupt:
             return
 
@@ -371,12 +366,12 @@ def _display_bulk_cve_results(results: dict[str, list[str]]) -> None:
                 info(f"{plugin_name}:")
                 for cve in cves:
                     info(f"{cve}")
-                print()  # Blank line between plugins
+                _console_global.print()  # Blank line between plugins
     else:
         warn("No CVEs found for any of the filtered findings.")
 
     try:
-        input("\nPress Enter to continue...")
+        Prompt.ask("\nPress Enter to continue", default="")
     except KeyboardInterrupt:
         pass
 
@@ -483,7 +478,7 @@ def choose_from_list(
     """
     header(title)
     for index, item in enumerate(items, 1):
-        print(f"[{index}] {item}")
+        _console_global.print(f"[{index}] {item}")
 
     if allow_back:
         print_action_menu([("B", "Back")])
@@ -492,7 +487,7 @@ def choose_from_list(
 
     while True:
         try:
-            ans = input("Choose: ").strip().lower()
+            ans = Prompt.ask("Choose").strip().lower()
         except KeyboardInterrupt:
             warn("\nInterrupted — returning.")
             raise
@@ -628,7 +623,7 @@ def show_scan_summary(
         file_stats_parts.append(f"[cyan]Empty:[/cyan] {empties}")
 
     _console_global.print(" │ ".join(file_stats_parts))
-    print()  # Blank line
+    _console_global.print()  # Blank line
 
     # Host & Port Analysis Table
     analysis_table = Table(show_header=True, header_style="bold cyan", box=box.SIMPLE, title="Host & Port Analysis", title_style="bold blue")
@@ -643,7 +638,7 @@ def show_scan_summary(
     analysis_table.add_row("Unique Ports", str(len(port_set)))
 
     _console_global.print(analysis_table)
-    print()  # Blank line after table
+    _console_global.print()  # Blank line after table
 
 
 # === Grouped host:ports printer ===
@@ -668,9 +663,9 @@ def print_grouped_hosts_ports(path: Path) -> None:
                 sorted(combos[host], key=lambda x: int(x)) if combos[host] else []
             )
             if port_list:
-                print(f"{host}:{','.join(port_list)}")
+                _console_global.print(f"{host}:{','.join(port_list)}")
             else:
-                print(host)
+                _console_global.print(host)
     except Exception as exc:
         warn(f"Error grouping hosts/ports: {exc}")
 
@@ -898,10 +893,10 @@ def handle_file_view(
         action_text.append("[B] ", style="cyan")
         action_text.append("Back", style=None)
 
-        print(f"{C.CYAN}>> {C.RESET}", end="")
+        _console.print("[cyan]>>[/cyan] ", end="")
         _console.print(action_text)
         try:
-            action_choice = input("Choose action: ").strip().lower()
+            action_choice = Prompt.ask("Choose action").strip().lower()
         except KeyboardInterrupt:
             # User cancelled - treat as back
             return "back"
@@ -998,7 +993,6 @@ def handle_file_view(
             details_text = _build_plugin_output_details(plugin_file, plugin)
 
             if details_text:
-                from mundane_pkg.render import menu_pager
                 menu_pager(details_text)
             else:
                 warn("No plugin output available for this finding.")
@@ -1017,7 +1011,10 @@ def handle_file_view(
             ("H", "Hosts only")
         ])
         try:
-            format_choice = input("Choose format (default=G): ").strip().lower()
+            format_choice = Prompt.ask(
+                "Choose format",
+                default="g"
+            ).lower()
         except KeyboardInterrupt:
             return
 
@@ -1030,6 +1027,13 @@ def handle_file_view(
         if plugin is None:
             warn("Plugin metadata not available - cannot view file contents")
             continue
+
+        # Initialize variables to None for defensive programming
+        text = None
+        payload = None
+
+        # Strip whitespace from format_choice
+        format_choice = format_choice.strip()
 
         # Default to grouped
         if format_choice in ("", "g", "grouped"):
@@ -1045,12 +1049,20 @@ def handle_file_view(
             warn("Invalid format choice.")
             continue
 
+        # Guard: Ensure text and payload were successfully generated
+        if text is None or payload is None:
+            warn("Failed to generate content for selected format.")
+            continue
+
         # Step 3: Display file content
         menu_pager(text)
 
         # Step 4: Offer to copy to clipboard
         try:
-            copy_choice = input("Copy to clipboard? [Y/N]: ").strip().lower()
+            if Confirm.ask("Copy to clipboard?", default=True):
+                copy_choice = "y"
+            else:
+                copy_choice = "n"
         except KeyboardInterrupt:
             continue
 
@@ -1060,7 +1072,7 @@ def handle_file_view(
                 ok("Copied to clipboard.")
             else:
                 warn(f"{detail} Printing below for manual copy:")
-                print(payload)
+                _console_global.print(payload)
 
 
 def display_workflow(workflow: Workflow) -> None:
@@ -1079,7 +1091,7 @@ def display_workflow(workflow: Workflow) -> None:
     header(f"Verification Workflow: {workflow.workflow_name}")
     info(f"Plugin ID(s): {workflow.plugin_id}")
     info(f"Description: {workflow.description}")
-    print()
+    _console_global.print()
 
     # Steps
     for idx, step in enumerate(workflow.steps, 1):
@@ -1091,18 +1103,18 @@ def display_workflow(workflow: Workflow) -> None:
             border_style="cyan",
         )
         console.print(step_panel)
-        print()
+        _console_global.print()
 
     # References
     if workflow.references:
         info("References:")
         for ref in workflow.references:
-            print(f"  - {ref}")
-        print()
+            _console_global.print(f"  - {ref}")
+        _console_global.print()
 
     info("Press [Enter] to continue...")
     try:
-        input()
+        Prompt.ask("", default="")
     except KeyboardInterrupt:
         pass
 
@@ -1123,8 +1135,8 @@ def _build_nmap_workflow(ctx: "ToolContext") -> Optional["CommandResult"]:
     from mundane_pkg.tool_context import CommandResult
 
     try:
-        udp_ports = yesno(
-            "\nDo you want to perform UDP scanning instead of TCP?", default="n"
+        udp_ports = Confirm.ask(
+            "\nDo you want to perform UDP scanning instead of TCP?", default=False
         )
     except KeyboardInterrupt:
         return None
@@ -1135,9 +1147,9 @@ def _build_nmap_workflow(ctx: "ToolContext") -> Optional["CommandResult"]:
         return None
 
     try:
-        extra = input(
-            "Enter additional NSE scripts "
-            "(comma-separated, no spaces, or Enter to skip): "
+        extra = Prompt.ask(
+            "Enter additional NSE scripts (comma-separated, no spaces, or Enter to skip)",
+            default=""
         ).strip()
     except KeyboardInterrupt:
         return None
@@ -1230,8 +1242,8 @@ def _build_custom_workflow(ctx: "ToolContext") -> Optional["CommandResult"]:
     custom_command_help(mapping)
 
     try:
-        template = input(
-            "\nEnter your command (placeholders allowed): "
+        template = Prompt.ask(
+            "\nEnter your command (placeholders allowed)"
         ).strip()
     except KeyboardInterrupt:
         return None
@@ -1277,8 +1289,8 @@ def run_tool_workflow(
 
     if len(hosts) > SAMPLE_THRESHOLD:
         try:
-            do_sample = yesno(
-                f"There are {len(hosts)} hosts. Sample a subset?", default="n"
+            do_sample = Confirm.ask(
+                f"There are {len(hosts)} hosts. Sample a subset?", default=False
             )
         except KeyboardInterrupt:
             return False
@@ -1286,16 +1298,19 @@ def run_tool_workflow(
         if do_sample:
             while True:
                 try:
-                    sample_count = input("How many hosts to sample? ").strip()
+                    sample_count = IntPrompt.ask(
+                        "How many hosts to sample?",
+                        default=min(10, len(hosts))
+                    )
                 except KeyboardInterrupt:
                     warn("\nInterrupted — not sampling.")
                     break
 
-                if not sample_count.isdigit() or int(sample_count) <= 0:
+                if sample_count <= 0:
                     warn("Enter a positive integer.")
                     continue
 
-                count = min(int(sample_count), len(hosts))
+                count = min(sample_count, len(hosts))
                 sample_hosts = random.sample(hosts, count)
                 ok(f"Sampling {count} host(s).")
                 break
@@ -1376,7 +1391,7 @@ def run_tool_workflow(
                 # Display available module names
                 info(f"Found {len(plugin_obj.metasploit_names)} Metasploit module(s):")
                 for idx, msf_name in enumerate(plugin_obj.metasploit_names, start=1):
-                    print(f"  {idx}. {msf_name}")
+                    _console_global.print(f"  {idx}. {msf_name}")
 
                 # Build list of all commands
                 one_liners = []
@@ -1391,9 +1406,9 @@ def run_tool_workflow(
 
                 # Interactive command selection loop
                 while True:
-                    print("\n" + fmt_action("Available commands:"))
+                    _console_global.print("\n[cyan]>>[/cyan] Available commands:")
                     for idx, cmd in enumerate(one_liners, start=1):
-                        print(f"  {idx}. {cmd}")
+                        _console_global.print(f"  {idx}. {cmd}")
 
                     try:
                         answer = Prompt.ask(
@@ -1408,13 +1423,10 @@ def run_tool_workflow(
                                     selected_cmd = one_liners[selection - 1]
 
                                     # Execute command with confirmation
-                                    from mundane_pkg.ops import run_command_with_progress
                                     import shutil
 
                                     info(f"\nExecuting: {selected_cmd}\n")
-                                    confirm = input("Confirm? [y/N]: ").strip().lower()
-
-                                    if confirm in ("y", "yes"):
+                                    if Confirm.ask("Confirm?", default=False):
                                         shell_exec = shutil.which("bash") or shutil.which("sh")
                                         if shell_exec:
                                             run_command_with_progress(
@@ -1491,7 +1503,7 @@ def run_tool_workflow(
                     "Could not copy to clipboard automatically. "
                     "Here it is to copy manually:"
                 )
-                print(cmd_str)
+                _console_global.print(cmd_str)
 
         elif action == "run":
             try:
@@ -1555,7 +1567,7 @@ def run_tool_workflow(
         info(f" - Results dir:{results_dir}")
 
         try:
-            again = yesno("\nRun another command for this finding?", default="n")
+            again = Confirm.ask("\nRun another command for this finding?", default=False)
         except KeyboardInterrupt:
             break
         if not again:
@@ -1817,7 +1829,7 @@ def handle_file_list_actions(
     if ans == "f":
         info("Filter help: Enter any text to match finding names (case-insensitive)")
         info("Examples: 'apache' matches 'Apache HTTP Server', 'ssl' matches 'SSL Certificate'")
-        file_filter = input("Enter substring to filter by (or press Enter for none): ").strip()
+        file_filter = Prompt.ask("Enter substring to filter by (or press Enter for none)", default="").strip()
         page_idx = 0
         return None, file_filter, reviewed_filter, group_filter, sort_mode, page_idx
 
@@ -1855,7 +1867,7 @@ def handle_file_list_actions(
 
     if ans == "r":
         header("Reviewed findings (read-only)")
-        print(f"Current filter: '{reviewed_filter or '*'}'")
+        _console_global.print(f"Current filter: '{reviewed_filter or '*'}'")
         filtered_reviewed = [
             (pf, p)
             for (pf, p) in reviewed
@@ -1868,9 +1880,11 @@ def handle_file_list_actions(
                 # Get severity label from plugin metadata
                 sev_label = plugin.severity_label or f"Severity {plugin.severity_int}"
                 sev_col = colorize_severity_label(sev_label)
-                print(f"[{idx}] {fmt_reviewed(display_name)}  — {sev_col}")
+                # Use Rich markup instead of ANSI codes for Rich console
+                _console_global.print(f"[{idx}] [magenta]✓ {display_name}[/magenta]  — {sev_col}")
             else:
-                print(f"[{idx}] {fmt_reviewed(display_name)}")
+                # Use Rich markup instead of ANSI codes for Rich console
+                _console_global.print(f"[{idx}] [magenta]✓ {display_name}[/magenta]")
 
         print_action_menu([
             ("?", "Help"),
@@ -1881,7 +1895,7 @@ def handle_file_list_actions(
         ])
 
         try:
-            choice = input("Action or [B]ack: ").strip().lower()
+            choice = Prompt.ask("Action or [B]ack").strip().lower()
         except KeyboardInterrupt:
             warn("\nInterrupted — returning.")
             return (
@@ -1917,7 +1931,7 @@ def handle_file_list_actions(
                 )
 
             try:
-                selection = input("Enter file number(s) to undo (e.g., 1 or 1,3,5) or [A]ll: ").strip()
+                selection = Prompt.ask("Enter file number(s) to undo (e.g., 1 or 1,3,5) or [A]ll").strip()
             except KeyboardInterrupt:
                 return (
                     None,
@@ -1961,7 +1975,7 @@ def handle_file_list_actions(
         if choice == "f":
             info("Filter help: Enter any text to match filenames (case-insensitive)")
             info("Examples: 'apache' matches 'Apache_2.4', 'ssl' matches 'SSL_Certificate'")
-            reviewed_filter = input("Enter substring to filter by (or press Enter for none): ").strip()
+            reviewed_filter = Prompt.ask("Enter substring to filter by (or press Enter for none)", default="").strip()
             return (
                 None,
                 file_filter,
@@ -2022,11 +2036,11 @@ def handle_file_list_actions(
                 page_idx,
             )
 
-        confirm_msg = (
-            f"You are about to mark {len(candidates)} items as review completed.\n"
-            "Type 'mark' to confirm, or anything else to cancel: "
+        confirm_prompt = (
+            f"[red]You are about to mark {len(candidates)} items as review completed.[/red]\n"
+            "Type 'mark' to confirm, or anything else to cancel"
         )
-        confirm = input(f"{C.RED}{confirm_msg}{C.RESET}").strip().lower()
+        confirm = Prompt.ask(confirm_prompt).strip().lower()
 
         if confirm != "mark":
             info("Canceled.")
@@ -2068,8 +2082,9 @@ def handle_file_list_actions(
             visible = min(VISIBLE_GROUPS, len(groups))
             opts = " | ".join(f"g{i+1}" for i in range(visible))
             ellipsis = " | etc." if len(groups) > VISIBLE_GROUPS else ""
-            choice = input(
-                f"\n[Enter] back | choose {opts}{ellipsis} to filter to a group: "
+            choice = Prompt.ask(
+                f"\n[Enter] back | choose {opts}{ellipsis} to filter to a group",
+                default=""
             ).strip().lower()
 
             if choice.startswith("g") and choice[1:].isdigit():
@@ -2099,8 +2114,9 @@ def handle_file_list_actions(
             visible = min(VISIBLE_GROUPS, len(groups))
             opts = " | ".join(f"g{i+1}" for i in range(visible))
             ellipsis = " | etc." if len(groups) > VISIBLE_GROUPS else ""
-            choice = input(
-                f"\n[Enter] back | choose {opts}{ellipsis} to filter to a group: "
+            choice = Prompt.ask(
+                f"\n[Enter] back | choose {opts}{ellipsis} to filter to a group",
+                default=""
             ).strip().lower()
 
             if choice.startswith("g") and choice[1:].isdigit():
@@ -2222,7 +2238,7 @@ def browse_workflow_groups(
         print_action_menu([("B", "Back")])
 
         try:
-            ans = input("Choose workflow: ").strip().lower()
+            ans = Prompt.ask("Choose workflow").strip().lower()
         except KeyboardInterrupt:
             warn("\nInterrupted — returning to severity menu.")
             return
@@ -2399,7 +2415,7 @@ def browse_file_list(
             }.get(sort_mode, "Plugin ID ↑")
             status += f" | Sort: {sort_label}"
             status += f" | Page: {page_idx+1}/{total_pages}"
-            print(status)
+            _console_global.print(status)
 
             render_file_list_table(
                 page_items, sort_mode, get_counts_for, row_offset=start,
@@ -2416,7 +2432,7 @@ def browse_file_list(
                 can_prev=can_prev,
             )
 
-            ans = input("Choose a file number, or action: ").strip().lower()
+            ans = Prompt.ask("Choose a file number, or action").strip().lower()
         except KeyboardInterrupt:
             warn("\nInterrupted — returning to severity menu.")
             break
@@ -2565,7 +2581,7 @@ def show_session_statistics(
     overall_table.add_row("Total Findings Processed", str(len(reviewed_total) + len(completed_total) + len(skipped_total)))
 
     console.print(overall_table)
-    print()
+    _console_global.print()
 
     # Per-severity breakdown (for completed findings only)
     if completed_total:
@@ -2581,10 +2597,11 @@ def show_session_statistics(
                 rows = query_all(
                     conn,
                     """
-                    SELECT severity_dir, COUNT(*) as count
-                    FROM plugin_files
-                    WHERE scan_id = ? AND review_state = 'completed'
-                    GROUP BY severity_dir
+                    SELECT p.severity_label, COUNT(*) as count
+                    FROM plugin_files pf
+                    JOIN plugins p ON pf.plugin_id = p.plugin_id
+                    WHERE pf.scan_id = ? AND pf.review_state = 'completed'
+                    GROUP BY p.severity_label
                     """,
                     (scan_id,)
                 )
@@ -2615,15 +2632,15 @@ def show_session_statistics(
 
             info("Per-Severity Breakdown:")
             console.print(sev_table)
-            print()
+            _console_global.print()
 
     # File lists tracked internally but not displayed
 
     if skipped_total:
         info(f"Skipped (empty) ({len(skipped_total)}):")
         for name in skipped_total:
-            print(f"  - {name}")
-        print()
+            _console_global.print(f"  - {name}")
+        _console_global.print()
 
 
 def main(args: types.SimpleNamespace) -> None:
@@ -2652,7 +2669,7 @@ def main(args: types.SimpleNamespace) -> None:
     if not is_valid:
         err(f"Results directory validation failed: {error_msg}")
         warn(f"Please check the NPH_RESULTS_ROOT environment variable or ensure {RESULTS_ROOT} is writable")
-        sys.exit(1)
+        raise Exit(1)
 
     # Track session start time
     from datetime import datetime
@@ -2664,19 +2681,22 @@ def main(args: types.SimpleNamespace) -> None:
 
     if custom_workflows_only:
         # Replace mode: Use ONLY custom YAML
-        workflow_mapper = WorkflowMapper(yaml_path=custom_workflows_only)
+        with _console_global.status("[bold green]Loading custom workflows..."):
+            workflow_mapper = WorkflowMapper(yaml_path=custom_workflows_only)
         if workflow_mapper.count() > 0:
             info(f"Loaded {workflow_mapper.count()} custom workflow(s) from {custom_workflows_only} (defaults disabled)")
         else:
             warn(f"No workflows loaded from {custom_workflows_only}")
     else:
         # Default or supplement mode
-        workflow_mapper = WorkflowMapper()  # Load defaults
-        default_count = workflow_mapper.count()
+        with _console_global.status("[bold green]Loading workflows..."):
+            workflow_mapper = WorkflowMapper()  # Load defaults
+            default_count = workflow_mapper.count()
 
         if custom_workflows:
             # Supplement mode: Load custom YAML in addition to defaults
-            additional_count = workflow_mapper.load_additional_workflows(custom_workflows)
+            with _console_global.status("[bold green]Loading additional custom workflows..."):
+                additional_count = workflow_mapper.load_additional_workflows(custom_workflows)
             if additional_count > 0:
                 info(f"Loaded {default_count} default + {additional_count} custom workflow(s) from {custom_workflows}")
             else:
@@ -2695,7 +2715,7 @@ def main(args: types.SimpleNamespace) -> None:
     export_root = Path(args.export_root) if args.export_root else None
     if export_root and not export_root.exists():
         err(f"Export root not found: {export_root}")
-        sys.exit(1)
+        raise Exit(1)
 
     if export_root:
         ok(f"Using export root: {export_root.resolve()}")
@@ -2715,7 +2735,8 @@ def main(args: types.SimpleNamespace) -> None:
         while True:
             # Get all scans from database
             try:
-                all_scans = Scan.get_all()
+                with _console_global.status("[bold green]Loading scans from database..."):
+                    all_scans = Scan.get_all()
             except Exception as e:
                 err(f"Failed to query scans from database: {e}")
                 return
@@ -2764,7 +2785,7 @@ def main(args: types.SimpleNamespace) -> None:
             print_action_menu([("Q", "Quit")])
 
             try:
-                ans = input("Choose scan: ").strip().lower()
+                ans = Prompt.ask("Choose scan").strip().lower()
             except KeyboardInterrupt:
                 warn("\nInterrupted — exiting.")
                 return
@@ -2796,7 +2817,7 @@ def main(args: types.SimpleNamespace) -> None:
                 info(f"Completed: {previous_session.completed_count} findings")
                 info(f"Skipped: {previous_session.skipped_count} findings")
                 try:
-                    resume = yesno("Resume this session?", default="y")
+                    resume = Confirm.ask("Resume this session?", default=True)
                 except KeyboardInterrupt:
                     warn("\nInterrupted — exiting.")
                     return
@@ -2888,7 +2909,7 @@ def main(args: types.SimpleNamespace) -> None:
                 info("Tip: Multi-select is supported (e.g., 1-3 or 1,3,5)")
 
                 try:
-                    ans = input("Choose: ").strip().lower()
+                    ans = Prompt.ask("Choose").strip().lower()
                 except KeyboardInterrupt:
                     warn("\nInterrupted — returning to scan menu.")
                     break
@@ -3029,25 +3050,41 @@ def main(args: types.SimpleNamespace) -> None:
         # Clean up session (mark as ended in database)
         delete_session(selected_scan.scan_id)
 
-    print() # Empty line
+    _console_global.print() # Empty line
     ok("Now run \"mundane review\" to start reviewing findings.")
 
 
 # === Typer CLI ===
 
 app = typer.Typer(
-    no_args_is_help=True,
-    add_completion=False,
+    no_args_is_help=False,
+    add_completion=True,
     help="mundane — faster review & tooling runner",
 )
 _console = _console_global
 
 
-@app.callback()
+@app.callback(invoke_without_command=True)
 def _root(
-    quiet: bool = typer.Option(False, "-q", "--quiet", help="Suppress startup banner")
+    ctx: typer.Context,
+    quiet: bool = typer.Option(False, "-q", "--quiet", help="Suppress startup banner"),
+    version: bool = typer.Option(False, "--version", help="Show version and exit"),
+    help_flag: bool = typer.Option(False, "--help", "-h", help="Show help message")
 ) -> None:
     """Modern CLI for mundane."""
+    import sys
+
+    # Handle --version flag
+    if version:
+        _console_global.print(f"mundane version {__version__}")
+        sys.exit(0)
+
+    # Handle --help or no command (show help without banner)
+    if help_flag or ctx.invoked_subcommand is None:
+        _console_global.print(ctx.get_help())
+        sys.exit(0)
+
+    # Show banner for commands unless -q flag used
     if not quiet:
         from mundane_pkg.banner import display_banner
         display_banner()
@@ -3143,7 +3180,7 @@ def import_scan(
 
     Auto-detects scan name from .nessus file and exports to ~/.mundane/scans/<scan_name>.
     """
-    from mundane_pkg.nessus_export import export_nessus_plugins, extract_scan_name_from_nessus
+    from mundane_pkg.nessus_import import import_nessus_file, extract_scan_name_from_nessus
     from mundane_pkg.constants import SCANS_ROOT
 
     # Always extract scan name from .nessus file for consistency with database
@@ -3152,7 +3189,7 @@ def import_scan(
     # Determine output directory (always use SCANS_ROOT/<scan_name>)
     out_dir = SCANS_ROOT / scan_name
     info(f"Using scan name: {scan_name}")
-    info(f"Findings location: {out_dir}")
+    # info(f"Findings location: {out_dir}")
 
     # Check for duplicate imports
     from mundane_pkg.database import compute_file_hash
@@ -3172,7 +3209,7 @@ def import_scan(
         if existing_scan.created_at:
             warn(f"Existing: imported on {existing_scan.created_at}")
         warn(f"New file: {nessus.name}")
-        print()
+        _console_global.print()
 
         choices = [
             "1. Overwrite existing scan",
@@ -3180,9 +3217,9 @@ def import_scan(
             "3. Cancel import"
         ]
         for choice in choices:
-            print(f"  {choice}")
+            _console_global.print(f"  {choice}")
 
-        ans = input("\nChoice [1-3]: ").strip()
+        ans = Prompt.ask("\nChoice", default="3").strip()
 
         if ans == "1":
             info("Overwriting existing scan...")
@@ -3206,7 +3243,7 @@ def import_scan(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        result = export_nessus_plugins(
+        result = import_nessus_file(
             nessus_file=nessus,
             output_dir=out_dir,
             scan_name=scan_name,
@@ -3220,9 +3257,9 @@ def import_scan(
             from rich.table import Table
             from rich import box
             from mundane_pkg.render import severity_cell
-            from mundane_pkg.nessus_export import severity_label_from_int
+            from mundane_pkg.nessus_import import severity_label_from_int
 
-            print()  # Blank line before table
+            _console_global.print()  # Blank line before table
             info("Severity Breakdown:")
             sev_table = Table(show_header=True, header_style="bold cyan", box=box.SIMPLE)
             sev_table.add_column("Severity", style="cyan")
@@ -3242,7 +3279,7 @@ def import_scan(
         raise typer.Exit(1)
 
     # Show suggested tool commands
-    print()  # Blank line for spacing
+    _console_global.print()  # Blank line for spacing
     show_nessus_tool_suggestions(nessus)
 
     if review:
@@ -3305,7 +3342,7 @@ def list_scans() -> None:
         )
 
     _console_global.print(table)
-    print()  # Blank line
+    _console_global.print()  # Blank line
     info(f"Total scans: {len(scans)}")
     info("Use 'mundane review' to start reviewing a scan")
 
@@ -3341,12 +3378,12 @@ def delete_scan(
     warn("  - Host:port combinations")
     warn("  - Review sessions")
     warn("  - Tool executions and artifacts")
-    print()  # Blank line
+    _console_global.print()  # Blank line
 
     try:
-        response = input("Type the scan name to confirm deletion: ").strip()
+        response = Prompt.ask("Type the scan name to confirm deletion").strip()
     except KeyboardInterrupt:
-        print()  # Newline after ^C
+        _console_global.print()  # Newline after ^C
         info("Deletion cancelled")
         raise typer.Exit(0)
 
@@ -3399,7 +3436,7 @@ def config_show() -> None:
         info(f"No config file found (using defaults)")
         info(f"Create one with: mundane config-init")
 
-    print()
+    _console_global.print()
 
     # Create table
     table = Table(title="Configuration Values", show_header=True, header_style="bold cyan")
@@ -3458,7 +3495,7 @@ def config_show() -> None:
         table.add_row("nmap_default_profile", config.nmap_default_profile, "Config file")
 
     _console.print(table)
-    print()
+    _console_global.print()
     info(f"Edit config: {config_path}")
 
 
@@ -3483,7 +3520,7 @@ def config_get(
     if value is None:
         info(f"{key} is not set (using default)")
     else:
-        print(value)
+        _console_global.print(value)
 
 
 @app.command(help="Set a config value.")

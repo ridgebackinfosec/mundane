@@ -8,7 +8,10 @@ and generate scan statistics.
 import re
 from collections import defaultdict
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional, Union, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .models import Plugin, PluginFile
 
 from rich import box
 from rich.console import Console
@@ -402,7 +405,7 @@ def analyze_inclusions(files: Union[list[Path], list['PluginFile'], list[tuple['
         groups_table.add_column("#", justify="right", no_wrap=True)
         groups_table.add_column("Superset (root)")
         groups_table.add_column("Covers", justify="right", no_wrap=True)
-        groups_table.add_column("Covered files (sample)")
+        groups_table.add_column("Covered findings (sample)")
         for i, (root, covered_list) in enumerate(groups, 1):
             sample_names = covered_list[:8]
             sample = "\n".join(sample_names) + (

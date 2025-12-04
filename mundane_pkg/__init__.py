@@ -1,5 +1,6 @@
 
 """Internal package for the mundane CLI (split from monolithic script)."""
+from ._version import __version__
 from .ansi import C, header, ok, warn, err, info, fmt_action, fmt_reviewed, cyan_label, colorize_severity_label, breadcrumb
 from .banner import display_banner
 from .constants import (
@@ -75,8 +76,8 @@ from .config import (
     get_config_path,
     create_example_config,
 )
-from .nessus_export import (
-    export_nessus_plugins,
+from .nessus_import import (
+    import_nessus_file,
     ExportResult,
 )
 from .database import (

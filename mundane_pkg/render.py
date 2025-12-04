@@ -324,7 +324,7 @@ def render_compare_tables(
             pad_edge=False
         )
         groups_table.add_column("#", justify="right", no_wrap=True, max_width=5)
-        groups_table.add_column("Finding count", justify="right", no_wrap=True, max_width=12)
+        groups_table.add_column("Count", justify="right", no_wrap=True, max_width=12)
         groups_table.add_column("Findings (sample)", overflow="fold")
         for i, names in enumerate(groups_sorted, 1):
             sample = "\n".join(names[:8]) + (

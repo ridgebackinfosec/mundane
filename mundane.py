@@ -1029,6 +1029,13 @@ def handle_file_view(
             warn("Plugin metadata not available - cannot view file contents")
             continue
 
+        # Initialize variables to None for defensive programming
+        text = None
+        payload = None
+
+        # Strip whitespace from format_choice
+        format_choice = format_choice.strip()
+
         # Default to grouped
         if format_choice in ("", "g", "grouped"):
             text = _grouped_paged_text(plugin_file, plugin)
@@ -1041,6 +1048,11 @@ def handle_file_view(
             payload = _file_raw_payload_text(plugin_file)
         else:
             warn("Invalid format choice.")
+            continue
+
+        # Guard: Ensure text and payload were successfully generated
+        if text is None or payload is None:
+            warn("Failed to generate content for selected format.")
             continue
 
         # Step 3: Display file content

@@ -112,11 +112,12 @@ if TYPE_CHECKING:
 
 # === Third-party imports ===
 import typer
+from typer import Exit
 from rich import box
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
-from rich.prompt import Prompt
+from rich.prompt import Confirm, Prompt
 from rich.table import Table
 from rich.text import Text
 from rich.traceback import install as rich_tb_install
@@ -126,43 +127,6 @@ _console_global = Console()
 
 # Install pretty tracebacks (no try/except; fail loudly if Rich is absent)
 rich_tb_install(show_locals=False)
-
-
-def yesno(prompt: str, default: str = "y") -> bool:
-    """
-    Display a yes/no prompt with visible default value.
-
-    Args:
-        prompt: Question to ask the user
-        default: Default answer ('y' or 'n')
-
-    Returns:
-        True if user answers yes, False if no
-
-    Raises:
-        KeyboardInterrupt: If user interrupts with Ctrl+C
-    """
-    default = (default or "y").lower()
-    if default not in ("y", "n"):
-        default = "y"
-    suffix = " [Y/n] " if default == "y" else " [y/N] "
-
-    while True:
-        try:
-            ans = input(prompt.rstrip() + suffix).strip().lower()
-        except KeyboardInterrupt:
-            warn("\nInterrupted — returning to previous menu.")
-            raise
-        except EOFError:
-            ans = ""
-
-        if ans == "":
-            return default == "y"
-        if ans in ("y", "yes"):
-            return True
-        if ans in ("n", "no"):
-            return False
-        warn("Please answer 'y' or 'n'.")
 
 
 def print_action_menu(actions: list[tuple[str, str]]) -> None:
@@ -179,7 +143,7 @@ def print_action_menu(actions: list[tuple[str, str]]) -> None:
         action_text.append(f"[{key}] ", style="cyan")
         action_text.append(desc, style=None)
 
-    print(f"{C.CYAN}>> {C.RESET}", end="")
+    _console_global.print(f"{C.CYAN}>> {C.RESET}", end="")
     _console_global.print(action_text)
 
 
@@ -234,7 +198,7 @@ def page_text(text: str) -> None:
         text: Text content to display
     """
     with _console_global.pager(styles=True):
-        print(text, end="" if text.endswith("\n") else "\n")
+        _console_global.print(text, end="" if text.endswith("\n") else "\n")
 
 
 def _plugin_id_from_filename(name_or_path: Union[Path, str]) -> Optional[str]:
@@ -373,7 +337,7 @@ def _display_bulk_cve_results(results: dict[str, list[str]]) -> None:
                 info(f"{plugin_name}:")
                 for cve in cves:
                     info(f"{cve}")
-                print()  # Blank line between plugins
+                _console_global.print()  # Blank line between plugins
     else:
         warn("No CVEs found for any of the filtered findings.")
 
@@ -485,7 +449,7 @@ def choose_from_list(
     """
     header(title)
     for index, item in enumerate(items, 1):
-        print(f"[{index}] {item}")
+        _console_global.print(f"[{index}] {item}")
 
     if allow_back:
         print_action_menu([("B", "Back")])
@@ -630,7 +594,7 @@ def show_scan_summary(
         file_stats_parts.append(f"[cyan]Empty:[/cyan] {empties}")
 
     _console_global.print(" │ ".join(file_stats_parts))
-    print()  # Blank line
+    _console_global.print()  # Blank line
 
     # Host & Port Analysis Table
     analysis_table = Table(show_header=True, header_style="bold cyan", box=box.SIMPLE, title="Host & Port Analysis", title_style="bold blue")
@@ -645,7 +609,7 @@ def show_scan_summary(
     analysis_table.add_row("Unique Ports", str(len(port_set)))
 
     _console_global.print(analysis_table)
-    print()  # Blank line after table
+    _console_global.print()  # Blank line after table
 
 
 # === Grouped host:ports printer ===
@@ -670,9 +634,9 @@ def print_grouped_hosts_ports(path: Path) -> None:
                 sorted(combos[host], key=lambda x: int(x)) if combos[host] else []
             )
             if port_list:
-                print(f"{host}:{','.join(port_list)}")
+                _console_global.print(f"{host}:{','.join(port_list)}")
             else:
-                print(host)
+                _console_global.print(host)
     except Exception as exc:
         warn(f"Error grouping hosts/ports: {exc}")
 
@@ -900,7 +864,7 @@ def handle_file_view(
         action_text.append("[B] ", style="cyan")
         action_text.append("Back", style=None)
 
-        print(f"{C.CYAN}>> {C.RESET}", end="")
+        _console.print(f"{C.CYAN}>> {C.RESET}", end="")
         _console.print(action_text)
         try:
             action_choice = input("Choose action: ").strip().lower()
@@ -1062,7 +1026,7 @@ def handle_file_view(
                 ok("Copied to clipboard.")
             else:
                 warn(f"{detail} Printing below for manual copy:")
-                print(payload)
+                _console_global.print(payload)
 
 
 def display_workflow(workflow: Workflow) -> None:
@@ -1081,7 +1045,7 @@ def display_workflow(workflow: Workflow) -> None:
     header(f"Verification Workflow: {workflow.workflow_name}")
     info(f"Plugin ID(s): {workflow.plugin_id}")
     info(f"Description: {workflow.description}")
-    print()
+    _console_global.print()
 
     # Steps
     for idx, step in enumerate(workflow.steps, 1):
@@ -1093,14 +1057,14 @@ def display_workflow(workflow: Workflow) -> None:
             border_style="cyan",
         )
         console.print(step_panel)
-        print()
+        _console_global.print()
 
     # References
     if workflow.references:
         info("References:")
         for ref in workflow.references:
-            print(f"  - {ref}")
-        print()
+            _console_global.print(f"  - {ref}")
+        _console_global.print()
 
     info("Press [Enter] to continue...")
     try:
@@ -1125,8 +1089,8 @@ def _build_nmap_workflow(ctx: "ToolContext") -> Optional["CommandResult"]:
     from mundane_pkg.tool_context import CommandResult
 
     try:
-        udp_ports = yesno(
-            "\nDo you want to perform UDP scanning instead of TCP?", default="n"
+        udp_ports = Confirm.ask(
+            "\nDo you want to perform UDP scanning instead of TCP?", default=False
         )
     except KeyboardInterrupt:
         return None
@@ -1279,8 +1243,8 @@ def run_tool_workflow(
 
     if len(hosts) > SAMPLE_THRESHOLD:
         try:
-            do_sample = yesno(
-                f"There are {len(hosts)} hosts. Sample a subset?", default="n"
+            do_sample = Confirm.ask(
+                f"There are {len(hosts)} hosts. Sample a subset?", default=False
             )
         except KeyboardInterrupt:
             return False
@@ -1378,7 +1342,7 @@ def run_tool_workflow(
                 # Display available module names
                 info(f"Found {len(plugin_obj.metasploit_names)} Metasploit module(s):")
                 for idx, msf_name in enumerate(plugin_obj.metasploit_names, start=1):
-                    print(f"  {idx}. {msf_name}")
+                    _console_global.print(f"  {idx}. {msf_name}")
 
                 # Build list of all commands
                 one_liners = []
@@ -1393,9 +1357,9 @@ def run_tool_workflow(
 
                 # Interactive command selection loop
                 while True:
-                    print("\n" + fmt_action("Available commands:"))
+                    _console_global.print("\n" + fmt_action("Available commands:"))
                     for idx, cmd in enumerate(one_liners, start=1):
-                        print(f"  {idx}. {cmd}")
+                        _console_global.print(f"  {idx}. {cmd}")
 
                     try:
                         answer = Prompt.ask(
@@ -1493,7 +1457,7 @@ def run_tool_workflow(
                     "Could not copy to clipboard automatically. "
                     "Here it is to copy manually:"
                 )
-                print(cmd_str)
+                _console_global.print(cmd_str)
 
         elif action == "run":
             try:
@@ -1557,7 +1521,7 @@ def run_tool_workflow(
         info(f" - Results dir:{results_dir}")
 
         try:
-            again = yesno("\nRun another command for this finding?", default="n")
+            again = Confirm.ask("\nRun another command for this finding?", default=False)
         except KeyboardInterrupt:
             break
         if not again:
@@ -1857,7 +1821,7 @@ def handle_file_list_actions(
 
     if ans == "r":
         header("Reviewed findings (read-only)")
-        print(f"Current filter: '{reviewed_filter or '*'}'")
+        _console_global.print(f"Current filter: '{reviewed_filter or '*'}'")
         filtered_reviewed = [
             (pf, p)
             for (pf, p) in reviewed
@@ -1870,9 +1834,9 @@ def handle_file_list_actions(
                 # Get severity label from plugin metadata
                 sev_label = plugin.severity_label or f"Severity {plugin.severity_int}"
                 sev_col = colorize_severity_label(sev_label)
-                print(f"[{idx}] {fmt_reviewed(display_name)}  — {sev_col}")
+                _console_global.print(f"[{idx}] {fmt_reviewed(display_name)}  — {sev_col}")
             else:
-                print(f"[{idx}] {fmt_reviewed(display_name)}")
+                _console_global.print(f"[{idx}] {fmt_reviewed(display_name)}")
 
         print_action_menu([
             ("?", "Help"),
@@ -2401,7 +2365,7 @@ def browse_file_list(
             }.get(sort_mode, "Plugin ID ↑")
             status += f" | Sort: {sort_label}"
             status += f" | Page: {page_idx+1}/{total_pages}"
-            print(status)
+            _console_global.print(status)
 
             render_file_list_table(
                 page_items, sort_mode, get_counts_for, row_offset=start,
@@ -2567,7 +2531,7 @@ def show_session_statistics(
     overall_table.add_row("Total Findings Processed", str(len(reviewed_total) + len(completed_total) + len(skipped_total)))
 
     console.print(overall_table)
-    print()
+    _console_global.print()
 
     # Per-severity breakdown (for completed findings only)
     if completed_total:
@@ -2618,15 +2582,15 @@ def show_session_statistics(
 
             info("Per-Severity Breakdown:")
             console.print(sev_table)
-            print()
+            _console_global.print()
 
     # File lists tracked internally but not displayed
 
     if skipped_total:
         info(f"Skipped (empty) ({len(skipped_total)}):")
         for name in skipped_total:
-            print(f"  - {name}")
-        print()
+            _console_global.print(f"  - {name}")
+        _console_global.print()
 
 
 def main(args: types.SimpleNamespace) -> None:
@@ -2655,7 +2619,7 @@ def main(args: types.SimpleNamespace) -> None:
     if not is_valid:
         err(f"Results directory validation failed: {error_msg}")
         warn(f"Please check the NPH_RESULTS_ROOT environment variable or ensure {RESULTS_ROOT} is writable")
-        sys.exit(1)
+        raise Exit(1)
 
     # Track session start time
     from datetime import datetime
@@ -2698,7 +2662,7 @@ def main(args: types.SimpleNamespace) -> None:
     export_root = Path(args.export_root) if args.export_root else None
     if export_root and not export_root.exists():
         err(f"Export root not found: {export_root}")
-        sys.exit(1)
+        raise Exit(1)
 
     if export_root:
         ok(f"Using export root: {export_root.resolve()}")
@@ -2799,7 +2763,7 @@ def main(args: types.SimpleNamespace) -> None:
                 info(f"Completed: {previous_session.completed_count} findings")
                 info(f"Skipped: {previous_session.skipped_count} findings")
                 try:
-                    resume = yesno("Resume this session?", default="y")
+                    resume = Confirm.ask("Resume this session?", default=True)
                 except KeyboardInterrupt:
                     warn("\nInterrupted — exiting.")
                     return
@@ -3032,7 +2996,7 @@ def main(args: types.SimpleNamespace) -> None:
         # Clean up session (mark as ended in database)
         delete_session(selected_scan.scan_id)
 
-    print() # Empty line
+    _console_global.print() # Empty line
     ok("Now run \"mundane review\" to start reviewing findings.")
 
 
@@ -3058,15 +3022,15 @@ def _root(
 
     # Handle --version flag
     if version:
-        print(f"mundane version {__version__}")
-        sys.exit(0)
+        _console_global.print(f"mundane version {__version__}")
+        raise Exit(0)
 
     # Handle --help or no command (both show help with banner)
     if help_flag or ctx.invoked_subcommand is None:
         from mundane_pkg.banner import display_banner
         display_banner()
-        print(ctx.get_help())
-        sys.exit(0)
+        _console_global.print(ctx.get_help())
+        raise Exit(0)
 
     # Otherwise, show banner unless -q flag used
     if not quiet:
@@ -3193,7 +3157,7 @@ def import_scan(
         if existing_scan.created_at:
             warn(f"Existing: imported on {existing_scan.created_at}")
         warn(f"New file: {nessus.name}")
-        print()
+        _console_global.print()
 
         choices = [
             "1. Overwrite existing scan",
@@ -3201,7 +3165,7 @@ def import_scan(
             "3. Cancel import"
         ]
         for choice in choices:
-            print(f"  {choice}")
+            _console_global.print(f"  {choice}")
 
         ans = input("\nChoice [1-3]: ").strip()
 
@@ -3243,7 +3207,7 @@ def import_scan(
             from mundane_pkg.render import severity_cell
             from mundane_pkg.nessus_import import severity_label_from_int
 
-            print()  # Blank line before table
+            _console_global.print()  # Blank line before table
             info("Severity Breakdown:")
             sev_table = Table(show_header=True, header_style="bold cyan", box=box.SIMPLE)
             sev_table.add_column("Severity", style="cyan")
@@ -3263,7 +3227,7 @@ def import_scan(
         raise typer.Exit(1)
 
     # Show suggested tool commands
-    print()  # Blank line for spacing
+    _console_global.print()  # Blank line for spacing
     show_nessus_tool_suggestions(nessus)
 
     if review:
@@ -3326,7 +3290,7 @@ def list_scans() -> None:
         )
 
     _console_global.print(table)
-    print()  # Blank line
+    _console_global.print()  # Blank line
     info(f"Total scans: {len(scans)}")
     info("Use 'mundane review' to start reviewing a scan")
 
@@ -3362,12 +3326,12 @@ def delete_scan(
     warn("  - Host:port combinations")
     warn("  - Review sessions")
     warn("  - Tool executions and artifacts")
-    print()  # Blank line
+    _console_global.print()  # Blank line
 
     try:
         response = input("Type the scan name to confirm deletion: ").strip()
     except KeyboardInterrupt:
-        print()  # Newline after ^C
+        _console_global.print()  # Newline after ^C
         info("Deletion cancelled")
         raise typer.Exit(0)
 
@@ -3420,7 +3384,7 @@ def config_show() -> None:
         info(f"No config file found (using defaults)")
         info(f"Create one with: mundane config-init")
 
-    print()
+    _console_global.print()
 
     # Create table
     table = Table(title="Configuration Values", show_header=True, header_style="bold cyan")
@@ -3479,7 +3443,7 @@ def config_show() -> None:
         table.add_row("nmap_default_profile", config.nmap_default_profile, "Config file")
 
     _console.print(table)
-    print()
+    _console_global.print()
     info(f"Edit config: {config_path}")
 
 
@@ -3504,7 +3468,7 @@ def config_get(
     if value is None:
         info(f"{key} is not set (using default)")
     else:
-        print(value)
+        _console_global.print(value)
 
 
 @app.command(help="Set a config value.")

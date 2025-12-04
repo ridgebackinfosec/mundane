@@ -7,6 +7,7 @@ A modernized **TUI helper** to review Nessus findings quickly and kick off focus
 ## Table of Contents
 
 - [Installation](#installation)
+- [Shell Completion](#shell-completion)
 - [Requirements](#requirements)
 - [Environment configuration](#environment-configuration-no-config-files-required)
 - [Logging & diagnostics](#logging--diagnostics)
@@ -95,6 +96,29 @@ cd mundane
 pipx install -e .  # or: pip install -e .
 mundane --help
 ```
+
+---
+
+## Shell Completion
+
+Mundane supports tab completion for bash, zsh, fish, and PowerShell shells. After installing mundane, enable completion with:
+
+```bash
+# Install completion for your current shell
+mundane --install-completion
+
+# Show completion script without installing (for manual setup)
+mundane --show-completion
+```
+
+**Usage examples:**
+```bash
+mundane <TAB>              # Shows all available commands
+mundane nessus<TAB>        # Shows nessus-* commands
+mundane --<TAB>            # Shows global options
+```
+
+**Note:** After installing completion, restart your shell or source your shell configuration file for changes to take effect.
 
 ---
 

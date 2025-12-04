@@ -865,7 +865,7 @@ def handle_file_view(
         action_text.append("[B] ", style="cyan")
         action_text.append("Back", style=None)
 
-        _console.print(f"{C.CYAN}>> {C.RESET}", end="")
+        _console.print("[cyan]>>[/cyan] ", end="")
         _console.print(action_text)
         try:
             action_choice = input("Choose action: ").strip().lower()
@@ -1358,7 +1358,7 @@ def run_tool_workflow(
 
                 # Interactive command selection loop
                 while True:
-                    _console_global.print("\n" + fmt_action("Available commands:"))
+                    _console_global.print("\n[cyan]>>[/cyan] Available commands:")
                     for idx, cmd in enumerate(one_liners, start=1):
                         _console_global.print(f"  {idx}. {cmd}")
 

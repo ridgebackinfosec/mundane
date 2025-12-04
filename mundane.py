@@ -3055,39 +3055,26 @@ def main(args: types.SimpleNamespace) -> None:
 
 
 # === Typer CLI ===
+# Main app + sub-apps (scan, config)
 
 app = typer.Typer(
-    no_args_is_help=False,
+    help="mundane — faster review & tooling runner for vulnerability scans",
     add_completion=True,
-    help="mundane — faster review & tooling runner",
 )
 _console = _console_global
 
+# Sub-applications
+scan_app = typer.Typer(
+    help="Scan management - import, list, and delete vulnerability scans"
+)
 
-@app.callback(invoke_without_command=True)
-def _root(
-    ctx: typer.Context,
-    quiet: bool = typer.Option(False, "-q", "--quiet", help="Suppress startup banner"),
-    version: bool = typer.Option(False, "--version", help="Show version and exit"),
-    help_flag: bool = typer.Option(False, "--help", "-h", help="Show help message")
-) -> None:
-    """Modern CLI for mundane."""
-    import sys
+config_app = typer.Typer(
+    help="Configuration management - view and modify settings"
+)
 
-    # Handle --version flag
-    if version:
-        _console_global.print(f"mundane version {__version__}")
-        sys.exit(0)
-
-    # Handle --help or no command (show help without banner)
-    if help_flag or ctx.invoked_subcommand is None:
-        _console_global.print(ctx.get_help())
-        sys.exit(0)
-
-    # Show banner for commands unless -q flag used
-    if not quiet:
-        from mundane_pkg.banner import display_banner
-        display_banner()
+# Register sub-apps with main app
+app.add_typer(scan_app, name="scan")
+app.add_typer(config_app, name="config")
 
 
 @app.command(help="Interactive review of findings.")
@@ -3169,7 +3156,7 @@ def show_nessus_tool_suggestions(nessus_file: Path) -> None:
     info("Tip: Copy these commands to run them in your terminal.")
 
 
-@app.command(name="import", help="Import .nessus file and export finding host lists")
+@scan_app.command(name="import", help="Import .nessus file and populate database with findings")
 def import_scan(
     nessus: Path = typer.Argument(
         ..., exists=True, readable=True, help="Path to a .nessus file"
@@ -3290,9 +3277,10 @@ def import_scan(
             warn("\nInterrupted — returning to shell.")
 
 
-# === Scan management commands ===
+# === Scan Sub-App Commands ===
+# Grouped under 'mundane scan'
 
-@app.command(help="List all imported scans with statistics")
+@scan_app.command(name="list", help="List all imported scans with statistics and review progress")
 def list_scans() -> None:
     """Display all scans in the database with finding counts and severity breakdown."""
     from mundane_pkg.models import Scan
@@ -3302,7 +3290,7 @@ def list_scans() -> None:
 
     if not scans:
         info("No scans found in database.")
-        info("Tip: Use 'mundane import <scan.nessus>' to import a scan")
+        info("Tip: Use 'mundane scan import <scan.nessus>' to import a scan")
         return
 
     # Create summary table
@@ -3347,7 +3335,7 @@ def list_scans() -> None:
     info("Use 'mundane review' to start reviewing a scan")
 
 
-@app.command(name="delete-scan", help="Delete a scan and all associated data")
+@scan_app.command(name="delete", help="Delete a scan and all associated data from database")
 def delete_scan(
     scan_name: str = typer.Argument(..., help="Name of scan to delete")
 ) -> None:
@@ -3399,9 +3387,10 @@ def delete_scan(
         raise typer.Exit(1)
 
 
-# === Config management commands ===
+# === Config Sub-App Commands ===
+# Grouped under 'mundane config'
 
-@app.command(help="Initialize example config file.")
+@config_app.command(name="init", help="Initialize example configuration file at ~/.mundane/config.yaml")
 def config_init() -> None:
     """Create an example config file at ~/.mundane/config.yaml with all options documented."""
     from mundane_pkg import create_example_config, get_config_path
@@ -3420,7 +3409,7 @@ def config_init() -> None:
         raise typer.Exit(1)
 
 
-@app.command(help="Show current configuration.")
+@config_app.command(name="show", help="Display current configuration with all settings and paths")
 def config_show() -> None:
     """Display current configuration (merged from file and defaults)."""
     from mundane_pkg import load_config, get_config_path
@@ -3434,7 +3423,7 @@ def config_show() -> None:
         info(f"Config file: {config_path}")
     else:
         info(f"No config file found (using defaults)")
-        info(f"Create one with: mundane config-init")
+        info(f"Create one with: mundane config init")
 
     _console_global.print()
 
@@ -3499,7 +3488,7 @@ def config_show() -> None:
     info(f"Edit config: {config_path}")
 
 
-@app.command(help="Get a specific config value.")
+@config_app.command(name="get", help="Retrieve value of a specific configuration key")
 def config_get(
     key: str = typer.Argument(..., help="Config key to retrieve")
 ) -> None:
@@ -3523,7 +3512,7 @@ def config_get(
         _console_global.print(value)
 
 
-@app.command(help="Set a config value.")
+@config_app.command(name="set", help="Update value of a specific configuration key")
 def config_set(
     key: str = typer.Argument(..., help="Config key to set"),
     value: str = typer.Argument(..., help="Value to set")

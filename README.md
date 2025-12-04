@@ -37,16 +37,16 @@ A modernized **TUI helper** to review Nessus findings quickly and kick off focus
 **Primary Workflow:**
 ```bash
 # Step 1: Import a .nessus scan
-mundane import scan.nessus
+mundane scan import scan.nessus
 
 # Step 2: Review findings interactively
 mundane review  # Select scan from database
 
 # Step 3: List all scans
-mundane list
+mundane scan list
 
 # Step 4: Delete a scan
-mundane delete-scan <scan_name>
+mundane scan delete <scan_name>
 ```
 
 ---
@@ -99,6 +99,24 @@ mundane --help
 
 ---
 
+## ⚠️ v2.0 Breaking Changes
+
+**Mundane v2.0 introduces a reorganized command structure for better discoverability.**
+
+**Command changes (v1.x → v2.0):**
+- `mundane import` → `mundane scan import`
+- `mundane list` → `mundane scan list`
+- `mundane delete-scan` → `mundane scan delete`
+- `mundane config-init` → `mundane config init`
+- `mundane config-show` → `mundane config show`
+- `mundane config-get` → `mundane config get`
+- `mundane config-set` → `mundane config set`
+- `mundane review` → **unchanged**
+
+**Note:** Old flat commands are no longer available. See [MIGRATION.md](MIGRATION.md) for upgrade guidance.
+
+---
+
 ## Shell Completion
 
 Mundane supports tab completion for bash, zsh, fish, and PowerShell shells. After installing mundane, enable completion with:
@@ -113,8 +131,8 @@ mundane --show-completion
 
 **Usage examples:**
 ```bash
-mundane <TAB>              # Shows all available commands
-mundane nessus<TAB>        # Shows nessus-* commands
+mundane <TAB>              # Shows all available commands (review, scan, config)
+mundane scan <TAB>         # Shows scan subcommands (import, list, delete)
 mundane --<TAB>            # Shows global options
 ```
 
@@ -206,31 +224,31 @@ Mundane provides CLI commands to manage your configuration without manually edit
 #### Create example config file
 ```bash
 # Generate ~/.mundane/config.yaml with all options documented
-mundane config-init
+mundane config init
 ```
 Creates a commented example config file with all available settings. Useful for first-time setup.
 
 #### View current configuration
 ```bash
 # Display merged configuration from all sources (file + defaults)
-mundane config-show
+mundane config show
 ```
 Shows a Rich table with all settings, their current values, and sources (file/default/env).
 
 #### Get specific config value
 ```bash
 # Retrieve a single config value
-mundane config-get default_page_size
-mundane config-get results_root
+mundane config get default_page_size
+mundane config get results_root
 ```
 Useful for scripting or checking individual settings.
 
 #### Set config value
 ```bash
 # Set a config value (creates config file if needed)
-mundane config-set default_page_size 30
-mundane config-set results_root "~/my_scans"
-mundane config-set auto_save_session false
+mundane config set default_page_size 30
+mundane config set results_root "~/my_scans"
+mundane config set auto_save_session false
 ```
 Updates `~/.mundane/config.yaml` with the new value. Creates the file if it doesn't exist.
 
@@ -238,18 +256,18 @@ Updates `~/.mundane/config.yaml` with the new value. Creates the file if it does
 
 ```bash
 # First-time setup
-mundane config-init
+mundane config init
 # Edit ~/.mundane/config.yaml to customize
 
 # Quick customization without editing YAML
-mundane config-set default_page_size 50
-mundane config-set default_tool "netexec"
+mundane config set default_page_size 50
+mundane config set default_tool "netexec"
 
 # Check what you've configured
-mundane config-show
+mundane config show
 
 # Verify specific setting
-mundane config-get default_tool
+mundane config get default_tool
 ```
 
 **Note:** All config commands are optional - mundane works perfectly with defaults if no config file exists.
@@ -272,7 +290,7 @@ mundane config-get default_tool
 
 ```bash
 # 1. Import your scan
-mundane import myscan.nessus
+mundane scan import myscan.nessus
 
 # 2. Review your findings
 mundane review
@@ -287,7 +305,7 @@ mundane review
 
 ```bash
 # Import the scan
-mundane import your_scan.nessus
+mundane scan import your_scan.nessus
 
 # Then review from database
 mundane review
@@ -298,7 +316,7 @@ Import findings from `.nessus` file into the database:
 
 ```bash
 # Import scan (auto-detect scan name, export to ~/.mundane/scans/<scan_name>)
-mundane import path/to/scan.nessus
+mundane scan import path/to/scan.nessus
 ```
 
 ### 2) Review findings interactively
@@ -309,7 +327,7 @@ mundane review
 ```
 Displays a list of available scans from the database. Select the scan you want to review.
 
-**Note:** All scans must be imported into the database first using `mundane import`.
+**Note:** All scans must be imported into the database first using `mundane scan import`.
 
 ---
 
@@ -417,22 +435,22 @@ Control database behavior with these environment variables:
 
 ```bash
 # Import: Parse .nessus file and load findings into database
-mundane import <scan.nessus>
+mundane scan import <scan.nessus>
 
 # Interactive review (main workflow)
 mundane review [--no-tools] [--custom-workflows PATH] [--custom-workflows-only PATH]
 
 # List all imported scans with statistics
-mundane list
+mundane scan list
 
 # Delete a scan and all associated data
-mundane delete-scan <scan_name>
+mundane scan delete <scan_name>
 
 # Config management
-mundane config-init                    # Create example config file
-mundane config-show                    # Display current configuration
-mundane config-get <key>               # Get specific config value
-mundane config-set <key> <value>       # Set config value
+mundane config init                    # Create example config file
+mundane config show                    # Display current configuration
+mundane config get <key>               # Get specific config value
+mundane config set <key> <value>       # Set config value
 ```
 
 ---

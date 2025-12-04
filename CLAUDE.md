@@ -48,10 +48,10 @@ python mundane.py --help
 mundane --help
 
 # Common commands
-mundane import scan.nessus          # Import Nessus scan
+mundane scan import scan.nessus     # Import Nessus scan
 mundane review                      # Start interactive review
-mundane list                        # List all scans
-mundane delete-scan <scan_name>     # Delete scan from database
+mundane scan list                   # List all scans
+mundane scan delete <scan_name>     # Delete scan from database
 ```
 
 ### Testing

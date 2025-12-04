@@ -47,7 +47,6 @@ from mundane_pkg import (
     err,
     info,
     fmt_action,
-    fmt_reviewed,
     cyan_label,
     colorize_severity_label,
     # render:
@@ -346,7 +345,6 @@ def _display_bulk_cve_results(results: dict[str, list[str]]) -> None:
         try:
             format_choice = Prompt.ask(
                 "\nDisplay format",
-                choices=["s", "separated", "c", "combined"],
                 default="s"
             ).lower()
         except KeyboardInterrupt:
@@ -1016,7 +1014,6 @@ def handle_file_view(
         try:
             format_choice = Prompt.ask(
                 "Choose format",
-                choices=["r", "raw", "g", "grouped", "h", "hosts"],
                 default="g"
             ).lower()
         except KeyboardInterrupt:
@@ -1873,9 +1870,11 @@ def handle_file_list_actions(
                 # Get severity label from plugin metadata
                 sev_label = plugin.severity_label or f"Severity {plugin.severity_int}"
                 sev_col = colorize_severity_label(sev_label)
-                _console_global.print(f"[{idx}] {fmt_reviewed(display_name)}  — {sev_col}")
+                # Use Rich markup instead of ANSI codes for Rich console
+                _console_global.print(f"[{idx}] [magenta]✓ {display_name}[/magenta]  — {sev_col}")
             else:
-                _console_global.print(f"[{idx}] {fmt_reviewed(display_name)}")
+                # Use Rich markup instead of ANSI codes for Rich console
+                _console_global.print(f"[{idx}] [magenta]✓ {display_name}[/magenta]")
 
         print_action_menu([
             ("?", "Help"),
@@ -3210,7 +3209,7 @@ def import_scan(
         for choice in choices:
             _console_global.print(f"  {choice}")
 
-        ans = Prompt.ask("\nChoice", choices=["1", "2", "3"], default="3").strip()
+        ans = Prompt.ask("\nChoice", default="3").strip()
 
         if ans == "1":
             info("Overwriting existing scan...")

@@ -324,8 +324,8 @@ def render_compare_tables(
             pad_edge=False
         )
         groups_table.add_column("#", justify="right", no_wrap=True, max_width=5)
-        groups_table.add_column("File count", justify="right", no_wrap=True, max_width=12)
-        groups_table.add_column("Files (sample)", overflow="fold")
+        groups_table.add_column("Finding count", justify="right", no_wrap=True, max_width=12)
+        groups_table.add_column("Findings (sample)", overflow="fold")
         for i, names in enumerate(groups_sorted, 1):
             sample = "\n".join(names[:8]) + (
                 f"\n... (+{len(names)-8} more)" if len(names) > 8 else ""

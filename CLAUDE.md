@@ -15,6 +15,8 @@ This includes:
 - **Performance**: Write efficient database queries, implement caching where beneficial, and avoid N+1 query patterns
 - **Security**: Validate all inputs, use parameterized queries to prevent SQL injection, and prevent command injection vulnerabilities
 - **Documentation**: Always update relevant documentation alongside code changes to keep everything synchronized and up-to-date automatically. This includes docstrings, CLAUDE.md, README.md, and any other relevant documentation files
+- **Smoke Testing**: After completing ANY changes (code, documentation, configuration), ALWAYS provide a concise smoke test summary with manual testing steps the user can perform to verify the changes work correctly. Include specific commands, expected outputs, and edge cases to validate
+- **Git Commit Messages**: After completing ANY changes, ALWAYS provide a concise one-line git commit message that accurately describes the change following conventional commit format (e.g., "feat: add user authentication", "fix: resolve parsing edge case", "docs: update installation guide", "refactor: extract validation logic"). Keep messages under 72 characters when possible
 
 ## Project Overview
 

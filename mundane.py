@@ -3004,7 +3004,7 @@ def main(args: types.SimpleNamespace) -> None:
 
 app = typer.Typer(
     no_args_is_help=False,
-    add_completion=False,
+    add_completion=True,
     help="mundane — faster review & tooling runner",
 )
 _console = _console_global

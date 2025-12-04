@@ -111,6 +111,7 @@ if TYPE_CHECKING:
     from mundane_pkg.models import Plugin, PluginFile
 
 # === Third-party imports ===
+import click
 import typer
 from typer import Exit
 from rich import box
@@ -125,8 +126,8 @@ from rich.traceback import install as rich_tb_install
 # Create a console for the interactive flow
 _console_global = Console()
 
-# Install pretty tracebacks (no try/except; fail loudly if Rich is absent)
-rich_tb_install(show_locals=False)
+# Install pretty tracebacks, but suppress for Typer/Click exit exceptions
+rich_tb_install(show_locals=False, suppress=["typer", "click"])
 
 
 def print_action_menu(actions: list[tuple[str, str]]) -> None:
@@ -3023,14 +3024,14 @@ def _root(
     # Handle --version flag
     if version:
         _console_global.print(f"mundane version {__version__}")
-        raise Exit(0)
+        sys.exit(0)
 
     # Handle --help or no command (both show help with banner)
     if help_flag or ctx.invoked_subcommand is None:
         from mundane_pkg.banner import display_banner
         display_banner()
         _console_global.print(ctx.get_help())
-        raise Exit(0)
+        sys.exit(0)
 
     # Otherwise, show banner unless -q flag used
     if not quiet:

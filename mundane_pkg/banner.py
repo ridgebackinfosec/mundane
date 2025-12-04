@@ -24,8 +24,8 @@ def display_banner() -> None:
     banner_text.append(" - by ")
     banner_text.append("Ridgeback InfoSec, LLC", style="bold magenta")
     banner_text.append("\n\n")
-    banner_text.append("📚 Check out our Offensive Tooling training!\n", style="bold")
-    banner_text.append("   → ")
+    banner_text.append("Check out our Offensive Tooling training!\n", style="bold")
+    banner_text.append("   -> ")
     banner_text.append("https://ridgebackinfosec.com/training", style="bold blue underline")
 
     # Display as a panel

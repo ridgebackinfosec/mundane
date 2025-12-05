@@ -37,7 +37,7 @@ A modernized **TUI helper** to review Nessus findings quickly and kick off focus
 **Primary Workflow:**
 ```bash
 # Step 1: Import a .nessus scan
-mundane scan import scan.nessus
+mundane import nessus scan.nessus
 
 # Step 2: Review findings interactively
 mundane review  # Select scan from database
@@ -104,7 +104,7 @@ mundane --help
 **Mundane v2.0 introduces a reorganized command structure for better discoverability.**
 
 **Command changes (v1.x → v2.0):**
-- `mundane import` → `mundane scan import`
+- `mundane import` → `mundane import nessus`
 - `mundane list` → `mundane scan list`
 - `mundane delete-scan` → `mundane scan delete`
 - `mundane config-init` → `mundane config init`
@@ -290,7 +290,7 @@ mundane config get default_tool
 
 ```bash
 # 1. Import your scan
-mundane scan import myscan.nessus
+mundane import nessus myscan.nessus
 
 # 2. Review your findings
 mundane review
@@ -305,7 +305,7 @@ mundane review
 
 ```bash
 # Import the scan
-mundane scan import your_scan.nessus
+mundane import nessus your_scan.nessus
 
 # Then review from database
 mundane review
@@ -316,7 +316,7 @@ Import findings from `.nessus` file into the database:
 
 ```bash
 # Import scan (auto-detect scan name, export to ~/.mundane/scans/<scan_name>)
-mundane scan import path/to/scan.nessus
+mundane import nessus path/to/scan.nessus
 ```
 
 ### 2) Review findings interactively
@@ -327,7 +327,7 @@ mundane review
 ```
 Displays a list of available scans from the database. Select the scan you want to review.
 
-**Note:** All scans must be imported into the database first using `mundane scan import`.
+**Note:** All scans must be imported into the database first using `mundane import nessus`.
 
 ---
 
@@ -435,7 +435,7 @@ Control database behavior with these environment variables:
 
 ```bash
 # Import: Parse .nessus file and load findings into database
-mundane scan import <scan.nessus>
+mundane import nessus <scan.nessus>
 
 # Interactive review (main workflow)
 mundane review [--no-tools] [--custom-workflows PATH] [--custom-workflows-only PATH]

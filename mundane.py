@@ -3055,7 +3055,7 @@ def main(args: types.SimpleNamespace) -> None:
 
 
 # === Typer CLI ===
-# Main app + sub-apps (scan, config)
+# Main app + sub-apps (import, scan, config)
 
 app = typer.Typer(
     help="mundane — faster review & tooling runner for vulnerability scans",
@@ -3064,8 +3064,12 @@ app = typer.Typer(
 _console = _console_global
 
 # Sub-applications
+import_app = typer.Typer(
+    help="Import data from various sources into mundane"
+)
+
 scan_app = typer.Typer(
-    help="Scan management - import, list, and delete vulnerability scans"
+    help="Scan management - list and delete imported scans"
 )
 
 config_app = typer.Typer(
@@ -3073,6 +3077,7 @@ config_app = typer.Typer(
 )
 
 # Register sub-apps with main app
+app.add_typer(import_app, name="import")
 app.add_typer(scan_app, name="scan")
 app.add_typer(config_app, name="config")
 
@@ -3156,7 +3161,10 @@ def show_nessus_tool_suggestions(nessus_file: Path) -> None:
     info("Tip: Copy these commands to run them in your terminal.")
 
 
-@scan_app.command(name="import", help="Import .nessus file and populate database with findings")
+# === Import Sub-App Commands ===
+# Grouped under 'mundane import'
+
+@import_app.command(name="nessus", help="Import .nessus file and populate database with findings")
 def import_scan(
     nessus: Path = typer.Argument(
         ..., exists=True, readable=True, help="Path to a .nessus file"
@@ -3290,7 +3298,7 @@ def list_scans() -> None:
 
     if not scans:
         info("No scans found in database.")
-        info("Tip: Use 'mundane scan import <scan.nessus>' to import a scan")
+        info("Tip: Use 'mundane import nessus <scan.nessus>' to import a scan")
         return
 
     # Create summary table

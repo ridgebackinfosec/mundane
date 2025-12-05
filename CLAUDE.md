@@ -48,7 +48,7 @@ python mundane.py --help
 mundane --help
 
 # Common commands
-mundane scan import scan.nessus     # Import Nessus scan
+mundane import nessus scan.nessus   # Import Nessus scan
 mundane review                      # Start interactive review
 mundane scan list                   # List all scans
 mundane scan delete <scan_name>     # Delete scan from database

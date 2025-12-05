@@ -449,9 +449,14 @@ def check_database_health(database_path: Optional[Path] = None) -> bool:
 
 # ========== Auto-initialization ==========
 
-# Initialize database on module import if it doesn't exist
-if not DATABASE_PATH.exists():
+# Initialize/update database on module import (handles both new and existing databases)
+if DATABASE_PATH.exists():
+    # Existing database - run health check, then check for pending migrations
+    if check_database_health():
+        initialize_database()  # Will run pending migrations if needed (idempotent)
+    else:
+        log_error(f"Database at {DATABASE_PATH} failed health check")
+else:
+    # New database - create and initialize
     log_info(f"Creating new database at {DATABASE_PATH}")
     initialize_database()
-elif not check_database_health():
-    log_error(f"Database at {DATABASE_PATH} failed health check")

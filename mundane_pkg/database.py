@@ -37,13 +37,14 @@ DATABASE_PATH = get_database_path()
 
 # ========== Schema ==========
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 """Current schema version for migrations.
 
 Version history:
 - 0: Initial schema (no version tracking)
 - 1: Added plugin_output column to plugin_file_hosts
 - 2: Removed file_path and severity_dir columns from plugin_files (database-only mode)
+- 3: Added foundation tables (severity_levels, artifact_types, audit_log) and audit triggers
 """
 
 SCHEMA_SQL = """
@@ -180,6 +181,39 @@ CREATE TABLE IF NOT EXISTS workflow_executions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_workflow_executions_file ON workflow_executions(file_id);
+
+-- Severity levels lookup table (normalized reference data)
+CREATE TABLE IF NOT EXISTS severity_levels (
+    severity_int INTEGER PRIMARY KEY,
+    severity_label TEXT NOT NULL,
+    severity_order INTEGER NOT NULL,
+    color_hint TEXT,
+    CONSTRAINT unique_severity_label UNIQUE (severity_label)
+);
+
+-- Artifact types lookup table (enforces consistency)
+CREATE TABLE IF NOT EXISTS artifact_types (
+    artifact_type_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type_name TEXT NOT NULL UNIQUE,
+    file_extension TEXT,
+    description TEXT,
+    parser_module TEXT
+);
+
+-- Audit log for tracking changes to critical tables
+CREATE TABLE IF NOT EXISTS audit_log (
+    audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    table_name TEXT NOT NULL,
+    record_id INTEGER NOT NULL,
+    action TEXT CHECK(action IN ('INSERT', 'UPDATE', 'DELETE')),
+    changed_by TEXT,
+    changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    old_values TEXT,
+    new_values TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_table_record ON audit_log(table_name, record_id);
+CREATE INDEX IF NOT EXISTS idx_audit_changed_at ON audit_log(changed_at);
 
 -- Schema version tracking
 CREATE TABLE IF NOT EXISTS schema_version (

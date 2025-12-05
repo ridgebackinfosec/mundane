@@ -1001,3 +1001,220 @@ class Artifact:
         with db_transaction(conn) as c:
             rows = query_all(c, "SELECT * FROM artifacts WHERE execution_id = ?", (execution_id,))
             return [cls.from_row(row) for row in rows]
+
+
+# ========== Model: SeverityLevel ==========
+
+@dataclass
+class SeverityLevel:
+    """Represents a severity level (normalized lookup table).
+
+    This model provides a single source of truth for severity metadata,
+    eliminating the need to store severity_label in every plugin record.
+    """
+
+    severity_int: int
+    severity_label: str = ""
+    severity_order: int = 0
+    color_hint: Optional[str] = None
+
+    @classmethod
+    def from_row(cls, row: sqlite3.Row) -> SeverityLevel:
+        """Create SeverityLevel from database row.
+
+        Args:
+            row: SQLite row
+
+        Returns:
+            SeverityLevel instance
+        """
+        return cls(
+            severity_int=row["severity_int"],
+            severity_label=row["severity_label"],
+            severity_order=row["severity_order"],
+            color_hint=row["color_hint"]
+        )
+
+    @classmethod
+    def get_all(cls, conn: Optional[sqlite3.Connection] = None) -> list[SeverityLevel]:
+        """Retrieve all severity levels ordered by severity_int descending.
+
+        Args:
+            conn: Database connection
+
+        Returns:
+            List of SeverityLevel instances (Critical to Info)
+        """
+        with db_transaction(conn) as c:
+            rows = query_all(c, "SELECT * FROM severity_levels ORDER BY severity_int DESC")
+            return [cls.from_row(row) for row in rows]
+
+    @classmethod
+    def get_by_int(cls, severity_int: int, conn: Optional[sqlite3.Connection] = None) -> Optional[SeverityLevel]:
+        """Retrieve severity level by integer value.
+
+        Args:
+            severity_int: Severity integer (0-4)
+            conn: Database connection
+
+        Returns:
+            SeverityLevel instance or None if not found
+        """
+        with db_transaction(conn) as c:
+            row = query_one(c, "SELECT * FROM severity_levels WHERE severity_int = ?", (severity_int,))
+            return cls.from_row(row) if row else None
+
+
+# ========== Model: ArtifactType ==========
+
+@dataclass
+class ArtifactType:
+    """Represents an artifact type (normalized lookup table).
+
+    Enforces consistent artifact type naming and provides metadata
+    for each type (file extension, description, parser module).
+    """
+
+    artifact_type_id: Optional[int] = None
+    type_name: str = ""
+    file_extension: Optional[str] = None
+    description: Optional[str] = None
+    parser_module: Optional[str] = None
+
+    @classmethod
+    def from_row(cls, row: sqlite3.Row) -> ArtifactType:
+        """Create ArtifactType from database row.
+
+        Args:
+            row: SQLite row
+
+        Returns:
+            ArtifactType instance
+        """
+        return cls(
+            artifact_type_id=row["artifact_type_id"],
+            type_name=row["type_name"],
+            file_extension=row["file_extension"],
+            description=row["description"],
+            parser_module=row["parser_module"]
+        )
+
+    @classmethod
+    def get_all(cls, conn: Optional[sqlite3.Connection] = None) -> list[ArtifactType]:
+        """Retrieve all artifact types ordered by type_name.
+
+        Args:
+            conn: Database connection
+
+        Returns:
+            List of ArtifactType instances
+        """
+        with db_transaction(conn) as c:
+            rows = query_all(c, "SELECT * FROM artifact_types ORDER BY type_name")
+            return [cls.from_row(row) for row in rows]
+
+    @classmethod
+    def get_by_name(cls, type_name: str, conn: Optional[sqlite3.Connection] = None) -> Optional[ArtifactType]:
+        """Retrieve artifact type by name.
+
+        Args:
+            type_name: Type name (e.g., 'nmap_xml')
+            conn: Database connection
+
+        Returns:
+            ArtifactType instance or None if not found
+        """
+        with db_transaction(conn) as c:
+            row = query_one(c, "SELECT * FROM artifact_types WHERE type_name = ?", (type_name,))
+            return cls.from_row(row) if row else None
+
+
+# ========== Model: AuditLog ==========
+
+@dataclass
+class AuditLog:
+    """Represents an audit log entry (change tracking).
+
+    Tracks INSERT, UPDATE, DELETE operations on critical tables
+    for compliance and debugging purposes.
+    """
+
+    audit_id: Optional[int] = None
+    table_name: str = ""
+    record_id: int = 0
+    action: str = ""  # INSERT, UPDATE, DELETE
+    changed_by: Optional[str] = None
+    changed_at: Optional[str] = None
+    old_values: Optional[dict[str, Any]] = None  # JSON object
+    new_values: Optional[dict[str, Any]] = None  # JSON object
+
+    @classmethod
+    def from_row(cls, row: sqlite3.Row) -> AuditLog:
+        """Create AuditLog from database row.
+
+        Args:
+            row: SQLite row
+
+        Returns:
+            AuditLog instance
+        """
+        old_values_json = row["old_values"]
+        old_values = json.loads(old_values_json) if old_values_json else None
+
+        new_values_json = row["new_values"]
+        new_values = json.loads(new_values_json) if new_values_json else None
+
+        return cls(
+            audit_id=row["audit_id"],
+            table_name=row["table_name"],
+            record_id=row["record_id"],
+            action=row["action"],
+            changed_by=row["changed_by"],
+            changed_at=row["changed_at"],
+            old_values=old_values,
+            new_values=new_values
+        )
+
+    @classmethod
+    def get_by_table_and_record(
+        cls,
+        table_name: str,
+        record_id: int,
+        conn: Optional[sqlite3.Connection] = None
+    ) -> list[AuditLog]:
+        """Retrieve audit log entries for a specific table record.
+
+        Args:
+            table_name: Table name
+            record_id: Record ID
+            conn: Database connection
+
+        Returns:
+            List of AuditLog instances ordered by timestamp
+        """
+        with db_transaction(conn) as c:
+            rows = query_all(
+                c,
+                "SELECT * FROM audit_log WHERE table_name = ? AND record_id = ? ORDER BY changed_at ASC",
+                (table_name, record_id)
+            )
+            return [cls.from_row(row) for row in rows]
+
+    @classmethod
+    def get_recent(cls, limit: int = 100, conn: Optional[sqlite3.Connection] = None) -> list[AuditLog]:
+        """Retrieve recent audit log entries.
+
+        Args:
+            limit: Maximum number of entries to return
+            conn: Database connection
+
+        Returns:
+            List of AuditLog instances ordered by timestamp (newest first)
+        """
+        with db_transaction(conn) as c:
+            rows = query_all(
+                c,
+                "SELECT * FROM audit_log ORDER BY changed_at DESC LIMIT ?",
+                (limit,)
+            )
+            return [cls.from_row(row) for row in rows]

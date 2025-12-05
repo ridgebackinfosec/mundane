@@ -10,6 +10,7 @@ This includes:
 
 - **Code Quality**: Follow PEP 8 style guidelines, use type hints for function signatures, clear and descriptive naming conventions, and proper docstrings for modules, classes, and functions
 - **Architecture**: Apply SOLID principles (Single Responsibility, Open/Closed, Liskov Substitution, Interface Segregation, Dependency Inversion), maintain separation of concerns, follow DRY (Don't Repeat Yourself), and use dependency injection and loose coupling
+- **Database Design**: ALWAYS follow relational database best practices and SQLite-specific optimizations (see Database Design Principles section below). Normalize data properly, avoid redundant storage, use foreign keys, leverage SQL views for computed values, and design for query efficiency
 - **Testing**: Write unit tests for isolated logic, integration tests for database/filesystem operations, use parametrized tests for multiple input variations, and maintain high coverage on critical paths
 - **Error Handling**: Use specific exception types, proper context managers for resources, and graceful degradation where appropriate
 - **Performance**: Write efficient database queries, implement caching where beneficial, and avoid N+1 query patterns
@@ -17,6 +18,72 @@ This includes:
 - **Documentation**: Always update relevant documentation alongside code changes to keep everything synchronized and up-to-date automatically. This includes docstrings, CLAUDE.md, README.md, and any other relevant documentation files
 - **Smoke Testing**: After completing ANY changes (code, documentation, configuration), ALWAYS provide a concise smoke test summary with manual testing steps the user can perform to verify the changes work correctly. Include specific commands, expected outputs, and edge cases to validate
 - **Git Commit Messages**: After completing ANY changes, ALWAYS provide a concise one-line git commit message that accurately describes the change following conventional commit format (e.g., "feat: add user authentication", "fix: resolve parsing edge case", "docs: update installation guide", "refactor: extract validation logic"). Keep messages under 72 characters when possible
+
+## Database Design Principles
+
+**CRITICAL**: Mundane uses SQLite as its primary data store. ALL database design and modifications MUST follow these principles:
+
+### Normalization (Required)
+1. **Eliminate Redundant Data**: Never store derived/computed values (counts, sums, durations) in tables - use SQL aggregation or views instead
+2. **Lookup Tables**: Extract reference data (severity levels, artifact types, etc.) into separate lookup tables with foreign key constraints
+3. **Single Source of Truth**: Each piece of data should exist in exactly one place - use JOINs to combine data, not duplication
+4. **Functional Dependencies**: If column B is always determined by column A, create a separate table or use a view
+
+### Foreign Key Integrity (Required)
+1. **Always Define FKs**: Every relationship between tables MUST use `FOREIGN KEY` constraints
+2. **Enable FK Enforcement**: Use `PRAGMA foreign_keys=ON` on all connections (already configured in database.py)
+3. **Cascade Behavior**: Explicitly define `ON DELETE CASCADE` or `ON DELETE SET NULL` for each FK based on business logic
+4. **Referential Integrity**: Design schema to prevent orphaned records through proper FK constraints
+
+### Computed Values (Required)
+1. **Use SQL Views**: For derived statistics (counts, durations, aggregates), create SQL views instead of storing in tables
+2. **Aggregate on Query**: Use `COUNT()`, `SUM()`, `GROUP BY` in SELECT queries rather than maintaining cached counts
+3. **Generated Columns**: For simple computed values, consider using SQLite's GENERATED ALWAYS columns
+4. **Materialized Views**: Only cache computed values if performance profiling proves it necessary (and document why)
+
+### Data Consistency (Required)
+1. **CHECK Constraints**: Use CHECK constraints for enum-like fields (e.g., `CHECK(severity_int BETWEEN 0 AND 4)`)
+2. **UNIQUE Constraints**: Enforce uniqueness at database level, not just application level
+3. **NOT NULL**: Use NOT NULL for required fields to prevent NULL-related bugs
+4. **Triggers for Audit**: Use triggers only for audit logging, not for maintaining derived data
+
+### SQLite-Specific Best Practices
+1. **Indexes**: Create indexes on foreign keys and frequently-queried columns (but avoid over-indexing)
+2. **Transactions**: Always use transactions for multi-statement operations (use `db_transaction()` context manager)
+3. **JSON Columns**: Use JSON columns only for truly variable/unstructured metadata - prefer structured columns when schema is known
+4. **Type Affinity**: Be explicit with types (TEXT, INTEGER, REAL, BLOB) and use CHECK constraints to enforce
+5. **Query Planning**: Use `EXPLAIN QUERY PLAN` to optimize slow queries
+
+### Cross-Scan Data Tracking
+1. **Shared Entity Tables**: Create dedicated tables for entities that span multiple scans (hosts, plugins, CVEs)
+2. **Junction Tables**: Use proper many-to-many junction tables with composite keys
+3. **Temporal Tracking**: Add `first_seen` / `last_seen` timestamps to track entity history across scans
+4. **Global Queries**: Design schema to enable "all findings for host X across all scans" type queries
+
+### Migration Strategy
+1. **Version Tracking**: Increment `SCHEMA_VERSION` in database.py for every schema change
+2. **Migration Scripts**: Create migration file in `mundane_pkg/migrations/migration_XXX_<name>.py`
+3. **Backward Compatibility**: Design migrations to work with existing data (provide defaults, migrate data)
+4. **Testing**: Test migrations against production-like databases with real data before release
+
+### Anti-Patterns to Avoid
+❌ **Never** store counts/sums in tables when you can compute them with SQL
+❌ **Never** duplicate reference data (severity labels, service names) across records
+❌ **Never** use boolean flags for data that can be computed (e.g., `is_ipv4` from `host_address`)
+❌ **Never** use freeform text fields for categorical data (use lookup tables with FKs)
+❌ **Never** skip foreign key constraints "for performance" (they're fast and prevent bugs)
+❌ **Never** cache data without a clear performance justification (measure first)
+
+### Design Review Checklist
+Before implementing any schema change, verify:
+- [ ] All relationships have foreign key constraints
+- [ ] No redundant/derived data is stored in tables
+- [ ] Reference data is normalized into lookup tables
+- [ ] Computed values use views or aggregation queries
+- [ ] CHECK constraints enforce valid values
+- [ ] Indexes exist for foreign keys and query patterns
+- [ ] Migration script created and tested
+- [ ] SCHEMA_VERSION incremented
 
 ## Project Overview
 

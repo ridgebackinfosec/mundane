@@ -7,6 +7,9 @@ This migration adds normalized lookup tables that improve database design:
 
 These tables are created alongside existing columns (dual-write pattern) to maintain
 backward compatibility during the migration process.
+
+IMPORTANT: This migration is idempotent - it checks both table existence AND population
+to handle the case where SCHEMA_SQL creates empty tables before migrations run.
 """
 
 import sqlite3
@@ -25,16 +28,22 @@ class Migration003(Migration):
         return "Add severity_levels, artifact_types, and audit_log tables"
 
     def upgrade(self, conn: sqlite3.Connection) -> None:
-        """Create foundation lookup tables and populate with initial data."""
+        """Create foundation lookup tables and populate with initial data.
 
-        # Check if tables already exist
+        This migration is idempotent - it can be safely run multiple times.
+        It checks both table existence AND population to handle the case where
+        SCHEMA_SQL creates empty tables before migrations run.
+        """
+
+        # ========== Severity Levels Table ==========
+
+        # Check if severity_levels table exists
         cursor = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('severity_levels', 'artifact_types', 'audit_log')"
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='severity_levels'"
         )
-        existing_tables = {row[0] for row in cursor.fetchall()}
+        severity_table_exists = cursor.fetchone() is not None
 
-        # Create severity_levels table
-        if 'severity_levels' not in existing_tables:
+        if not severity_table_exists:
             print("  [OK] Creating severity_levels table...")
             conn.execute("""
                 CREATE TABLE severity_levels (
@@ -45,8 +54,14 @@ class Migration003(Migration):
                     CONSTRAINT unique_severity_label UNIQUE (severity_label)
                 )
             """)
+            print("  [OK] Created severity_levels table")
 
-            # Populate with standard severity levels
+        # Check if table is populated (idempotent check)
+        cursor = conn.execute("SELECT COUNT(*) FROM severity_levels")
+        row_count = cursor.fetchone()[0]
+
+        if row_count == 0:
+            print("  [OK] Populating severity_levels table...")
             conn.executemany(
                 "INSERT INTO severity_levels (severity_int, severity_label, severity_order, color_hint) VALUES (?, ?, ?, ?)",
                 [
@@ -57,12 +72,19 @@ class Migration003(Migration):
                     (0, 'Info', 0, '#4682B4'),
                 ]
             )
-            print("  [OK] Created and populated severity_levels table")
+            print("  [OK] Populated severity_levels table with 5 severity levels")
         else:
-            print("  [OK] severity_levels table already exists")
+            print(f"  [OK] severity_levels table already populated ({row_count} rows)")
 
-        # Create artifact_types table
-        if 'artifact_types' not in existing_tables:
+        # ========== Artifact Types Table ==========
+
+        # Check if artifact_types table exists
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='artifact_types'"
+        )
+        artifact_table_exists = cursor.fetchone() is not None
+
+        if not artifact_table_exists:
             print("  [OK] Creating artifact_types table...")
             conn.execute("""
                 CREATE TABLE artifact_types (
@@ -73,8 +95,14 @@ class Migration003(Migration):
                     parser_module TEXT
                 )
             """)
+            print("  [OK] Created artifact_types table")
 
-            # Populate with common artifact types
+        # Check if table is populated (idempotent check)
+        cursor = conn.execute("SELECT COUNT(*) FROM artifact_types")
+        row_count = cursor.fetchone()[0]
+
+        if row_count == 0:
+            print("  [OK] Populating artifact_types table...")
             conn.executemany(
                 "INSERT INTO artifact_types (type_name, file_extension, description) VALUES (?, ?, ?)",
                 [
@@ -85,12 +113,19 @@ class Migration003(Migration):
                     ('log', '.log', 'Tool execution log'),
                 ]
             )
-            print("  [OK] Created and populated artifact_types table")
+            print("  [OK] Populated artifact_types table with 5 artifact types")
         else:
-            print("  [OK] artifact_types table already exists")
+            print(f"  [OK] artifact_types table already populated ({row_count} rows)")
 
-        # Create audit_log table
-        if 'audit_log' not in existing_tables:
+        # ========== Audit Log Table ==========
+
+        # Check if audit_log table exists
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='audit_log'"
+        )
+        audit_table_exists = cursor.fetchone() is not None
+
+        if not audit_table_exists:
             print("  [OK] Creating audit_log table...")
             conn.execute("""
                 CREATE TABLE audit_log (
@@ -110,12 +145,28 @@ class Migration003(Migration):
             conn.execute("CREATE INDEX idx_audit_changed_at ON audit_log(changed_at)")
             print("  [OK] Created audit_log table with indexes")
         else:
+            # Ensure indexes exist (idempotent check)
+            cursor = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_audit_table_record'"
+            )
+            if not cursor.fetchone():
+                conn.execute("CREATE INDEX idx_audit_table_record ON audit_log(table_name, record_id)")
+                print("  [OK] Created missing index idx_audit_table_record")
+
+            cursor = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_audit_changed_at'"
+            )
+            if not cursor.fetchone():
+                conn.execute("CREATE INDEX idx_audit_changed_at ON audit_log(changed_at)")
+                print("  [OK] Created missing index idx_audit_changed_at")
+
             print("  [OK] audit_log table already exists")
 
-        # Create audit trigger for plugin_files review_state changes
+        # ========== Audit Triggers ==========
+
         print("  [OK] Creating audit triggers...")
 
-        # Check if trigger exists
+        # Check if trigger exists for plugin_files
         cursor = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='trigger' AND name='audit_plugin_files_review_update'"
         )
@@ -140,7 +191,7 @@ class Migration003(Migration):
         else:
             print("  [OK] Audit trigger for plugin_files already exists")
 
-        # Create audit trigger for sessions
+        # Check if trigger exists for sessions
         cursor = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='trigger' AND name='audit_sessions_insert'"
         )

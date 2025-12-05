@@ -377,6 +377,127 @@ def test_split_host_port(input_str, expected_host, expected_port):
 5. Update `models.py` dataclass if applicable
 6. Test migration with `pytest tests/test_database.py`
 
+### Database Migration Best Practices
+
+**CRITICAL**: All database migrations MUST be idempotent to support seamless upgrades when users update Mundane with existing databases.
+
+#### The Migration Execution Flow
+
+When `initialize_database()` runs (on every startup):
+
+1. **SCHEMA_SQL runs FIRST**: Creates tables with `CREATE TABLE IF NOT EXISTS`
+2. **Migrations run SECOND**: Check current schema version, apply pending migrations
+
+This means migrations often see tables that already exist (created by SCHEMA_SQL) but are **empty**.
+
+#### Required Pattern: Idempotent Migrations
+
+**BAD (Non-Idempotent)**:
+```python
+def upgrade(self, conn: sqlite3.Connection) -> None:
+    # Check if table exists
+    cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='my_table'")
+    if not cursor.fetchone():
+        # Create and populate
+        conn.execute("CREATE TABLE my_table (...)")
+        conn.execute("INSERT INTO my_table VALUES (...)")
+    else:
+        # Table exists, skip population - BUG!
+        print("Table already exists")
+```
+
+**Problem**: SCHEMA_SQL creates the table first (empty), migration sees it exists and skips population.
+
+**GOOD (Idempotent)**:
+```python
+def upgrade(self, conn: sqlite3.Connection) -> None:
+    # Check if table exists
+    cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='my_table'")
+    table_exists = cursor.fetchone() is not None
+
+    if not table_exists:
+        conn.execute("CREATE TABLE my_table (...)")
+        print("Created my_table")
+
+    # ALWAYS check if table is populated (separate from existence check)
+    cursor = conn.execute("SELECT COUNT(*) FROM my_table")
+    row_count = cursor.fetchone()[0]
+
+    if row_count == 0:
+        # Populate table
+        conn.executemany("INSERT INTO my_table VALUES (?)", [...])
+        print(f"Populated my_table with {N} rows")
+    else:
+        print(f"my_table already populated ({row_count} rows)")
+```
+
+**Key principle**: Separate table creation from data population. Always check row counts for lookup tables.
+
+#### Migration Checklist
+
+Every migration MUST:
+
+- ✅ **Be idempotent**: Safe to run multiple times
+- ✅ **Check row counts**: For lookup tables, verify population separately from existence
+- ✅ **Check constraints**: Verify indexes, triggers, foreign keys exist before creating
+- ✅ **Print progress**: Informative messages for debugging
+- ✅ **Handle existing data**: Don't assume fresh database
+- ✅ **Include downgrade()**: Rollback logic for testing
+- ✅ **Update SCHEMA_SQL**: Keep in sync with migration
+- ✅ **Bump SCHEMA_VERSION**: Increment version number in database.py
+- ✅ **Register in migrations/__init__.py**: Add to `get_all_migrations()`
+- ✅ **Test with existing DB**: Verify upgrade path works
+
+#### Testing Migrations
+
+```bash
+# Test migration with existing database
+cp ~/.mundane/mundane.db ~/.mundane/mundane.db.backup
+mundane scan list  # Should auto-apply migrations
+sqlite3 ~/.mundane/mundane.db "SELECT * FROM severity_levels"  # Verify populated
+
+# Test migration from scratch
+rm ~/.mundane/mundane.db
+mundane scan list  # Should create fresh DB with migrations
+```
+
+#### Example Migration Structure
+
+See `migration_003_foundation_tables.py` for reference implementation:
+
+```python
+class Migration003(Migration):
+    @property
+    def version(self) -> int:
+        return 3
+
+    @property
+    def description(self) -> str:
+        return "Add severity_levels, artifact_types, and audit_log tables"
+
+    def upgrade(self, conn: sqlite3.Connection) -> None:
+        """Create foundation lookup tables and populate with initial data.
+
+        This migration is idempotent - it can be safely run multiple times.
+        """
+        # 1. Check table existence
+        cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='my_table'")
+        table_exists = cursor.fetchone() is not None
+
+        # 2. Create table if needed
+        if not table_exists:
+            conn.execute("CREATE TABLE my_table (...)")
+
+        # 3. Check population (CRITICAL: separate from existence)
+        cursor = conn.execute("SELECT COUNT(*) FROM my_table")
+        if cursor.fetchone()[0] == 0:
+            conn.executemany("INSERT INTO my_table VALUES (?)", [...])
+
+    def downgrade(self, conn: sqlite3.Connection) -> None:
+        """Rollback migration."""
+        conn.execute("DROP TABLE IF EXISTS my_table")
+```
+
 ### Adding a New Tool
 
 1. Add tool spec to `tool_registry.py:TOOL_REGISTRY`

@@ -93,6 +93,127 @@ Before implementing any schema change, verify:
 
 **Target Python**: 3.11+ (3.8+ may work but not the target)
 
+## Python Packaging Best Practices
+
+**CRITICAL**: When adding new Python subpackages to the project, you MUST update `pyproject.toml` to include them in the distribution. Failure to do so will cause missing modules in pipx/pip installations.
+
+### Package Structure
+
+Mundane uses setuptools with the following structure:
+- `mundane.py` - Main entry point (top-level module)
+- `mundane_pkg/` - Main package directory
+  - `migrations/` - Database migration scripts (SUBPACKAGE - must be explicitly included)
+  - Other modules...
+
+### pyproject.toml Configuration
+
+**Current configuration** (lines 59-64):
+```toml
+[tool.setuptools]
+packages = ["mundane_pkg", "mundane_pkg.migrations"]
+py-modules = ["mundane"]
+
+[tool.setuptools.package-data]
+mundane_pkg = ["*.yaml"]
+```
+
+### Adding New Subpackages
+
+When adding a new subdirectory with `__init__.py` under `mundane_pkg/`:
+
+1. **Add to packages list**: Update `[tool.setuptools] packages` in pyproject.toml
+2. **Test installation**: Install via `pip install -e .` and verify subpackage is accessible
+3. **Verify in pipx**: If users install via pipx, check that the subpackage appears in site-packages
+
+**Example**: Adding a new `mundane_pkg/plugins/` subpackage:
+```toml
+[tool.setuptools]
+packages = [
+    "mundane_pkg",
+    "mundane_pkg.migrations",
+    "mundane_pkg.plugins"  # NEW
+]
+```
+
+### Package Data (Non-Python Files)
+
+For non-Python files (YAML, JSON, etc.) that need to be included:
+
+```toml
+[tool.setuptools.package-data]
+mundane_pkg = ["*.yaml", "*.json"]  # Files in mundane_pkg/
+"mundane_pkg.migrations" = ["*.sql"]  # Files in mundane_pkg/migrations/
+```
+
+### Testing Package Distribution
+
+**Before releasing**, always verify the package contents:
+
+```bash
+# Build distribution
+python -m build
+
+# Check package contents
+tar -tzf dist/mundane-*.tar.gz | grep mundane_pkg
+
+# Expected output should include:
+# mundane_pkg/
+# mundane_pkg/__init__.py
+# mundane_pkg/migrations/
+# mundane_pkg/migrations/__init__.py
+# mundane_pkg/migrations/migration_001_plugin_output.py
+# mundane_pkg/migrations/migration_002_remove_filesystem_columns.py
+# mundane_pkg/migrations/migration_003_foundation_tables.py
+# mundane_pkg/*.yaml
+```
+
+**Test installation in isolated environment**:
+```bash
+# Install in clean venv
+python -m venv test_env
+source test_env/bin/activate  # or test_env\Scripts\activate on Windows
+pip install dist/mundane-*.whl
+
+# Verify subpackage exists
+python -c "from mundane_pkg.migrations import get_all_migrations; print(get_all_migrations())"
+# Should print list of migrations, not ModuleNotFoundError
+```
+
+### Common Packaging Mistakes
+
+❌ **DON'T**: Assume setuptools auto-discovers subpackages
+```toml
+packages = ["mundane_pkg"]  # WRONG: migrations/ won't be included
+```
+
+✅ **DO**: Explicitly list all subpackages
+```toml
+packages = ["mundane_pkg", "mundane_pkg.migrations"]  # CORRECT
+```
+
+❌ **DON'T**: Forget to test pipx installations
+```bash
+# Developer only tests pip install -e .
+pip install -e .  # Works because source is available
+```
+
+✅ **DO**: Test actual wheel installation
+```bash
+python -m build
+pipx install dist/mundane-*.whl  # Test real installation
+```
+
+### Verification Checklist
+
+Before releasing a new version:
+- [ ] All subpackages listed in `pyproject.toml` packages
+- [ ] All non-Python files listed in package-data (if needed)
+- [ ] `python -m build` runs without errors
+- [ ] Wheel contains all expected files (check with `unzip -l dist/*.whl`)
+- [ ] Test installation in clean venv works
+- [ ] Import all subpackages succeeds
+- [ ] Migrations directory exists in installed package (if applicable)
+
 ## Build & Development Commands
 
 ### Setup Development Environment

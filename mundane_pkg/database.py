@@ -332,16 +332,17 @@ def initialize_database(database_path: Optional[Path] = None) -> bool:
 
                 final_version = pending_migrations[-1].version
                 log_info(f"Database schema updated to version {final_version}")
-            elif current_version == 0:
-                # Fresh database - set version to latest or SCHEMA_VERSION
-                latest_version = max(m.version for m in all_migrations) if all_migrations else SCHEMA_VERSION
-                conn.execute(
-                    "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
-                    (latest_version,)
-                )
-                log_info(f"Database schema initialized (version {latest_version})")
             else:
-                log_info(f"Database schema is up to date (version {current_version})")
+                # No pending migrations - ensure version is recorded
+                if current_version == 0:
+                    # Fresh database with no migrations to run - set to SCHEMA_VERSION
+                    conn.execute(
+                        "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
+                        (SCHEMA_VERSION,)
+                    )
+                    log_info(f"Database schema initialized (version {SCHEMA_VERSION})")
+                else:
+                    log_info(f"Database schema is up to date (version {current_version})")
 
         return True
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mundane"
-version = "2.0.3"
+version = "2.0.4"
 description = "Modern CLI for Nessus findings review and security tool orchestration"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -57,7 +57,7 @@ Issues = "https://github.com/ridgebackinfosec/mundane/issues"
 mundane = "mundane:app"
 
 [tool.setuptools]
-packages = ["mundane_pkg"]
+packages = ["mundane_pkg", "mundane_pkg.migrations"]
 py-modules = ["mundane"]
 
 [tool.setuptools.package-data]

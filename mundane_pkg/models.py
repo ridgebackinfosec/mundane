@@ -1218,3 +1218,198 @@ class AuditLog:
                 (limit,)
             )
             return [cls.from_row(row) for row in rows]
+
+
+# ========== Model: Host ==========
+
+@dataclass
+class Host:
+    """Represents a unique host across all scans."""
+
+    host_id: Optional[int] = None
+    host_address: str = ""
+    host_type: str = "hostname"  # 'ipv4', 'ipv6', 'hostname'
+    reverse_dns: Optional[str] = None
+    first_seen: Optional[str] = None
+    last_seen: Optional[str] = None
+
+    @classmethod
+    def from_row(cls, row: sqlite3.Row) -> "Host":
+        """Create Host from database row.
+
+        Args:
+            row: SQLite row from hosts table
+
+        Returns:
+            Host instance
+        """
+        return cls(
+            host_id=row["host_id"],
+            host_address=row["host_address"],
+            host_type=row["host_type"],
+            reverse_dns=row.get("reverse_dns"),
+            first_seen=row.get("first_seen"),
+            last_seen=row.get("last_seen")
+        )
+
+    @classmethod
+    def get_or_create(
+        cls,
+        host_address: str,
+        host_type: str,
+        conn: Optional[sqlite3.Connection] = None
+    ) -> int:
+        """Get existing host_id or create new host.
+
+        Updates last_seen timestamp on existing hosts.
+
+        Args:
+            host_address: IP address or hostname
+            host_type: One of 'ipv4', 'ipv6', 'hostname'
+            conn: Database connection (optional)
+
+        Returns:
+            host_id of existing or newly created host
+        """
+        with db_transaction(conn) as c:
+            # Try to get existing
+            row = query_one(
+                c,
+                "SELECT host_id FROM hosts WHERE host_address = ?",
+                (host_address,)
+            )
+
+            if row:
+                # Update last_seen
+                c.execute(
+                    "UPDATE hosts SET last_seen = CURRENT_TIMESTAMP WHERE host_id = ?",
+                    (row["host_id"],)
+                )
+                return row["host_id"]
+
+            # Create new
+            cursor = c.execute(
+                "INSERT INTO hosts (host_address, host_type) VALUES (?, ?)",
+                (host_address, host_type)
+            )
+            return cursor.lastrowid
+
+    @classmethod
+    def get_by_address(
+        cls,
+        host_address: str,
+        conn: Optional[sqlite3.Connection] = None
+    ) -> Optional["Host"]:
+        """Get host by address.
+
+        Args:
+            host_address: IP address or hostname
+            conn: Database connection (optional)
+
+        Returns:
+            Host instance or None if not found
+        """
+        with db_transaction(conn) as c:
+            row = query_one(
+                c,
+                "SELECT * FROM hosts WHERE host_address = ?",
+                (host_address,)
+            )
+            return cls.from_row(row) if row else None
+
+    @classmethod
+    def get_all_with_stats(
+        cls,
+        conn: Optional[sqlite3.Connection] = None
+    ) -> list[dict]:
+        """Get all hosts with finding counts (cross-scan query).
+
+        Returns:
+            List of dicts with host info and statistics
+        """
+        with db_transaction(conn) as c:
+            rows = query_all(c, """
+                SELECT
+                    h.host_id,
+                    h.host_address,
+                    h.host_type,
+                    h.first_seen,
+                    h.last_seen,
+                    COUNT(DISTINCT pfh.file_id) as finding_count,
+                    COUNT(DISTINCT pf.scan_id) as scan_count,
+                    MAX(p.severity_int) as max_severity
+                FROM hosts h
+                LEFT JOIN plugin_file_hosts pfh ON h.host_id = pfh.host_id
+                LEFT JOIN plugin_files pf ON pfh.file_id = pf.file_id
+                LEFT JOIN plugins p ON pf.plugin_id = p.plugin_id
+                GROUP BY h.host_id
+                ORDER BY finding_count DESC
+            """)
+            return [dict(row) for row in rows]
+
+
+# ========== Model: Port ==========
+
+@dataclass
+class Port:
+    """Represents a port number with optional service metadata."""
+
+    port_number: int
+    service_name: Optional[str] = None
+    description: Optional[str] = None
+
+    @classmethod
+    def from_row(cls, row: sqlite3.Row) -> "Port":
+        """Create Port from database row.
+
+        Args:
+            row: SQLite row from ports table
+
+        Returns:
+            Port instance
+        """
+        return cls(
+            port_number=row["port_number"],
+            service_name=row.get("service_name"),
+            description=row.get("description")
+        )
+
+    @classmethod
+    def get_or_create(
+        cls,
+        port_number: int,
+        service_name: Optional[str] = None,
+        conn: Optional[sqlite3.Connection] = None
+    ) -> int:
+        """Get existing port or create new.
+
+        Args:
+            port_number: Port number (1-65535)
+            service_name: Optional service name
+            conn: Database connection (optional)
+
+        Returns:
+            port_number
+        """
+        with db_transaction(conn) as c:
+            row = query_one(
+                c,
+                "SELECT port_number FROM ports WHERE port_number = ?",
+                (port_number,)
+            )
+
+            if row:
+                # Update service_name if provided
+                if service_name:
+                    c.execute(
+                        "UPDATE ports SET service_name = ? WHERE port_number = ?",
+                        (service_name, port_number)
+                    )
+                return port_number
+
+            # Create new
+            c.execute(
+                "INSERT INTO ports (port_number, service_name) VALUES (?, ?)",
+                (port_number, service_name)
+            )
+            return port_number

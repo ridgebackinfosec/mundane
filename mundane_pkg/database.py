@@ -37,7 +37,7 @@ DATABASE_PATH = get_database_path()
 
 # ========== Schema ==========
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 """Current schema version for migrations.
 
 Version history:
@@ -45,6 +45,7 @@ Version history:
 - 1: Added plugin_output column to plugin_file_hosts
 - 2: Removed file_path and severity_dir columns from plugin_files (database-only mode)
 - 3: Added foundation tables (severity_levels, artifact_types, audit_log) and audit triggers
+- 4: Normalized hosts and ports into separate tables (cross-scan tracking)
 """
 
 SCHEMA_SQL = """
@@ -101,19 +102,20 @@ CREATE INDEX IF NOT EXISTS idx_plugin_files_plugin ON plugin_files(plugin_id);
 CREATE INDEX IF NOT EXISTS idx_plugin_files_review_state ON plugin_files(review_state);
 
 CREATE TABLE IF NOT EXISTS plugin_file_hosts (
-    host_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pfh_id INTEGER PRIMARY KEY AUTOINCREMENT,
     file_id INTEGER NOT NULL,
-    host TEXT NOT NULL,
-    port INTEGER,
-    is_ipv4 BOOLEAN DEFAULT 0,
-    is_ipv6 BOOLEAN DEFAULT 0,
+    host_id INTEGER NOT NULL,
+    port_number INTEGER,
     plugin_output TEXT,
     FOREIGN KEY (file_id) REFERENCES plugin_files(file_id) ON DELETE CASCADE,
-    CONSTRAINT unique_file_host_port UNIQUE (file_id, host, port)
+    FOREIGN KEY (host_id) REFERENCES hosts(host_id),
+    FOREIGN KEY (port_number) REFERENCES ports(port_number),
+    CONSTRAINT unique_file_host_port UNIQUE (file_id, host_id, port_number)
 );
 
-CREATE INDEX IF NOT EXISTS idx_plugin_file_hosts_file ON plugin_file_hosts(file_id);
-CREATE INDEX IF NOT EXISTS idx_plugin_file_hosts_host ON plugin_file_hosts(host);
+CREATE INDEX IF NOT EXISTS idx_pfh_file ON plugin_file_hosts(file_id);
+CREATE INDEX IF NOT EXISTS idx_pfh_host ON plugin_file_hosts(host_id);
+CREATE INDEX IF NOT EXISTS idx_pfh_port ON plugin_file_hosts(port_number);
 
 CREATE TABLE IF NOT EXISTS sessions (
     session_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -214,6 +216,26 @@ CREATE TABLE IF NOT EXISTS audit_log (
 
 CREATE INDEX IF NOT EXISTS idx_audit_table_record ON audit_log(table_name, record_id);
 CREATE INDEX IF NOT EXISTS idx_audit_changed_at ON audit_log(changed_at);
+
+-- Hosts table (normalized host data across scans)
+CREATE TABLE IF NOT EXISTS hosts (
+    host_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    host_address TEXT NOT NULL UNIQUE,
+    host_type TEXT CHECK(host_type IN ('ipv4', 'ipv6', 'hostname')) NOT NULL,
+    reverse_dns TEXT,
+    first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_hosts_address ON hosts(host_address);
+CREATE INDEX IF NOT EXISTS idx_hosts_type ON hosts(host_type);
+
+-- Ports table (port metadata)
+CREATE TABLE IF NOT EXISTS ports (
+    port_number INTEGER PRIMARY KEY CHECK(port_number BETWEEN 1 AND 65535),
+    service_name TEXT,
+    description TEXT
+);
 
 -- Schema version tracking
 CREATE TABLE IF NOT EXISTS schema_version (

@@ -95,11 +95,13 @@ def get_all_migrations() -> List[Migration]:
     from . import migration_001_plugin_output
     from . import migration_002_remove_filesystem_columns
     from . import migration_003_foundation_tables
+    from . import migration_004_host_normalization
 
     migrations = [
         migration_001_plugin_output.Migration001(),
         migration_002_remove_filesystem_columns.Migration002(),
         migration_003_foundation_tables.Migration003(),
+        migration_004_host_normalization.Migration004(),
     ]
 
     # Sort by version to ensure correct order

@@ -487,7 +487,7 @@ def _write_to_database(
     try:
         from .database import db_transaction, compute_file_hash
         from .models import Scan, Plugin, PluginFile, now_iso
-        from .parsing import is_ipv4, is_ipv6
+        from .parsing import is_ipv4, is_ipv6, detect_host_type
         import time
 
         start_time = time.time()
@@ -519,7 +519,68 @@ def _write_to_database(
 
             scan_id = scan.save(conn)
 
-            # Insert/update plugins and plugin files
+            # ========== Step 1: Collect unique hosts and ports from ALL plugins ==========
+            unique_hosts = {}  # host_address -> host_type
+            unique_ports = set()
+
+            for plugin_id_str, meta in plugins.items():
+                hosts_data = plugin_hosts.get(plugin_id_str, set())
+
+                for host_entry_data in hosts_data:
+                    # Parse host:port (existing logic)
+                    if isinstance(host_entry_data, tuple):
+                        host_entry, plugin_output = host_entry_data
+                    else:
+                        host_entry = host_entry_data
+                        plugin_output = None
+
+                    # Parse host:port
+                    if ":" in host_entry:
+                        host, port_str = host_entry.rsplit(":", 1)
+                        try:
+                            port = int(port_str)
+                        except ValueError:
+                            host = host_entry
+                            port = None
+                    else:
+                        host = host_entry
+                        port = None
+
+                    # Detect type once per unique host
+                    if host and host not in unique_hosts:
+                        host_type = detect_host_type(host)
+                        unique_hosts[host] = host_type
+
+                    if port:
+                        unique_ports.add(port)
+
+            # ========== Step 2: Bulk insert hosts ==========
+            if unique_hosts:
+                log_info(f"Inserting {len(unique_hosts)} unique hosts...")
+                conn.executemany(
+                    "INSERT OR IGNORE INTO hosts (host_address, host_type) VALUES (?, ?)",
+                    [(addr, htype) for addr, htype in unique_hosts.items()]
+                )
+
+            # ========== Step 3: Bulk insert ports ==========
+            if unique_ports:
+                log_info(f"Inserting {len(unique_ports)} unique ports...")
+                conn.executemany(
+                    "INSERT OR IGNORE INTO ports (port_number) VALUES (?)",
+                    [(p,) for p in unique_ports]
+                )
+
+            # ========== Step 4: Build host_id lookup map ==========
+            host_id_map = {}
+            if unique_hosts:
+                placeholders = ",".join("?" * len(unique_hosts))
+                cursor = conn.execute(
+                    f"SELECT host_id, host_address FROM hosts WHERE host_address IN ({placeholders})",
+                    list(unique_hosts.keys())
+                )
+                host_id_map = {row[1]: row[0] for row in cursor.fetchall()}
+
+            # ========== Step 5: Insert plugins and plugin files ==========
             total_plugins = len(plugins)
             for idx, (plugin_id_str, meta) in enumerate(plugins.items(), 1):
                 plugin_id = int(plugin_id_str)
@@ -544,12 +605,12 @@ def _write_to_database(
                 plugin.save(conn)
 
                 # Create plugin file entry
-                hosts = plugin_hosts.get(plugin_id_str, set())
+                hosts_data = plugin_hosts.get(plugin_id_str, set())
 
                 # Count unique hosts and ports for this plugin
-                unique_hosts = set()
-                ports = set()
-                for host_entry_data in hosts:
+                unique_hosts_for_plugin = set()
+                ports_for_plugin = set()
+                for host_entry_data in hosts_data:
                     # Unpack tuple to get host_entry string (ignore plugin_output for counting)
                     if isinstance(host_entry_data, tuple):
                         host_entry, _ = host_entry_data  # Extract host:port, ignore plugin_output
@@ -560,30 +621,30 @@ def _write_to_database(
                     if ":" in host_entry:
                         try:
                             host, port_str = host_entry.rsplit(":", 1)
-                            unique_hosts.add(host)
-                            ports.add(int(port_str))
+                            unique_hosts_for_plugin.add(host)
+                            ports_for_plugin.add(int(port_str))
                         except (ValueError, IndexError):
-                            unique_hosts.add(host_entry)
+                            unique_hosts_for_plugin.add(host_entry)
                     else:
-                        unique_hosts.add(host_entry)
+                        unique_hosts_for_plugin.add(host_entry)
 
                 plugin_file = PluginFile(
                     scan_id=scan_id,
                     plugin_id=plugin_id,
                     review_state="pending",
-                    host_count=len(unique_hosts),
-                    port_count=len(ports) if ports else 0
+                    host_count=len(unique_hosts_for_plugin),
+                    port_count=len(ports_for_plugin) if ports_for_plugin else 0
                 )
 
                 file_id = plugin_file.save(conn)
 
-                # Insert host:port entries with plugin_output
-                for host_entry_data in hosts:
-                    # Unpack tuple: (host_entry_str, plugin_output_text)
+                # ========== Step 6: Collect junction records for bulk insert ==========
+                junction_records = []
+                for host_entry_data in hosts_data:
+                    # Parse (same as before)
                     if isinstance(host_entry_data, tuple):
                         host_entry, plugin_output = host_entry_data
                     else:
-                        # Backward compatibility: if old format (just string)
                         host_entry = host_entry_data
                         plugin_output = None
 
@@ -599,17 +660,20 @@ def _write_to_database(
                         host = host_entry
                         port = None
 
-                    # Determine IP type
-                    is_v4 = is_ipv4(host)
-                    is_v6 = is_ipv6(host)
+                    # Get host_id from map
+                    host_id = host_id_map.get(host)
+                    if host_id:
+                        junction_records.append((file_id, host_id, port, plugin_output))
 
-                    conn.execute(
+                # Bulk insert junction records
+                if junction_records:
+                    conn.executemany(
                         """
                         INSERT OR REPLACE INTO plugin_file_hosts (
-                            file_id, host, port, is_ipv4, is_ipv6, plugin_output
-                        ) VALUES (?, ?, ?, ?, ?, ?)
+                            file_id, host_id, port_number, plugin_output
+                        ) VALUES (?, ?, ?, ?)
                         """,
-                        (file_id, host, port, is_v4, is_v6, plugin_output)
+                        junction_records
                     )
 
         elapsed = time.time() - start_time

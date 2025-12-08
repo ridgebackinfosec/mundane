@@ -176,10 +176,10 @@ class TestForeignKeyConstraints:
         )
         scan_id = cursor.lastrowid
 
-        # Insert plugin
+        # Insert plugin (severity_label removed in schema v5)
         temp_db.execute(
-            "INSERT INTO plugins (plugin_id, plugin_name, severity_int, severity_label) VALUES (?, ?, ?, ?)",
-            (12345, "Test Plugin", 2, "High")
+            "INSERT INTO plugins (plugin_id, plugin_name, severity_int) VALUES (?, ?, ?)",
+            (12345, "Test Plugin", 2)
         )
 
         # Insert plugin file

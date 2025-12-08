@@ -217,11 +217,10 @@ class TestPluginFileModel:
         plugin = Plugin(plugin_id=12345, plugin_name="Test", severity_int=2)
         plugin.save(temp_db)
 
-        # Create plugin file
+        # Create plugin file (host_count removed in schema v5)
         pf = PluginFile(
             scan_id=scan_id,
-            plugin_id=12345,
-            host_count=5
+            plugin_id=12345
         )
 
         file_id = pf.save(temp_db)
@@ -721,11 +720,11 @@ class TestArtifactModel:
         )
         exec_id = execution.save(temp_db)
 
-        # Create artifact
+        # Create artifact (artifact_type_id=1 is nmap_xml from migration 003)
         artifact = Artifact(
             execution_id=exec_id,
             artifact_path="/tmp/scan.xml",
-            artifact_type="nmap_xml",
+            artifact_type_id=1,  # nmap_xml
             file_size_bytes=1024,
             file_hash="abc123"
         )
@@ -748,15 +747,15 @@ class TestArtifactModel:
         artifact = Artifact(
             execution_id=exec_id,
             artifact_path="/tmp/scan.xml",
-            artifact_type="nmap_xml"
+            artifact_type_id=1  # nmap_xml
         )
         artifact_id = artifact.save(temp_db)
 
-        # Verify link via join
+        # Verify link via join using v_artifacts_with_types view (schema v5)
         cursor = temp_db.execute(
             """
             SELECT te.tool_name, a.artifact_type
-            FROM artifacts a
+            FROM v_artifacts_with_types a
             JOIN tool_executions te ON a.execution_id = te.execution_id
             WHERE a.artifact_id = ?
             """,
@@ -779,7 +778,7 @@ class TestArtifactModel:
         artifact = Artifact(
             execution_id=exec_id,
             artifact_path="/tmp/scan.xml",
-            artifact_type="nmap_xml",
+            artifact_type_id=1,  # nmap_xml
             metadata={"scan_type": "SYN", "hosts_up": 5}
         )
         artifact_id = artifact.save(temp_db)

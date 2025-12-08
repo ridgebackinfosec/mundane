@@ -2335,16 +2335,25 @@ def browse_file_list(
     scan_dir = Path(scan.export_root) / scan.scan_name
 
     def get_counts_for(plugin_file: "PluginFile") -> Tuple[int, str]:
-        """Get host/port counts from database.
+        """Get host/port counts from database via v_plugin_file_stats view.
 
         Args:
             plugin_file: PluginFile database object
 
         Returns:
-            Tuple of (host_count, ports_string) - uses pre-computed database fields
+            Tuple of (host_count, ports_string) - computed from v_plugin_file_stats view
         """
-        # Use pre-computed counts from database (populated during import)
-        return (plugin_file.host_count or 0, "")
+        # Query v_plugin_file_stats view for computed counts (schema v5+)
+        from mundane_pkg.database import query_one, get_connection
+        with get_connection() as conn:
+            row = query_one(
+                conn,
+                "SELECT host_count, port_count FROM v_plugin_file_stats WHERE file_id = ?",
+                (plugin_file.file_id,)
+            )
+            if row:
+                return (row["host_count"] or 0, "")
+            return (0, "")
 
     while True:
         # Query database for findings with plugin info

@@ -219,12 +219,12 @@ class Plugin:
     """Represents a Nessus plugin (finding type).
 
     NOTE: "plugin" is internal terminology. User-facing commands use "findings".
+    Updated in v2.0.8 (schema v5) - removed severity_label (use v_plugins_with_severity view).
     """
 
     plugin_id: int
     plugin_name: str = ""
     severity_int: int = 0
-    severity_label: str = ""
     has_metasploit: bool = False
     cvss3_score: Optional[float] = None
     cvss2_score: Optional[float] = None
@@ -253,7 +253,6 @@ class Plugin:
             plugin_id=row["plugin_id"],
             plugin_name=row["plugin_name"],
             severity_int=row["severity_int"],
-            severity_label=row["severity_label"],
             has_metasploit=bool(row["has_metasploit"]),
             cvss3_score=row["cvss3_score"],
             cvss2_score=row["cvss2_score"],
@@ -279,12 +278,12 @@ class Plugin:
             c.execute(
                 """
                 INSERT OR REPLACE INTO plugins (
-                    plugin_id, plugin_name, severity_int, severity_label,
+                    plugin_id, plugin_name, severity_int,
                     has_metasploit, cvss3_score, cvss2_score, metasploit_names, cves,
                     plugin_url, metadata_fetched_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (self.plugin_id, self.plugin_name, self.severity_int, self.severity_label,
+                (self.plugin_id, self.plugin_name, self.severity_int,
                  self.has_metasploit, self.cvss3_score, self.cvss2_score, metasploit_names_json, cves_json,
                  self.plugin_url, self.metadata_fetched_at)
             )
@@ -314,6 +313,7 @@ class PluginFile:
     """Represents a finding (plugin instance) for a specific scan.
 
     Streamlined in v1.9.0 - removed duplicate/unnecessary fields.
+    Updated in v2.0.8 (schema v5) - removed host_count/port_count (use v_plugin_file_stats view).
     """
 
     file_id: Optional[int] = None
@@ -323,8 +323,6 @@ class PluginFile:
     reviewed_at: Optional[str] = None
     reviewed_by: Optional[str] = None
     review_notes: Optional[str] = None
-    host_count: int = 0
-    port_count: int = 0
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> PluginFile:
@@ -343,9 +341,7 @@ class PluginFile:
             review_state=row["review_state"],
             reviewed_at=row["reviewed_at"],
             reviewed_by=row["reviewed_by"],
-            review_notes=row["review_notes"],
-            host_count=row["host_count"],
-            port_count=row["port_count"]
+            review_notes=row["review_notes"]
         )
 
     def save(self, conn: Optional[sqlite3.Connection] = None) -> int:
@@ -364,12 +360,11 @@ class PluginFile:
                     """
                     INSERT INTO plugin_files (
                         scan_id, plugin_id, review_state,
-                        reviewed_at, reviewed_by, review_notes, host_count, port_count
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        reviewed_at, reviewed_by, review_notes
+                    ) VALUES (?, ?, ?, ?, ?, ?)
                     """,
                     (self.scan_id, self.plugin_id, self.review_state,
-                     self.reviewed_at, self.reviewed_by, self.review_notes,
-                     self.host_count, self.port_count)
+                     self.reviewed_at, self.reviewed_by, self.review_notes)
                 )
                 self.file_id = cursor.lastrowid
             else:
@@ -377,12 +372,10 @@ class PluginFile:
                 c.execute(
                     """
                     UPDATE plugin_files
-                    SET review_state=?, reviewed_at=?, reviewed_by=?, review_notes=?,
-                        host_count=?, port_count=?
+                    SET review_state=?, reviewed_at=?, reviewed_by=?, review_notes=?
                     WHERE file_id=?
                     """,
-                    (self.review_state, self.reviewed_at, self.reviewed_by, self.review_notes,
-                     self.host_count, self.port_count, self.file_id)
+                    (self.review_state, self.reviewed_at, self.reviewed_by, self.review_notes, self.file_id)
                 )
 
         return self.file_id
@@ -656,19 +649,16 @@ class PluginFile:
                 """
                 SELECT DISTINCT p.severity_int, p.severity_label
                 FROM plugin_files pf
-                JOIN plugins p ON pf.plugin_id = p.plugin_id
+                JOIN v_plugins_with_severity p ON pf.plugin_id = p.plugin_id
                 WHERE pf.scan_id = ?
                 ORDER BY p.severity_int DESC
                 """,
                 (scan_id,)
             )
             # Construct severity_dir format: "4_Critical", "3_High", etc.
-            # Derive label from severity_int if empty
-            severity_map = {4: "Critical", 3: "High", 2: "Medium", 1: "Low", 0: "Info"}
             result = []
             for row in rows:
-                label = row['severity_label'] if row['severity_label'] else severity_map.get(row['severity_int'], "Unknown")
-                result.append(f"{row['severity_int']}_{label}")
+                result.append(f"{row['severity_int']}_{row['severity_label']}")
             return result
 
     def get_hosts_and_ports(self, conn: Optional[sqlite3.Connection] = None) -> tuple[list[str], str]:
@@ -922,12 +912,16 @@ class ToolExecution:
 
 @dataclass
 class Artifact:
-    """Represents a generated artifact file (nmap output, logs, etc.)."""
+    """Represents a generated artifact file (nmap output, logs, etc.).
+
+    Updated in v2.0.8 (schema v5) - artifact_type replaced with artifact_type_id FK.
+    Use v_artifacts_with_types view to get type_name.
+    """
 
     artifact_id: Optional[int] = None
     execution_id: Optional[int] = None
     artifact_path: str = ""
-    artifact_type: str = ""
+    artifact_type_id: Optional[int] = None  # FK to artifact_types table
     file_size_bytes: Optional[int] = None
     file_hash: Optional[str] = None
     created_at: Optional[str] = None
@@ -951,7 +945,7 @@ class Artifact:
             artifact_id=row["artifact_id"],
             execution_id=row["execution_id"],
             artifact_path=row["artifact_path"],
-            artifact_type=row["artifact_type"],
+            artifact_type_id=row["artifact_type_id"],
             file_size_bytes=row["file_size_bytes"],
             file_hash=row["file_hash"],
             created_at=row["created_at"],
@@ -974,11 +968,11 @@ class Artifact:
             cursor = c.execute(
                 """
                 INSERT OR REPLACE INTO artifacts (
-                    artifact_id, execution_id, artifact_path, artifact_type,
+                    artifact_id, execution_id, artifact_path, artifact_type_id,
                     file_size_bytes, file_hash, created_at, last_accessed_at, metadata
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (self.artifact_id, self.execution_id, self.artifact_path, self.artifact_type,
+                (self.artifact_id, self.execution_id, self.artifact_path, self.artifact_type_id,
                  self.file_size_bytes, self.file_hash, self.created_at or now_iso(),
                  self.last_accessed_at, metadata_json)
             )

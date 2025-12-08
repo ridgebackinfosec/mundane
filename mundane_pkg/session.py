@@ -89,25 +89,24 @@ def load_session(scan_id: int) -> Optional[SessionState]:
         from .database import db_transaction, query_one
 
         with db_transaction() as conn:
-            # Query active session with file counts
+            # Query active session using v_session_stats view
             row = query_one(
                 conn,
                 """
                 SELECT
-                    s.session_id,
-                    s.session_start,
-                    s.tools_executed,
-                    s.cves_extracted,
-                    sc.scan_name,
-                    COALESCE(SUM(CASE WHEN pf.review_state = 'reviewed' THEN 1 ELSE 0 END), 0) as reviewed_count,
-                    COALESCE(SUM(CASE WHEN pf.review_state = 'completed' THEN 1 ELSE 0 END), 0) as completed_count,
-                    COALESCE(SUM(CASE WHEN pf.review_state = 'skipped' THEN 1 ELSE 0 END), 0) as skipped_count
-                FROM sessions s
-                JOIN scans sc ON s.scan_id = sc.scan_id
-                LEFT JOIN plugin_files pf ON pf.scan_id = s.scan_id
-                WHERE s.scan_id = ? AND s.session_end IS NULL
-                GROUP BY s.session_id, s.session_start, s.tools_executed, s.cves_extracted, sc.scan_name
-                ORDER BY s.session_start DESC
+                    vs.session_id,
+                    vs.session_start,
+                    vs.tools_executed,
+                    vs.cves_extracted,
+                    vs.files_reviewed as reviewed_count,
+                    vs.files_completed as completed_count,
+                    vs.files_skipped as skipped_count,
+                    sc.scan_name
+                FROM v_session_stats vs
+                JOIN sessions s ON vs.session_id = s.session_id
+                JOIN scans sc ON vs.scan_id = sc.scan_id
+                WHERE vs.scan_id = ? AND vs.session_end IS NULL
+                ORDER BY vs.session_start DESC
                 LIMIT 1
                 """,
                 (scan_id,)
@@ -186,29 +185,17 @@ def _db_save_session(
             )
 
             if row:
-                # Update existing active session
+                # Session exists - statistics will be computed via v_session_stats view
+                # No need to update aggregate columns (removed in schema v5)
                 session_id = row["session_id"]
-                conn.execute(
-                    """
-                    UPDATE sessions
-                    SET files_reviewed=?, files_completed=?, files_skipped=?,
-                        tools_executed=?, cves_extracted=?
-                    WHERE session_id=?
-                    """,
-                    (reviewed_count, completed_count, skipped_count,
-                     tool_executions, cve_extractions, session_id)
-                )
             else:
                 # Create new session
                 cursor = conn.execute(
                     """
-                    INSERT INTO sessions (
-                        scan_id, session_start, files_reviewed, files_completed,
-                        files_skipped, tools_executed, cves_extracted
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO sessions (scan_id, session_start)
+                    VALUES (?, ?)
                     """,
-                    (scan_id, session_start.isoformat(), reviewed_count,
-                     completed_count, skipped_count, tool_executions, cve_extractions)
+                    (scan_id, session_start.isoformat())
                 )
                 session_id = cursor.lastrowid
 
@@ -229,16 +216,15 @@ def _db_end_session(scan_id: int) -> None:
         from .database import db_transaction
 
         with db_transaction() as conn:
-            # End active session
+            # End active session (duration_seconds computed via v_session_stats view in schema v5)
             now = datetime.now().isoformat()
             conn.execute(
                 """
                 UPDATE sessions
-                SET session_end = ?,
-                    duration_seconds = CAST((julianday(?) - julianday(session_start)) * 86400 AS INTEGER)
+                SET session_end = ?
                 WHERE scan_id = ? AND session_end IS NULL
                 """,
-                (now, now, scan_id)
+                (now, scan_id)
             )
 
     except Exception as e:

@@ -36,10 +36,15 @@ class Migration004(Migration):
         # Import detect_host_type from parsing module
         import sys
         from pathlib import Path
-        mundane_pkg = Path(__file__).parent.parent
-        if str(mundane_pkg) not in sys.path:
-            sys.path.insert(0, str(mundane_pkg))
-        from parsing import detect_host_type
+        # Import from mundane_pkg package (works in both pytest and standalone execution)
+        try:
+            from mundane_pkg.parsing import detect_host_type
+        except ImportError:
+            # Fallback for standalone execution
+            mundane_pkg = Path(__file__).parent.parent
+            if str(mundane_pkg) not in sys.path:
+                sys.path.insert(0, str(mundane_pkg))
+            from parsing import detect_host_type
 
         # ========== Check if already completed ==========
         cursor = conn.execute(

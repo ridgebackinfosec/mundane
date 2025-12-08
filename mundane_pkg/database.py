@@ -37,7 +37,7 @@ DATABASE_PATH = get_database_path()
 
 # ========== Schema ==========
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 """Current schema version for migrations.
 
 Version history:
@@ -46,6 +46,7 @@ Version history:
 - 2: Removed file_path and severity_dir columns from plugin_files (database-only mode)
 - 3: Added foundation tables (severity_levels, artifact_types, audit_log) and audit triggers
 - 4: Normalized hosts and ports into separate tables (cross-scan tracking)
+- 5: Removed redundant columns and created views for computed statistics
 """
 
 SCHEMA_SQL = """
@@ -67,7 +68,6 @@ CREATE TABLE IF NOT EXISTS plugins (
     plugin_id INTEGER PRIMARY KEY,
     plugin_name TEXT NOT NULL,
     severity_int INTEGER NOT NULL,
-    severity_label TEXT NOT NULL,
     has_metasploit BOOLEAN DEFAULT 0,
     cvss3_score REAL,
     cvss2_score REAL,
@@ -75,7 +75,8 @@ CREATE TABLE IF NOT EXISTS plugins (
     cves TEXT,
     plugin_url TEXT,
     metadata_fetched_at TIMESTAMP,
-    CONSTRAINT severity_range CHECK (severity_int BETWEEN 0 AND 4)
+    CONSTRAINT severity_range CHECK (severity_int BETWEEN 0 AND 4),
+    FOREIGN KEY (severity_int) REFERENCES severity_levels(severity_int)
 );
 
 CREATE INDEX IF NOT EXISTS idx_plugins_severity ON plugins(severity_int);
@@ -89,8 +90,6 @@ CREATE TABLE IF NOT EXISTS plugin_files (
     reviewed_at TIMESTAMP,
     reviewed_by TEXT,
     review_notes TEXT,
-    host_count INTEGER DEFAULT 0,
-    port_count INTEGER DEFAULT 0,
     FOREIGN KEY (scan_id) REFERENCES scans(scan_id) ON DELETE CASCADE,
     FOREIGN KEY (plugin_id) REFERENCES plugins(plugin_id),
     CONSTRAINT valid_review_state CHECK (review_state IN ('pending', 'reviewed', 'completed', 'skipped')),
@@ -122,12 +121,6 @@ CREATE TABLE IF NOT EXISTS sessions (
     scan_id INTEGER NOT NULL,
     session_start TIMESTAMP NOT NULL,
     session_end TIMESTAMP,
-    duration_seconds INTEGER,
-    files_reviewed INTEGER DEFAULT 0,
-    files_completed INTEGER DEFAULT 0,
-    files_skipped INTEGER DEFAULT 0,
-    tools_executed INTEGER DEFAULT 0,
-    cves_extracted INTEGER DEFAULT 0,
     FOREIGN KEY (scan_id) REFERENCES scans(scan_id) ON DELETE CASCADE
 );
 
@@ -160,17 +153,18 @@ CREATE TABLE IF NOT EXISTS artifacts (
     artifact_id INTEGER PRIMARY KEY AUTOINCREMENT,
     execution_id INTEGER,
     artifact_path TEXT NOT NULL UNIQUE,
-    artifact_type TEXT NOT NULL,
+    artifact_type_id INTEGER,
     file_size_bytes INTEGER,
     file_hash TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     last_accessed_at TIMESTAMP,
     metadata TEXT,
-    FOREIGN KEY (execution_id) REFERENCES tool_executions(execution_id) ON DELETE SET NULL
+    FOREIGN KEY (execution_id) REFERENCES tool_executions(execution_id) ON DELETE SET NULL,
+    FOREIGN KEY (artifact_type_id) REFERENCES artifact_types(artifact_type_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_artifacts_execution ON artifacts(execution_id);
-CREATE INDEX IF NOT EXISTS idx_artifacts_type ON artifacts(artifact_type);
+CREATE INDEX IF NOT EXISTS idx_artifacts_type ON artifacts(artifact_type_id);
 
 CREATE TABLE IF NOT EXISTS workflow_executions (
     workflow_execution_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -242,6 +236,100 @@ CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
     applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ========== VIEWS (Computed Statistics) ==========
+-- Note: These views are created by migration_005 and may not exist in earlier schema versions
+
+-- Plugin file statistics (replaces host_count, port_count columns)
+CREATE VIEW IF NOT EXISTS v_plugin_file_stats AS
+SELECT
+    pf.file_id,
+    pf.scan_id,
+    pf.plugin_id,
+    pf.review_state,
+    pf.reviewed_at,
+    pf.reviewed_by,
+    pf.review_notes,
+    COUNT(DISTINCT pfh.host_id) as host_count,
+    COUNT(DISTINCT pfh.port_number) as port_count
+FROM plugin_files pf
+LEFT JOIN plugin_file_hosts pfh ON pf.file_id = pfh.file_id
+GROUP BY pf.file_id, pf.scan_id, pf.plugin_id, pf.review_state,
+         pf.reviewed_at, pf.reviewed_by, pf.review_notes;
+
+-- Session statistics (replaces aggregate columns in sessions table)
+CREATE VIEW IF NOT EXISTS v_session_stats AS
+SELECT
+    s.session_id,
+    s.scan_id,
+    s.session_start,
+    s.session_end,
+    (julianday(s.session_end) - julianday(s.session_start)) * 86400 AS duration_seconds,
+    COUNT(DISTINCT CASE WHEN pf.review_state = 'reviewed' THEN pf.file_id END) as files_reviewed,
+    COUNT(DISTINCT CASE WHEN pf.review_state = 'completed' THEN pf.file_id END) as files_completed,
+    COUNT(DISTINCT CASE WHEN pf.review_state = 'skipped' THEN pf.file_id END) as files_skipped,
+    COUNT(DISTINCT te.execution_id) as tools_executed,
+    COUNT(DISTINCT CASE WHEN p.cves IS NOT NULL THEN p.plugin_id END) as cves_extracted
+FROM sessions s
+LEFT JOIN plugin_files pf ON s.scan_id = pf.scan_id
+    AND pf.reviewed_at >= s.session_start
+    AND (s.session_end IS NULL OR pf.reviewed_at <= s.session_end)
+LEFT JOIN tool_executions te ON s.session_id = te.session_id
+LEFT JOIN plugins p ON pf.plugin_id = p.plugin_id
+GROUP BY s.session_id, s.scan_id, s.session_start, s.session_end;
+
+-- Plugins with severity labels (replaces severity_label column in plugins)
+CREATE VIEW IF NOT EXISTS v_plugins_with_severity AS
+SELECT
+    p.plugin_id,
+    p.plugin_name,
+    p.severity_int,
+    sl.severity_label,
+    sl.color_hint,
+    p.has_metasploit,
+    p.cvss3_score,
+    p.cvss2_score,
+    p.cves,
+    p.metasploit_names,
+    p.plugin_url,
+    p.metadata_fetched_at
+FROM plugins p
+JOIN severity_levels sl ON p.severity_int = sl.severity_int;
+
+-- Host findings summary (cross-scan tracking - new capability)
+CREATE VIEW IF NOT EXISTS v_host_findings AS
+SELECT
+    h.host_id,
+    h.host_address,
+    h.host_type,
+    h.first_seen,
+    h.last_seen,
+    COUNT(DISTINCT pf.scan_id) as scan_count,
+    COUNT(DISTINCT pf.file_id) as finding_count,
+    COUNT(DISTINCT pfh.port_number) as port_count,
+    MAX(p.severity_int) as max_severity
+FROM hosts h
+LEFT JOIN plugin_file_hosts pfh ON h.host_id = pfh.host_id
+LEFT JOIN plugin_files pf ON pfh.file_id = pf.file_id
+LEFT JOIN plugins p ON pf.plugin_id = p.plugin_id
+GROUP BY h.host_id, h.host_address, h.host_type, h.first_seen, h.last_seen;
+
+-- Artifacts with type information (replaces artifact_type column)
+CREATE VIEW IF NOT EXISTS v_artifacts_with_types AS
+SELECT
+    a.artifact_id,
+    a.execution_id,
+    a.artifact_path,
+    at.type_name as artifact_type,
+    at.file_extension,
+    at.description as artifact_description,
+    a.file_size_bytes,
+    a.file_hash,
+    a.created_at,
+    a.last_accessed_at,
+    a.metadata
+FROM artifacts a
+LEFT JOIN artifact_types at ON a.artifact_type_id = at.artifact_type_id;
 """
 
 

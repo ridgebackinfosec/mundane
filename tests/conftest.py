@@ -32,6 +32,12 @@ def temp_db() -> Generator[sqlite3.Connection, None, None]:
     conn.executescript(SCHEMA_SQL)
     conn.execute("PRAGMA foreign_keys=ON")
 
+    # Run migrations to populate lookup tables (severity_levels, artifact_types, etc.)
+    from mundane_pkg.migrations import get_all_migrations
+    all_migrations = get_all_migrations()
+    for migration in all_migrations:
+        migration.upgrade(conn)
+
     conn.commit()
 
     yield conn

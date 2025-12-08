@@ -220,7 +220,7 @@ def _build_index_stream(
 
     Returns:
         Tuple of:
-          - plugins dict: plugin_id -> {name, severity_int, severity_label, msf}
+          - plugins dict: plugin_id -> {name, severity_int, msf}
           - plugin_hosts dict: plugin_id -> set of host entries
 
     Raises:
@@ -292,7 +292,6 @@ def _build_index_stream(
                     plugins[pid] = {
                         "name": pname,
                         "severity_int": sev_int,
-                        "severity_label": severity_label_from_int(sev_int),
                         "msf": msf_flag,
                         "msf_names": msf_names,
                         "cves": cves,
@@ -301,7 +300,6 @@ def _build_index_stream(
                     # Keep highest severity across all instances
                     if sev_int > existing["severity_int"]:
                         existing["severity_int"] = sev_int
-                        existing["severity_label"] = severity_label_from_int(sev_int)
                     # Merge MSF flag (any True wins)
                     if msf_flag:
                         existing["msf"] = True
@@ -594,7 +592,6 @@ def _write_to_database(
                     plugin_id=plugin_id,
                     plugin_name=meta["name"],
                     severity_int=meta["severity_int"],
-                    severity_label=meta["severity_label"],
                     has_metasploit=meta.get("msf", False),
                     cvss3_score=meta.get("cvss3"),
                     cvss2_score=meta.get("cvss2"),
@@ -631,9 +628,7 @@ def _write_to_database(
                 plugin_file = PluginFile(
                     scan_id=scan_id,
                     plugin_id=plugin_id,
-                    review_state="pending",
-                    host_count=len(unique_hosts_for_plugin),
-                    port_count=len(ports_for_plugin) if ports_for_plugin else 0
+                    review_state="pending"
                 )
 
                 file_id = plugin_file.save(conn)

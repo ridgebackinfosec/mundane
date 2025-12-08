@@ -217,6 +217,9 @@ class Migration005(Migration):
             print("    [OK] Artifacts table already migrated")
             return
 
+        # Clean up any leftover temporary table from previous failed migration
+        conn.execute("DROP TABLE IF EXISTS artifacts_new")
+
         # Create new artifacts table with artifact_type_id FK
         conn.execute("""
             CREATE TABLE artifacts_new (
@@ -275,6 +278,9 @@ class Migration005(Migration):
             print("    [OK] plugin_files table already cleaned up")
             return
 
+        # Clean up any leftover temporary table from previous failed migration
+        conn.execute("DROP TABLE IF EXISTS plugin_files_new")
+
         # Create new table without redundant columns
         conn.execute("""
             CREATE TABLE plugin_files_new (
@@ -308,16 +314,18 @@ class Migration005(Migration):
         # Rename new table
         conn.execute("ALTER TABLE plugin_files_new RENAME TO plugin_files")
 
-        # Recreate indexes
-        conn.execute("CREATE INDEX idx_plugin_files_scan ON plugin_files(scan_id)")
-        conn.execute("CREATE INDEX idx_plugin_files_plugin ON plugin_files(plugin_id)")
-        conn.execute("CREATE INDEX idx_plugin_files_review_state ON plugin_files(review_state)")
+        # Recreate indexes (IF NOT EXISTS to handle index conflicts)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_plugin_files_scan ON plugin_files(scan_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_plugin_files_plugin ON plugin_files(plugin_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_plugin_files_review_state ON plugin_files(review_state)")
 
         # Recreate audit trigger (if it exists)
         cursor = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='trigger' AND name='audit_plugin_files_review_update'"
         )
         if cursor.fetchone():
+            # Drop and recreate to handle trigger conflicts
+            conn.execute("DROP TRIGGER IF EXISTS audit_plugin_files_review_update")
             conn.execute("""
                 CREATE TRIGGER audit_plugin_files_review_update
                 AFTER UPDATE ON plugin_files
@@ -347,6 +355,9 @@ class Migration005(Migration):
         if 'severity_label' not in columns:
             print("    [OK] plugins table already cleaned up")
             return
+
+        # Clean up any leftover temporary table from previous failed migration
+        conn.execute("DROP TABLE IF EXISTS plugins_new")
 
         # Create new table without severity_label
         conn.execute("""
@@ -382,9 +393,9 @@ class Migration005(Migration):
         conn.execute("DROP TABLE plugins")
         conn.execute("ALTER TABLE plugins_new RENAME TO plugins")
 
-        # Recreate indexes
-        conn.execute("CREATE INDEX idx_plugins_severity ON plugins(severity_int)")
-        conn.execute("CREATE INDEX idx_plugins_metasploit ON plugins(has_metasploit)")
+        # Recreate indexes (IF NOT EXISTS to handle index conflicts)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_plugins_severity ON plugins(severity_int)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_plugins_metasploit ON plugins(has_metasploit)")
 
         print("    [OK] Recreated plugins table without severity_label")
 
@@ -400,6 +411,9 @@ class Migration005(Migration):
         if not any(col in columns for col in aggregate_columns):
             print("    [OK] sessions table already cleaned up")
             return
+
+        # Clean up any leftover temporary table from previous failed migration
+        conn.execute("DROP TABLE IF EXISTS sessions_new")
 
         # Create new table without aggregate columns
         conn.execute("""
@@ -423,14 +437,16 @@ class Migration005(Migration):
         conn.execute("DROP TABLE sessions")
         conn.execute("ALTER TABLE sessions_new RENAME TO sessions")
 
-        # Recreate index
-        conn.execute("CREATE INDEX idx_sessions_scan ON sessions(scan_id)")
+        # Recreate index (IF NOT EXISTS to handle index conflicts)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_scan ON sessions(scan_id)")
 
         # Recreate audit trigger (if it exists)
         cursor = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='trigger' AND name='audit_sessions_insert'"
         )
         if cursor.fetchone():
+            # Drop and recreate to handle trigger conflicts
+            conn.execute("DROP TRIGGER IF EXISTS audit_sessions_insert")
             conn.execute("""
                 CREATE TRIGGER audit_sessions_insert
                 AFTER INSERT ON sessions
@@ -501,8 +517,8 @@ class Migration005(Migration):
         """)
         conn.execute("DROP TABLE plugins")
         conn.execute("ALTER TABLE plugins_old RENAME TO plugins")
-        conn.execute("CREATE INDEX idx_plugins_severity ON plugins(severity_int)")
-        conn.execute("CREATE INDEX idx_plugins_metasploit ON plugins(has_metasploit)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_plugins_severity ON plugins(severity_int)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_plugins_metasploit ON plugins(has_metasploit)")
 
         # Restore sessions table (add aggregate columns back)
         print("  [4/5] Restoring sessions table...")
@@ -540,7 +556,7 @@ class Migration005(Migration):
         """)
         conn.execute("DROP TABLE sessions")
         conn.execute("ALTER TABLE sessions_old RENAME TO sessions")
-        conn.execute("CREATE INDEX idx_sessions_scan ON sessions(scan_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_scan ON sessions(scan_id)")
 
         # Restore artifacts table (add artifact_type TEXT back)
         print("  [5/5] Restoring artifacts table...")

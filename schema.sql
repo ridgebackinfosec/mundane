@@ -1,15 +1,23 @@
 -- ============================================================================
--- MUNDANE DATABASE SCHEMA
+-- MUNDANE DATABASE SCHEMA (Version 2.1.6 - Normalized)
 -- ============================================================================
 -- SQLite schema for tracking Nessus findings, review state, tool executions,
 -- and generated artifacts. This file serves as reference documentation.
 --
 -- Database location: ~/.mundane/mundane.db (global, cross-scan queries)
+-- Schema version: 1 (single-version, normalized structure)
 --
 -- IMPORTANT: This file is DOCUMENTATION ONLY
--- - Actual schema initialization: mundane_pkg/database.py (SCHEMA_SQL)
--- - Schema migrations: mundane_pkg/migrations/
--- - When updating schema: Update database.py AND create a migration file
+-- - Actual schema initialization: mundane_pkg/database.py (SCHEMA_SQL_TABLES + SCHEMA_SQL_VIEWS)
+-- - Schema is created directly in normalized form on first run
+-- - No migration system (breaking changes require major version bump and re-import)
+--
+-- KEY IMPROVEMENTS IN v2.x:
+-- - Normalized host/port tables for cross-scan tracking
+-- - Foundation lookup tables (severity_levels, artifact_types)
+-- - SQL views for computed statistics (no redundant cached data)
+-- - Audit logging support
+-- - Foreign key constraints throughout
 -- ============================================================================
 
 -- ============================================================================
@@ -22,13 +30,86 @@ CREATE TABLE IF NOT EXISTS scans (
     nessus_file_hash TEXT,              -- SHA256 of .nessus file for change detection
     export_root TEXT NOT NULL,          -- Where plugin .txt files are stored
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    last_reviewed_at TIMESTAMP,
-
-    CONSTRAINT unique_scan_name UNIQUE (scan_name)
+    last_reviewed_at TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_scans_name ON scans(scan_name);
-CREATE INDEX IF NOT EXISTS idx_scans_created ON scans(created_at);
+
+-- ============================================================================
+-- FOUNDATION TABLES: Normalized reference data
+-- ============================================================================
+
+-- Severity levels lookup table (normalized reference data)
+CREATE TABLE IF NOT EXISTS severity_levels (
+    severity_int INTEGER PRIMARY KEY,
+    severity_label TEXT NOT NULL,
+    severity_order INTEGER NOT NULL,
+    color_hint TEXT,
+    CONSTRAINT unique_severity_label UNIQUE (severity_label)
+);
+
+-- Pre-populated with:
+-- (4, 'Critical', 4, '#8B0000')
+-- (3, 'High', 3, '#FF4500')
+-- (2, 'Medium', 2, '#FFA500')
+-- (1, 'Low', 1, '#FFD700')
+-- (0, 'Info', 0, '#4682B4')
+
+-- Artifact types lookup table (enforces consistency)
+CREATE TABLE IF NOT EXISTS artifact_types (
+    artifact_type_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type_name TEXT NOT NULL UNIQUE,
+    file_extension TEXT,
+    description TEXT,
+    parser_module TEXT
+);
+
+-- Pre-populated with:
+-- ('nmap_xml', '.xml', 'Nmap XML output')
+-- ('nmap_gnmap', '.gnmap', 'Nmap greppable output')
+-- ('nmap_txt', '.txt', 'Nmap text output')
+-- ('netexec_txt', '.txt', 'NetExec text output')
+-- ('log', '.log', 'Tool execution log')
+
+-- Audit log for tracking changes to critical tables
+CREATE TABLE IF NOT EXISTS audit_log (
+    audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    table_name TEXT NOT NULL,
+    record_id INTEGER NOT NULL,
+    action TEXT CHECK(action IN ('INSERT', 'UPDATE', 'DELETE')),
+    changed_by TEXT,
+    changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    old_values TEXT,
+    new_values TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_table_record ON audit_log(table_name, record_id);
+CREATE INDEX IF NOT EXISTS idx_audit_changed_at ON audit_log(changed_at);
+
+-- ============================================================================
+-- NORMALIZED HOST/PORT TRACKING (Cross-Scan Capabilities)
+-- ============================================================================
+
+-- Hosts table (normalized host data across scans)
+-- Enables cross-scan queries: "show all findings for host X across all scans"
+CREATE TABLE IF NOT EXISTS hosts (
+    host_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    host_address TEXT NOT NULL UNIQUE,
+    host_type TEXT CHECK(host_type IN ('ipv4', 'ipv6', 'hostname')) NOT NULL,
+    reverse_dns TEXT,
+    first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_hosts_address ON hosts(host_address);
+CREATE INDEX IF NOT EXISTS idx_hosts_type ON hosts(host_type);
+
+-- Ports table (port metadata)
+CREATE TABLE IF NOT EXISTS ports (
+    port_number INTEGER PRIMARY KEY CHECK(port_number BETWEEN 1 AND 65535),
+    service_name TEXT,
+    description TEXT
+);
 
 -- ============================================================================
 -- PLUGINS: Plugin metadata (Nessus plugin ID - internal reference only)
@@ -39,7 +120,10 @@ CREATE TABLE IF NOT EXISTS plugins (
     plugin_id INTEGER PRIMARY KEY,      -- Nessus plugin ID (e.g., 57608)
     plugin_name TEXT NOT NULL,
     severity_int INTEGER NOT NULL,      -- 0=Info, 1=Low, 2=Medium, 3=High, 4=Critical
-    severity_label TEXT NOT NULL,       -- "Info", "Low", "Medium", "High", "Critical"
+
+    -- REMOVED in v2.x: severity_label (now in severity_levels lookup table)
+    -- Use v_plugins_with_severity view to get labels
+
     has_metasploit BOOLEAN DEFAULT 0,
     cvss3_score REAL,                   -- CVSS v3 base score
     cvss2_score REAL,                   -- CVSS v2 base score (fallback)
@@ -53,15 +137,15 @@ CREATE TABLE IF NOT EXISTS plugins (
     -- Tenable plugin URL
     plugin_url TEXT,                    -- https://www.tenable.com/plugins/nessus/{plugin_id}
 
-    -- Metadata fetch timestamp (deprecated - CVEs now extracted from XML)
+    -- Metadata fetch timestamp
     metadata_fetched_at TIMESTAMP,
 
-    CONSTRAINT severity_range CHECK (severity_int BETWEEN 0 AND 4)
+    CONSTRAINT severity_range CHECK (severity_int BETWEEN 0 AND 4),
+    FOREIGN KEY (severity_int) REFERENCES severity_levels(severity_int)
 );
 
 CREATE INDEX IF NOT EXISTS idx_plugins_severity ON plugins(severity_int);
 CREATE INDEX IF NOT EXISTS idx_plugins_metasploit ON plugins(has_metasploit);
-CREATE INDEX IF NOT EXISTS idx_plugins_name ON plugins(plugin_name);
 
 -- ============================================================================
 -- PLUGIN_FILES: Findings per scan (one per plugin per scan)
@@ -74,8 +158,11 @@ CREATE TABLE IF NOT EXISTS plugin_files (
     reviewed_at TIMESTAMP,
     reviewed_by TEXT,
     review_notes TEXT,
-    host_count INTEGER DEFAULT 0,
-    port_count INTEGER DEFAULT 0,
+
+    -- REMOVED in v2.x: host_count, port_count, file_path, severity_dir,
+    --                  file_created_at, file_modified_at, last_parsed_at
+    -- Use v_plugin_file_stats view to get host/port counts
+
     FOREIGN KEY (scan_id) REFERENCES scans(scan_id) ON DELETE CASCADE,
     FOREIGN KEY (plugin_id) REFERENCES plugins(plugin_id),
     CONSTRAINT valid_review_state CHECK (review_state IN ('pending', 'reviewed', 'completed', 'skipped')),
@@ -87,29 +174,31 @@ CREATE INDEX IF NOT EXISTS idx_plugin_files_plugin ON plugin_files(plugin_id);
 CREATE INDEX IF NOT EXISTS idx_plugin_files_review_state ON plugin_files(review_state);
 
 -- ============================================================================
--- PLUGIN_FILE_HOSTS: Host:port combinations per plugin file
+-- PLUGIN_FILE_HOSTS: Host:port combinations per plugin file (Normalized)
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS plugin_file_hosts (
-    host_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pfh_id INTEGER PRIMARY KEY AUTOINCREMENT,  -- Renamed from host_id in v2.x
     file_id INTEGER NOT NULL,
 
-    host TEXT NOT NULL,                 -- IP address or hostname
-    port INTEGER,                       -- NULL if no port specified
+    -- CHANGED in v2.x: host and port are now foreign keys to normalized tables
+    host_id INTEGER NOT NULL,           -- FK to hosts table
+    port_number INTEGER,                -- FK to ports table (NULL if no port)
 
-    -- Host metadata
-    is_ipv4 BOOLEAN DEFAULT 0,
-    is_ipv6 BOOLEAN DEFAULT 0,
+    -- REMOVED in v2.x: host TEXT, is_ipv4, is_ipv6
+    -- Host metadata now in hosts table
 
     -- Plugin output (extracted from .nessus <plugin_output> element)
     plugin_output TEXT,                 -- Host-specific Nessus scanner output
 
     FOREIGN KEY (file_id) REFERENCES plugin_files(file_id) ON DELETE CASCADE,
-
-    CONSTRAINT unique_file_host_port UNIQUE (file_id, host, port)
+    FOREIGN KEY (host_id) REFERENCES hosts(host_id),
+    FOREIGN KEY (port_number) REFERENCES ports(port_number),
+    CONSTRAINT unique_file_host_port UNIQUE (file_id, host_id, port_number)
 );
 
-CREATE INDEX IF NOT EXISTS idx_plugin_file_hosts_file ON plugin_file_hosts(file_id);
-CREATE INDEX IF NOT EXISTS idx_plugin_file_hosts_host ON plugin_file_hosts(host);
+CREATE INDEX IF NOT EXISTS idx_pfh_file ON plugin_file_hosts(file_id);
+CREATE INDEX IF NOT EXISTS idx_pfh_host ON plugin_file_hosts(host_id);
+CREATE INDEX IF NOT EXISTS idx_pfh_port ON plugin_file_hosts(port_number);
 
 -- ============================================================================
 -- SESSIONS: Review session tracking (INTERNAL - no user-facing commands)
@@ -120,20 +209,15 @@ CREATE TABLE IF NOT EXISTS sessions (
 
     session_start TIMESTAMP NOT NULL,
     session_end TIMESTAMP,
-    duration_seconds INTEGER,           -- Computed on session_end
 
-    -- Session statistics
-    files_reviewed INTEGER DEFAULT 0,
-    files_completed INTEGER DEFAULT 0,
-    files_skipped INTEGER DEFAULT 0,
-    tools_executed INTEGER DEFAULT 0,
-    cves_extracted INTEGER DEFAULT 0,
+    -- REMOVED in v2.x: duration_seconds, files_reviewed, files_completed,
+    --                  files_skipped, tools_executed, cves_extracted
+    -- Use v_session_stats view to get computed statistics
 
     FOREIGN KEY (scan_id) REFERENCES scans(scan_id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_scan ON sessions(scan_id);
-CREATE INDEX IF NOT EXISTS idx_sessions_start ON sessions(session_start);
 
 -- ============================================================================
 -- TOOL_EXECUTIONS: Track every tool run
@@ -171,7 +255,6 @@ CREATE TABLE IF NOT EXISTS tool_executions (
 CREATE INDEX IF NOT EXISTS idx_tool_executions_session ON tool_executions(session_id);
 CREATE INDEX IF NOT EXISTS idx_tool_executions_file ON tool_executions(file_id);
 CREATE INDEX IF NOT EXISTS idx_tool_executions_tool ON tool_executions(tool_name);
-CREATE INDEX IF NOT EXISTS idx_tool_executions_executed ON tool_executions(executed_at);
 
 -- ============================================================================
 -- ARTIFACTS: Track all generated output files
@@ -182,8 +265,10 @@ CREATE TABLE IF NOT EXISTS artifacts (
 
     -- Artifact identification
     artifact_path TEXT NOT NULL UNIQUE, -- Absolute path
-    artifact_type TEXT NOT NULL,        -- 'nmap_xml', 'nmap_gnmap', 'nmap_nmap',
-                                        -- 'netexec_log', 'metasploit_rc', 'custom'
+    artifact_type_id INTEGER,           -- FK to artifact_types (CHANGED in v2.x)
+
+    -- REMOVED in v2.x: artifact_type TEXT
+    -- Use v_artifacts_with_types view to get type names
 
     -- File metadata
     file_size_bytes INTEGER,
@@ -196,12 +281,12 @@ CREATE TABLE IF NOT EXISTS artifacts (
     -- Artifact-specific metadata (JSON)
     metadata TEXT,                      -- JSON: {"nse_scripts": [...], "udp": true, ...}
 
-    FOREIGN KEY (execution_id) REFERENCES tool_executions(execution_id) ON DELETE SET NULL
+    FOREIGN KEY (execution_id) REFERENCES tool_executions(execution_id) ON DELETE SET NULL,
+    FOREIGN KEY (artifact_type_id) REFERENCES artifact_types(artifact_type_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_artifacts_execution ON artifacts(execution_id);
-CREATE INDEX IF NOT EXISTS idx_artifacts_type ON artifacts(artifact_type);
-CREATE INDEX IF NOT EXISTS idx_artifacts_path ON artifacts(artifact_path);
+CREATE INDEX IF NOT EXISTS idx_artifacts_type ON artifacts(artifact_type_id);
 
 -- ============================================================================
 -- WORKFLOWS: Custom workflow tracking
@@ -222,71 +307,103 @@ CREATE TABLE IF NOT EXISTS workflow_executions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_workflow_executions_file ON workflow_executions(file_id);
-CREATE INDEX IF NOT EXISTS idx_workflow_executions_workflow ON workflow_executions(workflow_name);
 
 -- ============================================================================
--- VIEWS: Common queries for reporting
+-- VIEWS: Computed Statistics (NEW in v2.x)
 -- ============================================================================
+-- These views provide computed aggregates without storing redundant data in tables
+-- This eliminates data consistency issues and reduces storage overhead
 
--- Review progress per scan and severity
-CREATE VIEW IF NOT EXISTS v_review_progress AS
+-- Plugin file statistics (replaces host_count, port_count columns)
+CREATE VIEW IF NOT EXISTS v_plugin_file_stats AS
 SELECT
-    s.scan_name,
-    pf.severity_dir,
-    COUNT(*) as total_files,
-    SUM(CASE WHEN pf.review_state = 'completed' THEN 1 ELSE 0 END) as completed,
-    SUM(CASE WHEN pf.review_state = 'reviewed' THEN 1 ELSE 0 END) as reviewed,
-    SUM(CASE WHEN pf.review_state = 'skipped' THEN 1 ELSE 0 END) as skipped,
-    SUM(CASE WHEN pf.review_state = 'pending' THEN 1 ELSE 0 END) as pending,
-    ROUND(100.0 * SUM(CASE WHEN pf.review_state = 'completed' THEN 1 ELSE 0 END) / COUNT(*), 1) as completion_pct
-FROM scans s
-JOIN plugin_files pf ON pf.scan_id = s.scan_id
-GROUP BY s.scan_name, pf.severity_dir
-ORDER BY s.scan_name, pf.severity_dir DESC;
+    pf.file_id,
+    pf.scan_id,
+    pf.plugin_id,
+    pf.review_state,
+    pf.reviewed_at,
+    pf.reviewed_by,
+    pf.review_notes,
+    COUNT(DISTINCT pfh.host_id) as host_count,
+    COUNT(DISTINCT pfh.port_number) as port_count
+FROM plugin_files pf
+LEFT JOIN plugin_file_hosts pfh ON pf.file_id = pfh.file_id
+GROUP BY pf.file_id, pf.scan_id, pf.plugin_id, pf.review_state,
+         pf.reviewed_at, pf.reviewed_by, pf.review_notes;
 
--- Session statistics
+-- Session statistics (replaces aggregate columns in sessions table)
 CREATE VIEW IF NOT EXISTS v_session_stats AS
 SELECT
-    sess.session_id,
-    sess.session_start,
-    sess.session_end,
-    sess.duration_seconds,
-    s.scan_name,
-    sess.tools_executed,
-    sess.cves_extracted,
-    sess.files_completed,
-    sess.files_reviewed,
-    sess.files_skipped
-FROM sessions sess
-JOIN scans s ON s.scan_id = sess.scan_id
-ORDER BY sess.session_start DESC;
+    s.session_id,
+    s.scan_id,
+    s.session_start,
+    s.session_end,
+    (julianday(s.session_end) - julianday(s.session_start)) * 86400 AS duration_seconds,
+    COUNT(DISTINCT CASE WHEN pf.review_state = 'reviewed' THEN pf.file_id END) as files_reviewed,
+    COUNT(DISTINCT CASE WHEN pf.review_state = 'completed' THEN pf.file_id END) as files_completed,
+    COUNT(DISTINCT CASE WHEN pf.review_state = 'skipped' THEN pf.file_id END) as files_skipped,
+    COUNT(DISTINCT te.execution_id) as tools_executed,
+    COUNT(DISTINCT CASE WHEN p.cves IS NOT NULL THEN p.plugin_id END) as cves_extracted
+FROM sessions s
+LEFT JOIN plugin_files pf ON s.scan_id = pf.scan_id
+    AND pf.reviewed_at >= s.session_start
+    AND (s.session_end IS NULL OR pf.reviewed_at <= s.session_end)
+LEFT JOIN tool_executions te ON s.session_id = te.session_id
+LEFT JOIN plugins p ON pf.plugin_id = p.plugin_id
+GROUP BY s.session_id, s.scan_id, s.session_start, s.session_end;
 
--- Tool execution summary
-CREATE VIEW IF NOT EXISTS v_tool_summary AS
+-- Plugins with severity labels (replaces severity_label column in plugins)
+CREATE VIEW IF NOT EXISTS v_plugins_with_severity AS
 SELECT
-    te.tool_name,
-    te.tool_protocol,
-    COUNT(*) as execution_count,
-    AVG(te.duration_seconds) as avg_duration,
-    SUM(CASE WHEN te.exit_code = 0 THEN 1 ELSE 0 END) as success_count,
-    SUM(CASE WHEN te.exit_code != 0 THEN 1 ELSE 0 END) as failure_count,
-    COUNT(DISTINCT a.artifact_id) as artifacts_created
-FROM tool_executions te
-LEFT JOIN artifacts a ON a.execution_id = te.execution_id
-GROUP BY te.tool_name, te.tool_protocol
-ORDER BY execution_count DESC;
+    p.plugin_id,
+    p.plugin_name,
+    p.severity_int,
+    sl.severity_label,
+    sl.color_hint,
+    p.has_metasploit,
+    p.cvss3_score,
+    p.cvss2_score,
+    p.cves,
+    p.metasploit_names,
+    p.plugin_url,
+    p.metadata_fetched_at
+FROM plugins p
+JOIN severity_levels sl ON p.severity_int = sl.severity_int;
 
--- Artifact storage summary
-CREATE VIEW IF NOT EXISTS v_artifact_storage AS
+-- Host findings summary (cross-scan tracking - NEW capability in v2.x)
+CREATE VIEW IF NOT EXISTS v_host_findings AS
 SELECT
-    a.artifact_type,
-    COUNT(*) as file_count,
-    SUM(a.file_size_bytes) as total_bytes,
-    ROUND(SUM(a.file_size_bytes) / 1024.0 / 1024.0, 2) as total_mb,
-    AVG(a.file_size_bytes) as avg_file_size
+    h.host_id,
+    h.host_address,
+    h.host_type,
+    h.first_seen,
+    h.last_seen,
+    COUNT(DISTINCT pf.scan_id) as scan_count,
+    COUNT(DISTINCT pf.file_id) as finding_count,
+    COUNT(DISTINCT pfh.port_number) as port_count,
+    MAX(p.severity_int) as max_severity
+FROM hosts h
+LEFT JOIN plugin_file_hosts pfh ON h.host_id = pfh.host_id
+LEFT JOIN plugin_files pf ON pfh.file_id = pf.file_id
+LEFT JOIN plugins p ON pf.plugin_id = p.plugin_id
+GROUP BY h.host_id, h.host_address, h.host_type, h.first_seen, h.last_seen;
+
+-- Artifacts with type information (replaces artifact_type column)
+CREATE VIEW IF NOT EXISTS v_artifacts_with_types AS
+SELECT
+    a.artifact_id,
+    a.execution_id,
+    a.artifact_path,
+    at.type_name as artifact_type,
+    at.file_extension,
+    at.description as artifact_description,
+    a.file_size_bytes,
+    a.file_hash,
+    a.created_at,
+    a.last_accessed_at,
+    a.metadata
 FROM artifacts a
-GROUP BY a.artifact_type
-ORDER BY total_bytes DESC;
+LEFT JOIN artifact_types at ON a.artifact_type_id = at.artifact_type_id;
 
 -- ============================================================================
 -- PRAGMA SETTINGS (applied at connection time by database.py)
@@ -296,3 +413,46 @@ ORDER BY total_bytes DESC;
 -- PRAGMA synchronous=NORMAL;      -- Balance between safety and performance
 -- PRAGMA temp_store=MEMORY;       -- Keep temp tables in memory
 -- PRAGMA cache_size=-64000;       -- 64MB cache
+
+-- ============================================================================
+-- QUERY EXAMPLES (v2.x Normalized Schema)
+-- ============================================================================
+
+-- Example 1: Get all findings for a specific host across all scans
+-- SELECT
+--     h.host_address,
+--     s.scan_name,
+--     p.plugin_name,
+--     sl.severity_label,
+--     pf.review_state
+-- FROM hosts h
+-- JOIN plugin_file_hosts pfh ON h.host_id = pfh.host_id
+-- JOIN plugin_files pf ON pfh.file_id = pf.file_id
+-- JOIN plugins p ON pf.plugin_id = p.plugin_id
+-- JOIN severity_levels sl ON p.severity_int = sl.severity_int
+-- JOIN scans s ON pf.scan_id = s.scan_id
+-- WHERE h.host_address = '192.168.1.10'
+-- ORDER BY s.created_at DESC, sl.severity_order DESC;
+
+-- Example 2: Get plugin file with host/port counts using view
+-- SELECT * FROM v_plugin_file_stats WHERE file_id = 123;
+
+-- Example 3: Get session statistics using view
+-- SELECT * FROM v_session_stats ORDER BY session_start DESC LIMIT 5;
+
+-- Example 4: Get all hosts that appeared in multiple scans
+-- SELECT
+--     host_address,
+--     scan_count,
+--     finding_count,
+--     first_seen,
+--     last_seen
+-- FROM v_host_findings
+-- WHERE scan_count > 1
+-- ORDER BY scan_count DESC;
+
+-- Example 5: Get plugins with severity labels using view
+-- SELECT plugin_name, severity_label, cvss3_score
+-- FROM v_plugins_with_severity
+-- WHERE severity_int >= 3
+-- ORDER BY severity_int DESC, cvss3_score DESC;

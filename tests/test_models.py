@@ -217,11 +217,10 @@ class TestPluginFileModel:
         plugin = Plugin(plugin_id=12345, plugin_name="Test", severity_int=2)
         plugin.save(temp_db)
 
-        # Create plugin file
+        # Create plugin file (host_count removed in schema v5)
         pf = PluginFile(
             scan_id=scan_id,
-            plugin_id=12345,
-            host_count=5
+            plugin_id=12345
         )
 
         file_id = pf.save(temp_db)
@@ -409,29 +408,41 @@ class TestPluginFileModel:
 
         pf = PluginFile(
             scan_id=scan_id,
-            plugin_id=12345,
-            host_count=3,
-            port_count=2
+            plugin_id=12345
         )
         file_id = pf.save(temp_db)
         pf.file_id = file_id
 
-        # Insert test data into plugin_file_hosts
+        # Insert test data into plugin_file_hosts using normalized schema
+        from mundane_pkg.models import Host, Port
+
+        # Insert 192.168.1.1:80
+        host_id_1 = Host.get_or_create("192.168.1.1", "ipv4", conn=temp_db)
+        port_id_80 = Port.get_or_create(80, conn=temp_db)
         temp_db.execute(
-            "INSERT INTO plugin_file_hosts (file_id, host, port, is_ipv4, is_ipv6) VALUES (?, ?, ?, ?, ?)",
-            (file_id, "192.168.1.1", 80, 1, 0)
+            "INSERT INTO plugin_file_hosts (file_id, host_id, port_number, plugin_output) VALUES (?, ?, ?, ?)",
+            (file_id, host_id_1, port_id_80, None)
         )
+
+        # Insert 192.168.1.1:443
+        port_id_443 = Port.get_or_create(443, conn=temp_db)
         temp_db.execute(
-            "INSERT INTO plugin_file_hosts (file_id, host, port, is_ipv4, is_ipv6) VALUES (?, ?, ?, ?, ?)",
-            (file_id, "192.168.1.1", 443, 1, 0)
+            "INSERT INTO plugin_file_hosts (file_id, host_id, port_number, plugin_output) VALUES (?, ?, ?, ?)",
+            (file_id, host_id_1, port_id_443, None)
         )
+
+        # Insert 192.168.1.2:80
+        host_id_2 = Host.get_or_create("192.168.1.2", "ipv4", conn=temp_db)
         temp_db.execute(
-            "INSERT INTO plugin_file_hosts (file_id, host, port, is_ipv4, is_ipv6) VALUES (?, ?, ?, ?, ?)",
-            (file_id, "192.168.1.2", 80, 1, 0)
+            "INSERT INTO plugin_file_hosts (file_id, host_id, port_number, plugin_output) VALUES (?, ?, ?, ?)",
+            (file_id, host_id_2, port_id_80, None)
         )
+
+        # Insert example.com:443
+        host_id_3 = Host.get_or_create("example.com", "hostname", conn=temp_db)
         temp_db.execute(
-            "INSERT INTO plugin_file_hosts (file_id, host, port, is_ipv4, is_ipv6) VALUES (?, ?, ?, ?, ?)",
-            (file_id, "example.com", 443, 0, 0)
+            "INSERT INTO plugin_file_hosts (file_id, host_id, port_number, plugin_output) VALUES (?, ?, ?, ?)",
+            (file_id, host_id_3, port_id_443, None)
         )
         temp_db.commit()
 
@@ -467,14 +478,22 @@ class TestPluginFileModel:
         file_id = pf.save(temp_db)
         pf.file_id = file_id
 
-        # Insert IPv6 data
+        # Insert IPv6 data using normalized schema
+        from mundane_pkg.models import Host, Port
+
+        # Insert 2001:db8::1:80 (IPv6)
+        host_id_ipv6 = Host.get_or_create("2001:db8::1", "ipv6", conn=temp_db)
+        port_id_80 = Port.get_or_create(80, conn=temp_db)
         temp_db.execute(
-            "INSERT INTO plugin_file_hosts (file_id, host, port, is_ipv4, is_ipv6) VALUES (?, ?, ?, ?, ?)",
-            (file_id, "2001:db8::1", 80, 0, 1)
+            "INSERT INTO plugin_file_hosts (file_id, host_id, port_number, plugin_output) VALUES (?, ?, ?, ?)",
+            (file_id, host_id_ipv6, port_id_80, None)
         )
+
+        # Insert 192.168.1.1:80 (IPv4)
+        host_id_ipv4 = Host.get_or_create("192.168.1.1", "ipv4", conn=temp_db)
         temp_db.execute(
-            "INSERT INTO plugin_file_hosts (file_id, host, port, is_ipv4, is_ipv6) VALUES (?, ?, ?, ?, ?)",
-            (file_id, "192.168.1.1", 80, 1, 0)
+            "INSERT INTO plugin_file_hosts (file_id, host_id, port_number, plugin_output) VALUES (?, ?, ?, ?)",
+            (file_id, host_id_ipv4, port_id_80, None)
         )
         temp_db.commit()
 
@@ -522,18 +541,29 @@ class TestPluginFileModel:
         file_id = pf.save(temp_db)
         pf.file_id = file_id
 
-        # Insert test data
+        # Insert test data using normalized schema
+        from mundane_pkg.models import Host, Port
+
+        # Insert 192.168.1.1:80
+        host_id_1 = Host.get_or_create("192.168.1.1", "ipv4", conn=temp_db)
+        port_id_80 = Port.get_or_create(80, conn=temp_db)
         temp_db.execute(
-            "INSERT INTO plugin_file_hosts (file_id, host, port, is_ipv4, is_ipv6) VALUES (?, ?, ?, ?, ?)",
-            (file_id, "192.168.1.1", 80, 1, 0)
+            "INSERT INTO plugin_file_hosts (file_id, host_id, port_number, plugin_output) VALUES (?, ?, ?, ?)",
+            (file_id, host_id_1, port_id_80, None)
         )
+
+        # Insert 192.168.1.1:443
+        port_id_443 = Port.get_or_create(443, conn=temp_db)
         temp_db.execute(
-            "INSERT INTO plugin_file_hosts (file_id, host, port, is_ipv4, is_ipv6) VALUES (?, ?, ?, ?, ?)",
-            (file_id, "192.168.1.1", 443, 1, 0)
+            "INSERT INTO plugin_file_hosts (file_id, host_id, port_number, plugin_output) VALUES (?, ?, ?, ?)",
+            (file_id, host_id_1, port_id_443, None)
         )
+
+        # Insert example.com:80
+        host_id_2 = Host.get_or_create("example.com", "hostname", conn=temp_db)
         temp_db.execute(
-            "INSERT INTO plugin_file_hosts (file_id, host, port, is_ipv4, is_ipv6) VALUES (?, ?, ?, ?, ?)",
-            (file_id, "example.com", 80, 0, 0)
+            "INSERT INTO plugin_file_hosts (file_id, host_id, port_number, plugin_output) VALUES (?, ?, ?, ?)",
+            (file_id, host_id_2, port_id_80, None)
         )
         temp_db.commit()
 
@@ -566,10 +596,15 @@ class TestPluginFileModel:
         file_id = pf.save(temp_db)
         pf.file_id = file_id
 
-        # Insert IPv6 data (raw, without brackets)
+        # Insert IPv6 data using normalized schema
+        from mundane_pkg.models import Host, Port
+
+        # Insert 2001:db8::1:80 (IPv6)
+        host_id = Host.get_or_create("2001:db8::1", "ipv6", conn=temp_db)
+        port_id = Port.get_or_create(80, conn=temp_db)
         temp_db.execute(
-            "INSERT INTO plugin_file_hosts (file_id, host, port, is_ipv4, is_ipv6) VALUES (?, ?, ?, ?, ?)",
-            (file_id, "2001:db8::1", 80, 0, 1)
+            "INSERT INTO plugin_file_hosts (file_id, host_id, port_number, plugin_output) VALUES (?, ?, ?, ?)",
+            (file_id, host_id, port_id, None)
         )
         temp_db.commit()
 
@@ -595,10 +630,14 @@ class TestPluginFileModel:
         file_id = pf.save(temp_db)
         pf.file_id = file_id
 
-        # Insert data without port
+        # Insert data without port using normalized schema
+        from mundane_pkg.models import Host
+
+        # Insert 192.168.1.1 with no port
+        host_id = Host.get_or_create("192.168.1.1", "ipv4", conn=temp_db)
         temp_db.execute(
-            "INSERT INTO plugin_file_hosts (file_id, host, port, is_ipv4, is_ipv6) VALUES (?, ?, ?, ?, ?)",
-            (file_id, "192.168.1.1", None, 1, 0)
+            "INSERT INTO plugin_file_hosts (file_id, host_id, port_number, plugin_output) VALUES (?, ?, ?, ?)",
+            (file_id, host_id, None, None)
         )
         temp_db.commit()
 
@@ -721,11 +760,11 @@ class TestArtifactModel:
         )
         exec_id = execution.save(temp_db)
 
-        # Create artifact
+        # Create artifact (artifact_type_id=1 is nmap_xml from migration 003)
         artifact = Artifact(
             execution_id=exec_id,
             artifact_path="/tmp/scan.xml",
-            artifact_type="nmap_xml",
+            artifact_type_id=1,  # nmap_xml
             file_size_bytes=1024,
             file_hash="abc123"
         )
@@ -748,15 +787,15 @@ class TestArtifactModel:
         artifact = Artifact(
             execution_id=exec_id,
             artifact_path="/tmp/scan.xml",
-            artifact_type="nmap_xml"
+            artifact_type_id=1  # nmap_xml
         )
         artifact_id = artifact.save(temp_db)
 
-        # Verify link via join
+        # Verify link via join using v_artifacts_with_types view (schema v5)
         cursor = temp_db.execute(
             """
             SELECT te.tool_name, a.artifact_type
-            FROM artifacts a
+            FROM v_artifacts_with_types a
             JOIN tool_executions te ON a.execution_id = te.execution_id
             WHERE a.artifact_id = ?
             """,
@@ -779,7 +818,7 @@ class TestArtifactModel:
         artifact = Artifact(
             execution_id=exec_id,
             artifact_path="/tmp/scan.xml",
-            artifact_type="nmap_xml",
+            artifact_type_id=1,  # nmap_xml
             metadata={"scan_type": "SYN", "hosts_up": 5}
         )
         artifact_id = artifact.save(temp_db)
@@ -854,10 +893,17 @@ class TestModelRelationships:
         )
         exec_id = execution.save(temp_db)
 
+        # Get artifact_type_id for normalized schema
+        from mundane_pkg.models import ArtifactType
+        artifact_type = ArtifactType.get_by_name("nmap_xml", conn=temp_db)
+        artifact_type_id = artifact_type.artifact_type_id if artifact_type else None
+
         artifact = Artifact(
             execution_id=exec_id,
             artifact_path="/tmp/scan.xml",
-            artifact_type="nmap_xml"
+            artifact_type_id=artifact_type_id,
+            file_hash="abc123",
+            file_size_bytes=1024
         )
         artifact.save(temp_db)
 

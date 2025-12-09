@@ -23,16 +23,22 @@ A modernized **TUI helper** to review Nessus findings quickly and kick off focus
 
 ---
 
-## Database-Only Architecture (v1.9.0+)
+## Database-Only Architecture (v2.0.0+)
 
-**As of version 1.9.0**, Mundane uses a **database-only architecture**. All finding data, review state, and session tracking is stored in SQLite at `~/.mundane/mundane.db`.
+**As of version 2.0.0**, Mundane uses a **fully normalized database architecture**. All finding data, review state, and session tracking is stored in SQLite at `~/.mundane/mundane.db`.
 
 **What this means:**
-- ✅ All scan data centralized in one database
-- ✅ Fast queries and filtering
-- ✅ Cross-scan analysis and reporting
+- ✅ All scan data centralized in one normalized database
+- ✅ Fast queries and filtering with optimized indexes
+- ✅ Cross-scan analysis and host tracking
 - ✅ Persistent review progress and tool execution history
+- ✅ SQL views compute statistics on-demand (always accurate)
 - ✅ `.txt` files are created as reference only (data lives in database)
+
+**NEW in v2.x:**
+- Normalized host/port tables enable tracking the same host across multiple scans
+- Foundation lookup tables (severity levels, artifact types) ensure data consistency
+- SQL views replace redundant cached columns for zero data redundancy
 
 **Primary Workflow:**
 ```bash
@@ -101,7 +107,10 @@ mundane --help
 
 ## ⚠️ v2.0 Breaking Changes
 
-**Mundane v2.0 introduces a reorganized command structure for better discoverability.**
+**Mundane v2.0 introduces major changes:**
+
+### 1. Reorganized Command Structure
+Commands are now organized into logical groups for better discoverability:
 
 **Command changes (v1.x → v2.0):**
 - `mundane import` → `mundane import nessus`
@@ -113,7 +122,27 @@ mundane --help
 - `mundane config-set` → `mundane config set`
 - `mundane review` → **unchanged**
 
-**Note:** Old flat commands are no longer available. See [MIGRATION.md](MIGRATION.md) for upgrade guidance.
+### 2. Normalized Database Schema
+
+**⚠️ IMPORTANT: v2.0+ requires re-importing all scans.**
+
+The database schema has been completely normalized for better performance and cross-scan tracking. Existing databases from v1.x cannot be automatically migrated.
+
+**What changed:**
+- Normalized host/port tables (enables cross-scan tracking)
+- Foundation lookup tables (severity levels, artifact types)
+- SQL views replace redundant cached columns
+- Foreign key constraints enforce data integrity
+
+**Migration steps:**
+1. Backup your v1.x database: `cp ~/.mundane/mundane.db ~/.mundane/mundane.db.v1.backup`
+2. Delete old database: `rm ~/.mundane/mundane.db`
+3. Upgrade to v2.0: `pipx upgrade mundane`
+4. Re-import all .nessus scans
+
+**Note:** Review state, session history, and tool execution history will be lost. Complete reviews before upgrading.
+
+See [docs/DATABASE.md](docs/DATABASE.md#migration-from-v1x) for detailed migration guide.
 
 ---
 

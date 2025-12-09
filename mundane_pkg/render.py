@@ -227,13 +227,11 @@ def render_file_list_table(
         row_data.append(str(host_count))
 
         if show_severity:
-            # Get severity from plugin metadata (via JOIN with plugins table)
-            # Reconstruct severity_dir format like "3_High" for display
-            if plugin.severity_label:
-                sev_dir_format = f"{plugin.severity_int}_{plugin.severity_label}"
-            else:
-                # Fallback if severity_label not set
-                sev_dir_format = f"{plugin.severity_int}_Severity_{plugin.severity_int}"
+            # Get severity from plugin metadata
+            # Schema v5+: severity_label computed from severity_int
+            from .nessus_import import severity_label_from_int
+            label = severity_label_from_int(plugin.severity_int)
+            sev_dir_format = f"{plugin.severity_int}_{label}"
             sev_label = pretty_severity_label(sev_dir_format)
             sev_colored = severity_cell(sev_label)
             row_data.append(sev_colored)

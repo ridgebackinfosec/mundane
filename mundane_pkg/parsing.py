@@ -177,6 +177,32 @@ def is_ipv6(s: str) -> bool:
         return False
 
 
+def detect_host_type(host: str) -> str:
+    """Detect host type from address string.
+
+    Uses existing validation functions (is_ipv4, is_ipv6) to classify hosts.
+
+    Args:
+        host: Host address string (IP or hostname)
+
+    Returns:
+        One of 'ipv4', 'ipv6', 'hostname'
+
+    Examples:
+        >>> detect_host_type("192.168.1.1")
+        'ipv4'
+        >>> detect_host_type("2001:db8::1")
+        'ipv6'
+        >>> detect_host_type("example.com")
+        'hostname'
+    """
+    if is_ipv4(host):
+        return 'ipv4'
+    if is_ipv6(host):
+        return 'ipv6'
+    return 'hostname'
+
+
 def is_valid_token(
     token: str,
 ) -> tuple[bool, Optional[str], Optional[str]]:

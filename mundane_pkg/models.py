@@ -219,12 +219,13 @@ class Plugin:
     """Represents a Nessus plugin (finding type).
 
     NOTE: "plugin" is internal terminology. User-facing commands use "findings".
+    Updated in v2.0.8 (schema v5) - severity_label not in plugins table, fetch from v_plugins_with_severity view.
     """
 
     plugin_id: int
     plugin_name: str = ""
     severity_int: int = 0
-    severity_label: str = ""
+    severity_label: str = ""  # Populated from v_plugins_with_severity view, not stored in plugins table
     has_metasploit: bool = False
     cvss3_score: Optional[float] = None
     cvss2_score: Optional[float] = None
@@ -253,7 +254,7 @@ class Plugin:
             plugin_id=row["plugin_id"],
             plugin_name=row["plugin_name"],
             severity_int=row["severity_int"],
-            severity_label=row["severity_label"],
+            severity_label=row["severity_label"] if "severity_label" in row.keys() else "",  # Optional, from v_plugins_with_severity view
             has_metasploit=bool(row["has_metasploit"]),
             cvss3_score=row["cvss3_score"],
             cvss2_score=row["cvss2_score"],
@@ -279,12 +280,12 @@ class Plugin:
             c.execute(
                 """
                 INSERT OR REPLACE INTO plugins (
-                    plugin_id, plugin_name, severity_int, severity_label,
+                    plugin_id, plugin_name, severity_int,
                     has_metasploit, cvss3_score, cvss2_score, metasploit_names, cves,
                     plugin_url, metadata_fetched_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (self.plugin_id, self.plugin_name, self.severity_int, self.severity_label,
+                (self.plugin_id, self.plugin_name, self.severity_int,
                  self.has_metasploit, self.cvss3_score, self.cvss2_score, metasploit_names_json, cves_json,
                  self.plugin_url, self.metadata_fetched_at)
             )
@@ -314,6 +315,7 @@ class PluginFile:
     """Represents a finding (plugin instance) for a specific scan.
 
     Streamlined in v1.9.0 - removed duplicate/unnecessary fields.
+    Updated in v2.0.8 (schema v5) - removed host_count/port_count (use v_plugin_file_stats view).
     """
 
     file_id: Optional[int] = None
@@ -323,8 +325,6 @@ class PluginFile:
     reviewed_at: Optional[str] = None
     reviewed_by: Optional[str] = None
     review_notes: Optional[str] = None
-    host_count: int = 0
-    port_count: int = 0
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> PluginFile:
@@ -343,9 +343,7 @@ class PluginFile:
             review_state=row["review_state"],
             reviewed_at=row["reviewed_at"],
             reviewed_by=row["reviewed_by"],
-            review_notes=row["review_notes"],
-            host_count=row["host_count"],
-            port_count=row["port_count"]
+            review_notes=row["review_notes"]
         )
 
     def save(self, conn: Optional[sqlite3.Connection] = None) -> int:
@@ -364,12 +362,11 @@ class PluginFile:
                     """
                     INSERT INTO plugin_files (
                         scan_id, plugin_id, review_state,
-                        reviewed_at, reviewed_by, review_notes, host_count, port_count
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        reviewed_at, reviewed_by, review_notes
+                    ) VALUES (?, ?, ?, ?, ?, ?)
                     """,
                     (self.scan_id, self.plugin_id, self.review_state,
-                     self.reviewed_at, self.reviewed_by, self.review_notes,
-                     self.host_count, self.port_count)
+                     self.reviewed_at, self.reviewed_by, self.review_notes)
                 )
                 self.file_id = cursor.lastrowid
             else:
@@ -377,12 +374,10 @@ class PluginFile:
                 c.execute(
                     """
                     UPDATE plugin_files
-                    SET review_state=?, reviewed_at=?, reviewed_by=?, review_notes=?,
-                        host_count=?, port_count=?
+                    SET review_state=?, reviewed_at=?, reviewed_by=?, review_notes=?
                     WHERE file_id=?
                     """,
-                    (self.review_state, self.reviewed_at, self.reviewed_by, self.review_notes,
-                     self.host_count, self.port_count, self.file_id)
+                    (self.review_state, self.reviewed_at, self.reviewed_by, self.review_notes, self.file_id)
                 )
 
         return self.file_id
@@ -450,17 +445,16 @@ class PluginFile:
             List of (PluginFile, Plugin) tuples
         """
         with db_transaction(conn) as c:
-            # Build query with JOIN
+            # Build query with JOIN (use v_plugins_with_severity view to get severity_label)
             query = """
                 SELECT
                     pf.file_id, pf.scan_id, pf.plugin_id,
                     pf.review_state, pf.reviewed_at, pf.reviewed_by, pf.review_notes,
-                    pf.host_count, pf.port_count,
                     p.plugin_id as p_plugin_id, p.plugin_name, p.severity_int, p.severity_label,
                     p.has_metasploit, p.cvss3_score, p.cvss2_score, p.cves,
                     p.plugin_url, p.metadata_fetched_at
                 FROM plugin_files pf
-                INNER JOIN plugins p ON pf.plugin_id = p.plugin_id
+                INNER JOIN v_plugins_with_severity p ON pf.plugin_id = p.plugin_id
                 WHERE pf.scan_id = ?
             """
             params: list[Any] = [scan_id]
@@ -512,7 +506,7 @@ class PluginFile:
 
             results = []
             for row in rows:
-                # Create PluginFile from row (columns 0-8)
+                # Create PluginFile from row (columns 0-6, host_count/port_count removed from query)
                 plugin_file = cls(
                     file_id=row[0],
                     scan_id=row[1],
@@ -520,26 +514,24 @@ class PluginFile:
                     review_state=row[3],
                     reviewed_at=row[4],
                     reviewed_by=row[5],
-                    review_notes=row[6],
-                    host_count=row[7],
-                    port_count=row[8]
+                    review_notes=row[6]
                 )
 
-                # Create Plugin from row (columns 9-18)
-                cves_json = row[16]
+                # Create Plugin from row (columns 7-15, indices shifted down by 2)
+                cves_json = row[14]
                 cves = json.loads(cves_json) if cves_json else None
 
                 plugin = Plugin(
-                    plugin_id=row[9],
-                    plugin_name=row[10],
-                    severity_int=row[11],
-                    severity_label=row[12],
-                    has_metasploit=bool(row[13]),
-                    cvss3_score=row[14],
-                    cvss2_score=row[15],
+                    plugin_id=row[7],
+                    plugin_name=row[8],
+                    severity_int=row[9],
+                    severity_label=row[10],
+                    has_metasploit=bool(row[11]),
+                    cvss3_score=row[12],
+                    cvss2_score=row[13],
                     cves=cves,
-                    plugin_url=row[17],
-                    metadata_fetched_at=row[18]
+                    plugin_url=row[15],
+                    metadata_fetched_at=row[16]
                 )
 
                 results.append((plugin_file, plugin))
@@ -656,19 +648,16 @@ class PluginFile:
                 """
                 SELECT DISTINCT p.severity_int, p.severity_label
                 FROM plugin_files pf
-                JOIN plugins p ON pf.plugin_id = p.plugin_id
+                JOIN v_plugins_with_severity p ON pf.plugin_id = p.plugin_id
                 WHERE pf.scan_id = ?
                 ORDER BY p.severity_int DESC
                 """,
                 (scan_id,)
             )
             # Construct severity_dir format: "4_Critical", "3_High", etc.
-            # Derive label from severity_int if empty
-            severity_map = {4: "Critical", 3: "High", 2: "Medium", 1: "Low", 0: "Info"}
             result = []
             for row in rows:
-                label = row['severity_label'] if row['severity_label'] else severity_map.get(row['severity_int'], "Unknown")
-                result.append(f"{row['severity_int']}_{label}")
+                result.append(f"{row['severity_int']}_{row['severity_label']}")
             return result
 
     def get_hosts_and_ports(self, conn: Optional[sqlite3.Connection] = None) -> tuple[list[str], str]:
@@ -694,10 +683,18 @@ class PluginFile:
             rows = query_all(
                 c,
                 """
-                SELECT host, port, is_ipv4, is_ipv6
-                FROM plugin_file_hosts
-                WHERE file_id = ?
-                ORDER BY is_ipv4 DESC, is_ipv6 DESC, host ASC
+                SELECT
+                    h.host_address,
+                    pfh.port_number,
+                    h.host_type
+                FROM plugin_file_hosts pfh
+                JOIN hosts h ON pfh.host_id = h.host_id
+                WHERE pfh.file_id = ?
+                ORDER BY
+                    CASE WHEN h.host_type = 'ipv4' THEN 0
+                         WHEN h.host_type = 'ipv6' THEN 1
+                         ELSE 2 END,
+                    h.host_address ASC
                 """,
                 (self.file_id,)
             )
@@ -750,10 +747,19 @@ class PluginFile:
             rows = query_all(
                 c,
                 """
-                SELECT host, port, is_ipv4, is_ipv6
-                FROM plugin_file_hosts
-                WHERE file_id = ?
-                ORDER BY is_ipv4 DESC, is_ipv6 DESC, host ASC, port ASC
+                SELECT
+                    h.host_address,
+                    pfh.port_number,
+                    h.host_type
+                FROM plugin_file_hosts pfh
+                JOIN hosts h ON pfh.host_id = h.host_id
+                WHERE pfh.file_id = ?
+                ORDER BY
+                    CASE WHEN h.host_type = 'ipv4' THEN 0
+                         WHEN h.host_type = 'ipv6' THEN 1
+                         ELSE 2 END,
+                    h.host_address ASC,
+                    pfh.port_number ASC
                 """,
                 (self.file_id,)
             )
@@ -770,7 +776,7 @@ class PluginFile:
                 if port is not None:
                     # Format with port
                     # Handle IPv6 addresses (add brackets if needed)
-                    is_ipv6 = bool(row[3])
+                    is_ipv6 = (row[2] == 'ipv6')
                     if is_ipv6 and ":" in host and not host.startswith("["):
                         lines.append(f"[{host}]:{port}")
                     else:
@@ -810,10 +816,19 @@ class PluginFile:
             rows = query_all(
                 c,
                 """
-                SELECT host, port, plugin_output
-                FROM plugin_file_hosts
-                WHERE file_id = ?
-                ORDER BY is_ipv4 DESC, is_ipv6 DESC, host ASC, port ASC
+                SELECT
+                    h.host_address,
+                    pfh.port_number,
+                    pfh.plugin_output
+                FROM plugin_file_hosts pfh
+                JOIN hosts h ON pfh.host_id = h.host_id
+                WHERE pfh.file_id = ?
+                ORDER BY
+                    CASE WHEN h.host_type = 'ipv4' THEN 0
+                         WHEN h.host_type = 'ipv6' THEN 1
+                         ELSE 2 END,
+                    h.host_address ASC,
+                    pfh.port_number ASC
                 """,
                 (self.file_id,)
             )
@@ -922,12 +937,16 @@ class ToolExecution:
 
 @dataclass
 class Artifact:
-    """Represents a generated artifact file (nmap output, logs, etc.)."""
+    """Represents a generated artifact file (nmap output, logs, etc.).
+
+    Updated in v2.0.8 (schema v5) - artifact_type replaced with artifact_type_id FK.
+    Use v_artifacts_with_types view to get type_name.
+    """
 
     artifact_id: Optional[int] = None
     execution_id: Optional[int] = None
     artifact_path: str = ""
-    artifact_type: str = ""
+    artifact_type_id: Optional[int] = None  # FK to artifact_types table
     file_size_bytes: Optional[int] = None
     file_hash: Optional[str] = None
     created_at: Optional[str] = None
@@ -951,7 +970,7 @@ class Artifact:
             artifact_id=row["artifact_id"],
             execution_id=row["execution_id"],
             artifact_path=row["artifact_path"],
-            artifact_type=row["artifact_type"],
+            artifact_type_id=row["artifact_type_id"],
             file_size_bytes=row["file_size_bytes"],
             file_hash=row["file_hash"],
             created_at=row["created_at"],
@@ -974,11 +993,11 @@ class Artifact:
             cursor = c.execute(
                 """
                 INSERT OR REPLACE INTO artifacts (
-                    artifact_id, execution_id, artifact_path, artifact_type,
+                    artifact_id, execution_id, artifact_path, artifact_type_id,
                     file_size_bytes, file_hash, created_at, last_accessed_at, metadata
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (self.artifact_id, self.execution_id, self.artifact_path, self.artifact_type,
+                (self.artifact_id, self.execution_id, self.artifact_path, self.artifact_type_id,
                  self.file_size_bytes, self.file_hash, self.created_at or now_iso(),
                  self.last_accessed_at, metadata_json)
             )
@@ -1001,3 +1020,415 @@ class Artifact:
         with db_transaction(conn) as c:
             rows = query_all(c, "SELECT * FROM artifacts WHERE execution_id = ?", (execution_id,))
             return [cls.from_row(row) for row in rows]
+
+
+# ========== Model: SeverityLevel ==========
+
+@dataclass
+class SeverityLevel:
+    """Represents a severity level (normalized lookup table).
+
+    This model provides a single source of truth for severity metadata,
+    eliminating the need to store severity_label in every plugin record.
+    """
+
+    severity_int: int
+    severity_label: str = ""
+    severity_order: int = 0
+    color_hint: Optional[str] = None
+
+    @classmethod
+    def from_row(cls, row: sqlite3.Row) -> SeverityLevel:
+        """Create SeverityLevel from database row.
+
+        Args:
+            row: SQLite row
+
+        Returns:
+            SeverityLevel instance
+        """
+        return cls(
+            severity_int=row["severity_int"],
+            severity_label=row["severity_label"],
+            severity_order=row["severity_order"],
+            color_hint=row["color_hint"]
+        )
+
+    @classmethod
+    def get_all(cls, conn: Optional[sqlite3.Connection] = None) -> list[SeverityLevel]:
+        """Retrieve all severity levels ordered by severity_int descending.
+
+        Args:
+            conn: Database connection
+
+        Returns:
+            List of SeverityLevel instances (Critical to Info)
+        """
+        with db_transaction(conn) as c:
+            rows = query_all(c, "SELECT * FROM severity_levels ORDER BY severity_int DESC")
+            return [cls.from_row(row) for row in rows]
+
+    @classmethod
+    def get_by_int(cls, severity_int: int, conn: Optional[sqlite3.Connection] = None) -> Optional[SeverityLevel]:
+        """Retrieve severity level by integer value.
+
+        Args:
+            severity_int: Severity integer (0-4)
+            conn: Database connection
+
+        Returns:
+            SeverityLevel instance or None if not found
+        """
+        with db_transaction(conn) as c:
+            row = query_one(c, "SELECT * FROM severity_levels WHERE severity_int = ?", (severity_int,))
+            return cls.from_row(row) if row else None
+
+
+# ========== Model: ArtifactType ==========
+
+@dataclass
+class ArtifactType:
+    """Represents an artifact type (normalized lookup table).
+
+    Enforces consistent artifact type naming and provides metadata
+    for each type (file extension, description, parser module).
+    """
+
+    artifact_type_id: Optional[int] = None
+    type_name: str = ""
+    file_extension: Optional[str] = None
+    description: Optional[str] = None
+    parser_module: Optional[str] = None
+
+    @classmethod
+    def from_row(cls, row: sqlite3.Row) -> ArtifactType:
+        """Create ArtifactType from database row.
+
+        Args:
+            row: SQLite row
+
+        Returns:
+            ArtifactType instance
+        """
+        return cls(
+            artifact_type_id=row["artifact_type_id"],
+            type_name=row["type_name"],
+            file_extension=row["file_extension"],
+            description=row["description"],
+            parser_module=row["parser_module"]
+        )
+
+    @classmethod
+    def get_all(cls, conn: Optional[sqlite3.Connection] = None) -> list[ArtifactType]:
+        """Retrieve all artifact types ordered by type_name.
+
+        Args:
+            conn: Database connection
+
+        Returns:
+            List of ArtifactType instances
+        """
+        with db_transaction(conn) as c:
+            rows = query_all(c, "SELECT * FROM artifact_types ORDER BY type_name")
+            return [cls.from_row(row) for row in rows]
+
+    @classmethod
+    def get_by_name(cls, type_name: str, conn: Optional[sqlite3.Connection] = None) -> Optional[ArtifactType]:
+        """Retrieve artifact type by name.
+
+        Args:
+            type_name: Type name (e.g., 'nmap_xml')
+            conn: Database connection
+
+        Returns:
+            ArtifactType instance or None if not found
+        """
+        with db_transaction(conn) as c:
+            row = query_one(c, "SELECT * FROM artifact_types WHERE type_name = ?", (type_name,))
+            return cls.from_row(row) if row else None
+
+
+# ========== Model: AuditLog ==========
+
+@dataclass
+class AuditLog:
+    """Represents an audit log entry (change tracking).
+
+    Tracks INSERT, UPDATE, DELETE operations on critical tables
+    for compliance and debugging purposes.
+    """
+
+    audit_id: Optional[int] = None
+    table_name: str = ""
+    record_id: int = 0
+    action: str = ""  # INSERT, UPDATE, DELETE
+    changed_by: Optional[str] = None
+    changed_at: Optional[str] = None
+    old_values: Optional[dict[str, Any]] = None  # JSON object
+    new_values: Optional[dict[str, Any]] = None  # JSON object
+
+    @classmethod
+    def from_row(cls, row: sqlite3.Row) -> AuditLog:
+        """Create AuditLog from database row.
+
+        Args:
+            row: SQLite row
+
+        Returns:
+            AuditLog instance
+        """
+        old_values_json = row["old_values"]
+        old_values = json.loads(old_values_json) if old_values_json else None
+
+        new_values_json = row["new_values"]
+        new_values = json.loads(new_values_json) if new_values_json else None
+
+        return cls(
+            audit_id=row["audit_id"],
+            table_name=row["table_name"],
+            record_id=row["record_id"],
+            action=row["action"],
+            changed_by=row["changed_by"],
+            changed_at=row["changed_at"],
+            old_values=old_values,
+            new_values=new_values
+        )
+
+    @classmethod
+    def get_by_table_and_record(
+        cls,
+        table_name: str,
+        record_id: int,
+        conn: Optional[sqlite3.Connection] = None
+    ) -> list[AuditLog]:
+        """Retrieve audit log entries for a specific table record.
+
+        Args:
+            table_name: Table name
+            record_id: Record ID
+            conn: Database connection
+
+        Returns:
+            List of AuditLog instances ordered by timestamp
+        """
+        with db_transaction(conn) as c:
+            rows = query_all(
+                c,
+                "SELECT * FROM audit_log WHERE table_name = ? AND record_id = ? ORDER BY changed_at ASC",
+                (table_name, record_id)
+            )
+            return [cls.from_row(row) for row in rows]
+
+    @classmethod
+    def get_recent(cls, limit: int = 100, conn: Optional[sqlite3.Connection] = None) -> list[AuditLog]:
+        """Retrieve recent audit log entries.
+
+        Args:
+            limit: Maximum number of entries to return
+            conn: Database connection
+
+        Returns:
+            List of AuditLog instances ordered by timestamp (newest first)
+        """
+        with db_transaction(conn) as c:
+            rows = query_all(
+                c,
+                "SELECT * FROM audit_log ORDER BY changed_at DESC LIMIT ?",
+                (limit,)
+            )
+            return [cls.from_row(row) for row in rows]
+
+
+# ========== Model: Host ==========
+
+@dataclass
+class Host:
+    """Represents a unique host across all scans."""
+
+    host_id: Optional[int] = None
+    host_address: str = ""
+    host_type: str = "hostname"  # 'ipv4', 'ipv6', 'hostname'
+    reverse_dns: Optional[str] = None
+    first_seen: Optional[str] = None
+    last_seen: Optional[str] = None
+
+    @classmethod
+    def from_row(cls, row: sqlite3.Row) -> "Host":
+        """Create Host from database row.
+
+        Args:
+            row: SQLite row from hosts table
+
+        Returns:
+            Host instance
+        """
+        return cls(
+            host_id=row["host_id"],
+            host_address=row["host_address"],
+            host_type=row["host_type"],
+            reverse_dns=row["reverse_dns"] if "reverse_dns" in row.keys() else None,
+            first_seen=row["first_seen"] if "first_seen" in row.keys() else None,
+            last_seen=row["last_seen"] if "last_seen" in row.keys() else None
+        )
+
+    @classmethod
+    def get_or_create(
+        cls,
+        host_address: str,
+        host_type: str,
+        conn: Optional[sqlite3.Connection] = None
+    ) -> int:
+        """Get existing host_id or create new host.
+
+        Updates last_seen timestamp on existing hosts.
+
+        Args:
+            host_address: IP address or hostname
+            host_type: One of 'ipv4', 'ipv6', 'hostname'
+            conn: Database connection (optional)
+
+        Returns:
+            host_id of existing or newly created host
+        """
+        with db_transaction(conn) as c:
+            # Try to get existing
+            row = query_one(
+                c,
+                "SELECT host_id FROM hosts WHERE host_address = ?",
+                (host_address,)
+            )
+
+            if row:
+                # Update last_seen
+                c.execute(
+                    "UPDATE hosts SET last_seen = CURRENT_TIMESTAMP WHERE host_id = ?",
+                    (row["host_id"],)
+                )
+                return row["host_id"]
+
+            # Create new
+            cursor = c.execute(
+                "INSERT INTO hosts (host_address, host_type) VALUES (?, ?)",
+                (host_address, host_type)
+            )
+            return cursor.lastrowid
+
+    @classmethod
+    def get_by_address(
+        cls,
+        host_address: str,
+        conn: Optional[sqlite3.Connection] = None
+    ) -> Optional["Host"]:
+        """Get host by address.
+
+        Args:
+            host_address: IP address or hostname
+            conn: Database connection (optional)
+
+        Returns:
+            Host instance or None if not found
+        """
+        with db_transaction(conn) as c:
+            row = query_one(
+                c,
+                "SELECT * FROM hosts WHERE host_address = ?",
+                (host_address,)
+            )
+            return cls.from_row(row) if row else None
+
+    @classmethod
+    def get_all_with_stats(
+        cls,
+        conn: Optional[sqlite3.Connection] = None
+    ) -> list[dict]:
+        """Get all hosts with finding counts (cross-scan query).
+
+        Returns:
+            List of dicts with host info and statistics
+        """
+        with db_transaction(conn) as c:
+            rows = query_all(c, """
+                SELECT
+                    h.host_id,
+                    h.host_address,
+                    h.host_type,
+                    h.first_seen,
+                    h.last_seen,
+                    COUNT(DISTINCT pfh.file_id) as finding_count,
+                    COUNT(DISTINCT pf.scan_id) as scan_count,
+                    MAX(p.severity_int) as max_severity
+                FROM hosts h
+                LEFT JOIN plugin_file_hosts pfh ON h.host_id = pfh.host_id
+                LEFT JOIN plugin_files pf ON pfh.file_id = pf.file_id
+                LEFT JOIN plugins p ON pf.plugin_id = p.plugin_id
+                GROUP BY h.host_id
+                ORDER BY finding_count DESC
+            """)
+            return [dict(row) for row in rows]
+
+
+# ========== Model: Port ==========
+
+@dataclass
+class Port:
+    """Represents a port number with optional service metadata."""
+
+    port_number: int
+    service_name: Optional[str] = None
+    description: Optional[str] = None
+
+    @classmethod
+    def from_row(cls, row: sqlite3.Row) -> "Port":
+        """Create Port from database row.
+
+        Args:
+            row: SQLite row from ports table
+
+        Returns:
+            Port instance
+        """
+        return cls(
+            port_number=row["port_number"],
+            service_name=row["service_name"] if "service_name" in row.keys() else None,
+            description=row["description"] if "description" in row.keys() else None
+        )
+
+    @classmethod
+    def get_or_create(
+        cls,
+        port_number: int,
+        service_name: Optional[str] = None,
+        conn: Optional[sqlite3.Connection] = None
+    ) -> int:
+        """Get existing port or create new.
+
+        Args:
+            port_number: Port number (1-65535)
+            service_name: Optional service name
+            conn: Database connection (optional)
+
+        Returns:
+            port_number
+        """
+        with db_transaction(conn) as c:
+            row = query_one(
+                c,
+                "SELECT port_number FROM ports WHERE port_number = ?",
+                (port_number,)
+            )
+
+            if row:
+                # Update service_name if provided
+                if service_name:
+                    c.execute(
+                        "UPDATE ports SET service_name = ? WHERE port_number = ?",
+                        (service_name, port_number)
+                    )
+                return port_number
+
+            # Create new
+            c.execute(
+                "INSERT INTO ports (port_number, service_name) VALUES (?, ?)",
+                (port_number, service_name)
+            )
+            return port_number

@@ -17,7 +17,7 @@ This includes:
 - **Security**: Validate all inputs, use parameterized queries to prevent SQL injection, and prevent command injection vulnerabilities
 - **Documentation**: Always update relevant documentation alongside code changes to keep everything synchronized and up-to-date automatically. This includes docstrings, CLAUDE.md, README.md, and any other relevant documentation files
 - **Smoke Testing**: After completing ANY changes (code, documentation, configuration), ALWAYS provide a concise smoke test summary with manual testing steps the user can perform to verify the changes work correctly. Include specific commands, expected outputs, and edge cases to validate
-- **Git Commit Messages**: After completing ANY changes, ALWAYS provide a concise one-line git commit message that accurately describes the change following conventional commit format (e.g., "feat: add user authentication", "fix: resolve parsing edge case", "docs: update installation guide", "refactor: extract validation logic"). Keep messages under 72 characters when possible
+- **Git Operations**: The user handles all git staging and commits manually. However, ALWAYS provide a concise one-line git commit message suggestion that accurately describes the change following conventional commit format (e.g., "feat: add user authentication", "fix: resolve parsing edge case", "docs: update installation guide", "refactor: extract validation logic"). Keep messages under 72 characters when possible. Do NOT execute git commands like `git add` or `git commit` - only provide the suggested commit message
 
 ## Database Design Principles
 
@@ -60,11 +60,11 @@ This includes:
 3. **Temporal Tracking**: Add `first_seen` / `last_seen` timestamps to track entity history across scans
 4. **Global Queries**: Design schema to enable "all findings for host X across all scans" type queries
 
-### Migration Strategy
-1. **Version Tracking**: Increment `SCHEMA_VERSION` in database.py for every schema change
-2. **Migration Scripts**: Create migration file in `mundane_pkg/migrations/migration_XXX_<name>.py`
-3. **Backward Compatibility**: Design migrations to work with existing data (provide defaults, migrate data)
-4. **Testing**: Test migrations against production-like databases with real data before release
+### Schema Changes Strategy
+1. **Breaking Changes**: Schema changes currently require major version bump (e.g., 2.x → 3.0)
+2. **User Impact**: Users must re-import scans after schema changes
+3. **Fresh Start**: Database created directly in final normalized structure
+4. **Future Work**: Migration system will be implemented from clean slate in future release
 
 ### Anti-Patterns to Avoid
 ❌ **Never** store counts/sums in tables when you can compute them with SQL
@@ -82,8 +82,9 @@ Before implementing any schema change, verify:
 - [ ] Computed values use views or aggregation queries
 - [ ] CHECK constraints enforce valid values
 - [ ] Indexes exist for foreign keys and query patterns
-- [ ] Migration script created and tested
-- [ ] SCHEMA_VERSION incremented
+- [ ] Schema tested with fresh database
+- [ ] Breaking change documented in CHANGELOG.md
+- [ ] Major version bumped if needed
 
 ## Project Overview
 
@@ -92,6 +93,127 @@ Before implementing any schema change, verify:
 **Core workflow**: Import `.nessus` files → Review findings in TUI → Run security tools → Track progress in database
 
 **Target Python**: 3.11+ (3.8+ may work but not the target)
+
+## Python Packaging Best Practices
+
+**CRITICAL**: When adding new Python subpackages to the project, you MUST update `pyproject.toml` to include them in the distribution. Failure to do so will cause missing modules in pipx/pip installations.
+
+### Package Structure
+
+Mundane uses setuptools with the following structure:
+- `mundane.py` - Main entry point (top-level module)
+- `mundane_pkg/` - Main package directory
+  - `migrations/` - Database migration scripts (SUBPACKAGE - must be explicitly included)
+  - Other modules...
+
+### pyproject.toml Configuration
+
+**Current configuration** (lines 59-64):
+```toml
+[tool.setuptools]
+packages = ["mundane_pkg", "mundane_pkg.migrations"]
+py-modules = ["mundane"]
+
+[tool.setuptools.package-data]
+mundane_pkg = ["*.yaml"]
+```
+
+### Adding New Subpackages
+
+When adding a new subdirectory with `__init__.py` under `mundane_pkg/`:
+
+1. **Add to packages list**: Update `[tool.setuptools] packages` in pyproject.toml
+2. **Test installation**: Install via `pip install -e .` and verify subpackage is accessible
+3. **Verify in pipx**: If users install via pipx, check that the subpackage appears in site-packages
+
+**Example**: Adding a new `mundane_pkg/plugins/` subpackage:
+```toml
+[tool.setuptools]
+packages = [
+    "mundane_pkg",
+    "mundane_pkg.migrations",
+    "mundane_pkg.plugins"  # NEW
+]
+```
+
+### Package Data (Non-Python Files)
+
+For non-Python files (YAML, JSON, etc.) that need to be included:
+
+```toml
+[tool.setuptools.package-data]
+mundane_pkg = ["*.yaml", "*.json"]  # Files in mundane_pkg/
+"mundane_pkg.migrations" = ["*.sql"]  # Files in mundane_pkg/migrations/
+```
+
+### Testing Package Distribution
+
+**Before releasing**, always verify the package contents:
+
+```bash
+# Build distribution
+python -m build
+
+# Check package contents
+tar -tzf dist/mundane-*.tar.gz | grep mundane_pkg
+
+# Expected output should include:
+# mundane_pkg/
+# mundane_pkg/__init__.py
+# mundane_pkg/migrations/
+# mundane_pkg/migrations/__init__.py
+# mundane_pkg/migrations/migration_001_plugin_output.py
+# mundane_pkg/migrations/migration_002_remove_filesystem_columns.py
+# mundane_pkg/migrations/migration_003_foundation_tables.py
+# mundane_pkg/*.yaml
+```
+
+**Test installation in isolated environment**:
+```bash
+# Install in clean venv
+python -m venv test_env
+source test_env/bin/activate  # or test_env\Scripts\activate on Windows
+pip install dist/mundane-*.whl
+
+# Verify subpackage exists
+python -c "from mundane_pkg.migrations import get_all_migrations; print(get_all_migrations())"
+# Should print list of migrations, not ModuleNotFoundError
+```
+
+### Common Packaging Mistakes
+
+❌ **DON'T**: Assume setuptools auto-discovers subpackages
+```toml
+packages = ["mundane_pkg"]  # WRONG: migrations/ won't be included
+```
+
+✅ **DO**: Explicitly list all subpackages
+```toml
+packages = ["mundane_pkg", "mundane_pkg.migrations"]  # CORRECT
+```
+
+❌ **DON'T**: Forget to test pipx installations
+```bash
+# Developer only tests pip install -e .
+pip install -e .  # Works because source is available
+```
+
+✅ **DO**: Test actual wheel installation
+```bash
+python -m build
+pipx install dist/mundane-*.whl  # Test real installation
+```
+
+### Verification Checklist
+
+Before releasing a new version:
+- [ ] All subpackages listed in `pyproject.toml` packages
+- [ ] All non-Python files listed in package-data (if needed)
+- [ ] `python -m build` runs without errors
+- [ ] Wheel contains all expected files (check with `unzip -l dist/*.whl`)
+- [ ] Test installation in clean venv works
+- [ ] Import all subpackages succeeds
+- [ ] Migrations directory exists in installed package (if applicable)
 
 ## Build & Development Commands
 
@@ -159,13 +281,14 @@ mypy mundane_pkg/
 
 ## Architecture
 
-### Database-Only Design (v1.9.0+)
+### Database-Only Design (v2.0.0+)
 
-Mundane uses a **database-first architecture** with SQLite as the source of truth:
+Mundane uses a **fully normalized database architecture** with SQLite as the source of truth:
 
 - **Location**: `~/.mundane/mundane.db` (global, cross-scan)
-- **Schema version**: Tracked in `database.py:SCHEMA_VERSION` (current: 2)
-- **Migrations**: `mundane_pkg/migrations/migration_XXX_*.py`
+- **Schema version**: Tracked in `database.py:SCHEMA_VERSION` (current: 1)
+- **Schema approach**: Single-version, normalized structure created on initialization
+- **No migration system**: Breaking changes require major version bump and re-import
 - `.txt` files are **reference only** - all data lives in database
 
 **Key design principles**:
@@ -173,6 +296,8 @@ Mundane uses a **database-first architecture** with SQLite as the source of trut
 - File browsing queries database directly (no filesystem walks during review)
 - Review state tracked in `plugin_files.review_state` column, synchronized to filename prefixes
 - CVEs cached in `plugins.cves` JSON column after fetching from Tenable
+- **NEW in v2.x**: Normalized host/port tables enable cross-scan tracking
+- **NEW in v2.x**: SQL views compute statistics on-demand (no redundant cached data)
 
 ### Module Structure
 
@@ -222,20 +347,38 @@ mundane_pkg/
 - Decouples tool definitions from execution logic
 - Enables adding new tools without modifying core code
 
-### Database Schema
+### Database Schema (v2.x Normalized)
 
-**Tables**:
+**Foundation Tables** (NEW in v2.x):
+- `severity_levels`: Normalized severity reference data (0-4, labels, colors)
+- `artifact_types`: Artifact type definitions
+- `hosts`: Normalized host data across ALL scans (enables cross-scan tracking)
+- `ports`: Port metadata
+- `audit_log`: Change tracking (future feature)
+
+**Core Tables**:
 - `scans`: Top-level scan metadata (scan_name, export_root, .nessus hash)
-- `plugins`: Plugin metadata (plugin_id, severity, CVSS, CVEs, Metasploit modules)
-- `plugin_files`: Findings per scan (scan_id + plugin_id, review_state, host_count, port_count)
-- `plugin_file_hosts`: Host:port combinations (file_id, host, port, plugin_output)
-- `sessions`: Review session tracking (start time, duration, statistics)
+- `plugins`: Plugin metadata (plugin_id, severity_int, CVSS, CVEs, Metasploit modules)
+  - **REMOVED in v2.x**: `severity_label` column (now in `severity_levels` table)
+- `plugin_files`: Findings per scan (scan_id + plugin_id, review_state)
+  - **REMOVED in v2.x**: `host_count`, `port_count` (computed via `v_plugin_file_stats` view)
+- `plugin_file_hosts`: Host:port combinations (file_id, host_id FK, port_number FK, plugin_output)
+  - **CHANGED in v2.x**: `host`/`port` columns → foreign keys to normalized tables
+- `sessions`: Review session tracking (start time, end time)
+  - **REMOVED in v2.x**: cached statistics (computed via `v_session_stats` view)
 - `tool_executions`: Command history (tool_name, command_text, exit_code, duration, sudo usage)
-- `artifacts`: Generated files (artifact_path, file_hash, file_size, metadata JSON)
+- `artifacts`: Generated files (artifact_path, artifact_type_id FK, file_hash, file_size, metadata JSON)
+  - **CHANGED in v2.x**: `artifact_type` TEXT → `artifact_type_id` INTEGER FK
+- `workflow_executions`: Custom workflow tracking
 
-**Views**: `v_review_progress`, `v_session_stats`, `v_tool_summary`, `v_artifact_storage`
+**SQL Views** (Computed Statistics):
+- `v_plugin_file_stats`: Host/port counts per finding (replaces cached columns)
+- `v_session_stats`: Session duration and statistics (replaces cached columns)
+- `v_plugins_with_severity`: Plugins with severity labels (replaces `severity_label` column)
+- `v_host_findings`: Cross-scan host analysis (NEW capability in v2.x)
+- `v_artifacts_with_types`: Artifacts with type names (replaces `artifact_type` column)
 
-**Schema changes**: Update `database.py:SCHEMA_SQL` AND create migration in `migrations/`
+**Schema changes**: Update `database.py:SCHEMA_SQL_TABLES` and `SCHEMA_SQL_VIEWS`. Breaking changes require major version bump and user re-import.
 
 ### Version Management
 
@@ -370,12 +513,42 @@ def test_split_host_port(input_str, expected_host, expected_port):
 
 ### Adding a New Database Column
 
-1. Update `database.py:SCHEMA_SQL` with new column
+**Note**: Database schema changes currently require bumping the major version and having users re-import scans. A proper migration system will be implemented in a future release.
+
+1. Update `database.py:SCHEMA_SQL_TABLES` with new column
 2. Update `schema.sql` (documentation reference)
-3. Create migration in `mundane_pkg/migrations/migration_XXX_<name>.py`
-4. Increment `database.py:SCHEMA_VERSION`
-5. Update `models.py` dataclass if applicable
-6. Test migration with `pytest tests/test_database.py`
+3. Update `models.py` dataclass if applicable
+4. Test with fresh database: `pytest tests/test_database.py`
+5. Document breaking change in CHANGELOG.md
+6. Bump major version in `pyproject.toml`
+
+### Database Schema Management
+
+**Current approach**: The database is created directly in its final normalized structure. There is no migration system currently implemented.
+
+**Key points**:
+- `initialize_database()` creates all tables in final structure on first run
+- Uses `CREATE TABLE IF NOT EXISTS` for idempotency
+- Foundation tables (severity_levels, artifact_types) populated automatically
+- SQL views created automatically for computed statistics
+
+**Schema changes**: Currently require major version bump and users re-importing scans. A proper migration system will be implemented in a future release from a clean slate.
+
+**Testing the schema**:
+```bash
+# Delete existing database
+rm ~/.mundane/mundane.db
+
+# Run mundane (creates fresh database)
+mundane scan list
+
+# Verify schema
+sqlite3 ~/.mundane/mundane.db ".schema"
+
+# Check foundation tables populated
+sqlite3 ~/.mundane/mundane.db "SELECT COUNT(*) FROM severity_levels;"  # Expected: 5
+sqlite3 ~/.mundane/mundane.db "SELECT COUNT(*) FROM artifact_types;"   # Expected: 5
+```
 
 ### Adding a New Tool
 

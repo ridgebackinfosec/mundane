@@ -561,9 +561,10 @@ def show_scan_summary(
             rows = query_all(
                 conn,
                 """
-                SELECT DISTINCT pfh.host, pfh.port, pfh.is_ipv4, pfh.is_ipv6, pfh.file_id
+                SELECT DISTINCT h.host_address, pfh.port_number, h.host_type, pfh.file_id
                 FROM plugin_file_hosts pfh
                 JOIN plugin_files pf ON pfh.file_id = pf.file_id
+                JOIN hosts h ON pfh.host_id = h.host_id
                 WHERE pf.scan_id = ?
                 """,
                 (scan_id,)
@@ -584,10 +585,11 @@ def show_scan_summary(
 
         # Process query results
         for row in rows:
-            host = row["host"]
-            port = row["port"]
-            is_ipv4 = bool(row["is_ipv4"])
-            is_ipv6 = bool(row["is_ipv6"])
+            host = row["host_address"]
+            port = row["port_number"]
+            host_type = row["host_type"]
+            is_ipv4 = (host_type == 'ipv4')
+            is_ipv6 = (host_type == 'ipv6')
 
             unique_hosts.add(host)
 
@@ -873,14 +875,14 @@ def handle_file_view(
         # Build action menu with all available options
         from rich.text import Text
         action_text = Text()
-        action_text.append("[V] ", style="cyan")
-        action_text.append("View host(s) / ", style=None)
-        action_text.append("[E] ", style="cyan")
-        action_text.append("CVE info / ", style=None)
         action_text.append("[I] ", style="cyan")
         action_text.append("Finding Info / ", style=None)
         action_text.append("[D] ", style="cyan")
         action_text.append("Finding Details", style=None)
+        action_text.append("[V] ", style="cyan")
+        action_text.append("View host(s) / ", style=None)
+        action_text.append("[E] ", style="cyan")
+        action_text.append("CVE info / ", style=None)
         if has_workflow:
             action_text.append(" / ", style=None)
             action_text.append("[W] ", style="cyan")
@@ -2335,16 +2337,25 @@ def browse_file_list(
     scan_dir = Path(scan.export_root) / scan.scan_name
 
     def get_counts_for(plugin_file: "PluginFile") -> Tuple[int, str]:
-        """Get host/port counts from database.
+        """Get host/port counts from database via v_plugin_file_stats view.
 
         Args:
             plugin_file: PluginFile database object
 
         Returns:
-            Tuple of (host_count, ports_string) - uses pre-computed database fields
+            Tuple of (host_count, ports_string) - computed from v_plugin_file_stats view
         """
-        # Use pre-computed counts from database (populated during import)
-        return (plugin_file.host_count or 0, "")
+        # Query v_plugin_file_stats view for computed counts (schema v5+)
+        from mundane_pkg.database import query_one, get_connection
+        with get_connection() as conn:
+            row = query_one(
+                conn,
+                "SELECT host_count, port_count FROM v_plugin_file_stats WHERE file_id = ?",
+                (plugin_file.file_id,)
+            )
+            if row:
+                return (row["host_count"] or 0, "")
+            return (0, "")
 
     while True:
         # Query database for findings with plugin info
@@ -2599,7 +2610,7 @@ def show_session_statistics(
                     """
                     SELECT p.severity_label, COUNT(*) as count
                     FROM plugin_files pf
-                    JOIN plugins p ON pf.plugin_id = p.plugin_id
+                    JOIN v_plugins_with_severity p ON pf.plugin_id = p.plugin_id
                     WHERE pf.scan_id = ? AND pf.review_state = 'completed'
                     GROUP BY p.severity_label
                     """,

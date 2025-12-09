@@ -1,6 +1,6 @@
 # Mundane Database Documentation
 
-Mundane includes an **integrated SQLite database** for tracking scan metadata, review state, tool executions, and generated artifacts. This provides an audit trail, enables historical analysis, and supports advanced queries across multiple scans.
+Mundane uses an **integrated SQLite database** with a fully normalized schema for tracking scan metadata, review state, tool executions, and generated artifacts. The database provides an audit trail, enables historical analysis, cross-scan queries, and maintains referential integrity through foreign key constraints.
 
 ---
 
@@ -8,13 +8,15 @@ Mundane includes an **integrated SQLite database** for tracking scan metadata, r
 
 - [Overview](#overview)
 - [Database Location](#database-location)
-- [Dual-Mode Operation](#dual-mode-operation)
+- [Normalized Schema Architecture (v2.x)](#normalized-schema-architecture-v2x)
 - [Schema Overview](#schema-overview)
-- [Table Descriptions](#table-descriptions)
-- [Views and Reports](#views-and-reports)
+- [Foundation Tables](#foundation-tables)
+- [Core Tables](#core-tables)
+- [SQL Views (Computed Statistics)](#sql-views-computed-statistics)
 - [Query Examples](#query-examples)
-- [Environment Variables](#environment-variables)
+- [Cross-Scan Tracking](#cross-scan-tracking)
 - [Schema Reference](#schema-reference)
+- [Migration from v1.x](#migration-from-v1x)
 
 ---
 
@@ -23,9 +25,10 @@ Mundane includes an **integrated SQLite database** for tracking scan metadata, r
 The Mundane database tracks:
 
 - **Scans**: Nessus export metadata (scan name, export root, .nessus file hash)
-- **Plugins**: Vulnerability findings (plugin ID, name, severity, CVSS scores, CVEs)
-- **Plugin Files**: Individual .txt files per scan (file paths, review state, host counts)
-- **Sessions**: Review session state (start time, duration, statistics)
+- **Plugins**: Vulnerability findings (plugin ID, name, severity, CVSS scores, CVEs, Metasploit modules)
+- **Plugin Files**: Individual findings per scan (review state, reviewed timestamp)
+- **Hosts & Ports**: Normalized host/port data with cross-scan tracking
+- **Sessions**: Review session state (start time, duration via SQL view)
 - **Tool Executions**: Commands run during reviews (tool name, exit codes, duration)
 - **Artifacts**: Generated files from tool runs (file paths, SHA256 hashes, sizes)
 - **Workflows**: Custom workflow execution tracking
@@ -42,68 +45,159 @@ The database is global across all scans, enabling cross-scan queries and histori
 
 **Directory**: `~/.mundane/` is created automatically on first use.
 
+**Schema Version**: 1 (single-version, normalized structure - no migration system)
+
 ---
 
-## Database-Only Architecture
+## Normalized Schema Architecture (v2.x)
 
-**As of version 1.8.19**, Mundane uses a **database-only architecture**. All plugin data, review state, session information, and host:port combinations are stored in SQLite.
+**As of version 2.0.0**, Mundane uses a **fully normalized database schema** following relational best practices.
 
-### What Changed (Migration Completed)
+### Key Improvements in v2.x
 
-The previous "dual-mode" operation (database + JSON files) has been fully migrated to database-only:
+1. **Normalized Lookup Tables**
+   - `severity_levels` - Centralized severity reference data
+   - `artifact_types` - Standardized artifact type definitions
+   - `hosts` - Deduplicated host data across scans
+   - `ports` - Port metadata
 
-- ✅ **Plugin files**: Stored in `plugin_files` table with review state tracking
-- ✅ **Host:port data**: Stored in `plugin_file_hosts` table (parsed from .txt files on import)
-- ✅ **Review sessions**: Stored in `sessions` table (no more `.mundane_session.json` files)
-- ✅ **Analysis functions**: Compare and superset analysis query database directly
-- ✅ **Preview mode**: Loads host:port data from database instead of reading files
+2. **Eliminated Redundant Columns**
+   - `plugin_files`: Removed `host_count`, `port_count` (computed via views)
+   - `plugins`: Removed `severity_label` (JOIN with `severity_levels`)
+   - `sessions`: Removed cached statistics (computed via views)
+   - `plugin_file_hosts`: Removed `is_ipv4`, `is_ipv6` (now in `hosts` table)
 
-### Backward Compatibility
+3. **SQL Views for Computed Statistics**
+   - `v_plugin_file_stats` - Host/port counts per finding
+   - `v_session_stats` - Session duration and file counts
+   - `v_plugins_with_severity` - Plugins with severity labels
+   - `v_host_findings` - Cross-scan host analysis
+   - `v_artifacts_with_types` - Artifacts with type names
 
-For backward compatibility, some file-based operations remain as fallback paths:
-- File reading functions still exist but are marked as deprecated (see function docstrings)
-- Virtual `Path` objects are created for rendering code that expects file paths
-- `.txt` plugin files are still created during export for human reference
+4. **Foreign Key Constraints Throughout**
+   - All relationships enforced at database level
+   - Cascade deletes where appropriate
+   - Referential integrity guaranteed
 
-### Operating Modes
+### Benefits
 
-| Mode | `MUNDANE_USE_DB` | `MUNDANE_DB_ONLY` | Behavior | Status |
-|---|---|---|---|---|
-| **Database-only** (default) | `1` | `1` | Database only, no JSON files | ✅ Current |
-| **Legacy** | `0` | - | JSON files only, no database | ⚠️ Deprecated |
+- **Zero Data Redundancy**: Single source of truth for all data
+- **Always Accurate**: Computed values never stale
+- **Cross-Scan Queries**: Track hosts across multiple scans
+- **Data Integrity**: Foreign keys prevent orphaned records
+- **Better Performance**: Optimized indexes on all foreign keys
 
-**Note**: The legacy mode is deprecated and may be removed in a future version.
+### Breaking Changes from v1.x
+
+⚠️ **Version 2.x requires re-importing all scans**. Existing databases cannot be automatically migrated due to extensive structural changes.
+
+See [Migration from v1.x](#migration-from-v1x) for details.
 
 ---
 
 ## Schema Overview
 
-The database consists of **11 tables** and **4 views**:
+The database consists of **13 tables** and **5 views**:
+
+### Foundation Tables (Normalized Reference Data)
+
+1. **severity_levels** - Severity definitions (0-4, labels, colors)
+2. **artifact_types** - Artifact type definitions
+3. **audit_log** - Change tracking for critical tables
 
 ### Core Tables
 
-1. **scans** - Top-level scan tracking
-2. **plugins** - Plugin metadata (Nessus plugin ID, severity, CVEs)
-3. **plugin_files** - Exported .txt files per scan
-4. **plugin_file_hosts** - Host:port combinations per file
+4. **scans** - Top-level scan tracking
+5. **plugins** - Plugin metadata (Nessus plugin ID, severity, CVEs)
+6. **plugin_files** - Findings per scan (review state)
+7. **hosts** - Normalized host data (cross-scan tracking)
+8. **ports** - Port metadata
+9. **plugin_file_hosts** - Host:port combinations per finding (normalized FKs)
 
-### Review Tracking
+### Review & Execution Tracking
 
-5. **sessions** - Review session tracking
-6. **tool_executions** - Commands run during reviews
-7. **artifacts** - Generated output files
-8. **workflow_executions** - Custom workflow tracking
+10. **sessions** - Review session tracking (simplified in v2.x)
+11. **tool_executions** - Commands run during reviews
+12. **artifacts** - Generated output files
+13. **workflow_executions** - Custom workflow tracking
 
-### Views (Pre-Built Queries)
+### SQL Views (Computed Statistics)
 
-- **v_review_progress** - Review progress by scan and severity
-- **v_session_stats** - Session statistics with scan details
-- **v_tool_summary** - Tool execution summary with success/failure rates
-- **v_artifact_storage** - Artifact storage summary by type
+- **v_plugin_file_stats** - Host/port counts per finding (replaces columns)
+- **v_session_stats** - Session statistics (replaces columns)
+- **v_plugins_with_severity** - Plugins with severity labels (replaces column)
+- **v_host_findings** - Cross-scan host analysis (NEW in v2.x)
+- **v_artifacts_with_types** - Artifacts with type information (replaces column)
 
 ---
 
-## Table Descriptions
+## Foundation Tables
+
+### severity_levels
+
+Normalized severity reference data - enforces valid severity values.
+
+| Column | Type | Description |
+|---|---|---|
+| `severity_int` | INTEGER | Primary key (0-4) |
+| `severity_label` | TEXT | "Info", "Low", "Medium", "High", "Critical" |
+| `severity_order` | INTEGER | Sort order (0-4) |
+| `color_hint` | TEXT | Hex color code for UI rendering |
+
+**Pre-populated Data**:
+```sql
+(4, 'Critical', 4, '#8B0000')
+(3, 'High', 3, '#FF4500')
+(2, 'Medium', 2, '#FFA500')
+(1, 'Low', 1, '#FFD700')
+(0, 'Info', 0, '#4682B4')
+```
+
+**Foreign Keys**: Referenced by `plugins.severity_int`
+
+---
+
+### artifact_types
+
+Artifact type definitions - enforces consistent artifact categorization.
+
+| Column | Type | Description |
+|---|---|---|
+| `artifact_type_id` | INTEGER | Primary key |
+| `type_name` | TEXT | Unique type name |
+| `file_extension` | TEXT | Expected file extension |
+| `description` | TEXT | Human-readable description |
+| `parser_module` | TEXT | Future: Python module for parsing |
+
+**Pre-populated Data**:
+- `nmap_xml` - Nmap XML output (.xml)
+- `nmap_gnmap` - Nmap greppable output (.gnmap)
+- `nmap_txt` - Nmap text output (.txt)
+- `netexec_txt` - NetExec text output (.txt)
+- `log` - Tool execution log (.log)
+
+**Foreign Keys**: Referenced by `artifacts.artifact_type_id`
+
+---
+
+### audit_log
+
+Audit trail for changes to critical tables (future feature).
+
+| Column | Type | Description |
+|---|---|---|
+| `audit_id` | INTEGER | Primary key |
+| `table_name` | TEXT | Table being modified |
+| `record_id` | INTEGER | Record ID in that table |
+| `action` | TEXT | 'INSERT', 'UPDATE', 'DELETE' |
+| `changed_by` | TEXT | User identifier (future) |
+| `changed_at` | TIMESTAMP | Change timestamp |
+| `old_values` | TEXT | JSON of old values |
+| `new_values` | TEXT | JSON of new values |
+
+---
+
+## Core Tables
 
 ### scans
 
@@ -112,14 +206,14 @@ Top-level scan tracking - one row per Nessus export.
 | Column | Type | Description |
 |---|---|---|
 | `scan_id` | INTEGER | Primary key (auto-increment) |
-| `scan_name` | TEXT | Unique scan name (from import command or export directory) |
+| `scan_name` | TEXT | Unique scan name |
 | `nessus_file_path` | TEXT | Original .nessus file path |
 | `nessus_file_hash` | TEXT | SHA256 of .nessus file for change detection |
 | `export_root` | TEXT | Where plugin .txt files are stored |
 | `created_at` | TIMESTAMP | Scan creation time |
 | `last_reviewed_at` | TIMESTAMP | Last review session timestamp |
 
-**Relationships**: One scan has many plugin_files, sessions
+**Relationships**: One scan has many `plugin_files` and `sessions`
 
 ---
 
@@ -129,28 +223,75 @@ Plugin metadata - one row per Nessus plugin ID.
 
 | Column | Type | Description |
 |---|---|---|
-| `plugin_id` | INTEGER | Nessus plugin ID (e.g., 57608) |
+| `plugin_id` | INTEGER | Primary key - Nessus plugin ID (e.g., 57608) |
 | `plugin_name` | TEXT | Plugin name |
 | `severity_int` | INTEGER | 0=Info, 1=Low, 2=Medium, 3=High, 4=Critical |
-| `severity_label` | TEXT | "Info", "Low", "Medium", "High", "Critical" |
 | `has_metasploit` | BOOLEAN | Metasploit module availability |
 | `cvss3_score` | REAL | CVSS v3 base score |
 | `cvss2_score` | REAL | CVSS v2 base score (fallback) |
-| `cves` | TEXT | JSON array of CVE IDs (NULL until fetched) |
+| `metasploit_names` | TEXT | JSON array of Metasploit module names |
+| `cves` | TEXT | JSON array of CVE IDs |
 | `plugin_url` | TEXT | Tenable plugin URL |
-| `metadata_fetched_at` | TIMESTAMP | When CVEs were fetched by user |
+| `metadata_fetched_at` | TIMESTAMP | When CVEs were fetched |
+
+**REMOVED in v2.x**: `severity_label` column - use `v_plugins_with_severity` view or JOIN with `severity_levels`
+
+**Foreign Keys**: `severity_int` → `severity_levels.severity_int`
+
+**Constraints**:
+- `CHECK(severity_int BETWEEN 0 AND 4)`
 
 **Note**: "plugin" is internal terminology. User-facing commands use "findings".
 
-**Relationships**: One plugin has many plugin_files (across different scans)
+**Relationships**: One plugin has many `plugin_files` (across different scans)
+
+---
+
+### hosts
+
+Normalized host data - one row per unique host address across ALL scans.
+
+| Column | Type | Description |
+|---|---|---|
+| `host_id` | INTEGER | Primary key |
+| `host_address` | TEXT | Unique host address (IP or hostname) |
+| `host_type` | TEXT | 'ipv4', 'ipv6', or 'hostname' |
+| `reverse_dns` | TEXT | Reverse DNS lookup result (future) |
+| `first_seen` | TIMESTAMP | First appearance across all scans |
+| `last_seen` | TIMESTAMP | Most recent appearance |
+
+**NEW in v2.x**: Enables cross-scan host tracking
+
+**Constraints**:
+- `UNIQUE(host_address)`
+- `CHECK(host_type IN ('ipv4', 'ipv6', 'hostname'))`
+
+**Relationships**: Referenced by `plugin_file_hosts.host_id`
+
+---
+
+### ports
+
+Port metadata - one row per port number.
+
+| Column | Type | Description |
+|---|---|---|
+| `port_number` | INTEGER | Primary key (1-65535) |
+| `service_name` | TEXT | Common service name (future) |
+| `description` | TEXT | Service description (future) |
+
+**NEW in v2.x**: Allows port metadata to be maintained separately
+
+**Constraints**:
+- `CHECK(port_number BETWEEN 1 AND 65535)`
+
+**Relationships**: Referenced by `plugin_file_hosts.port_number`
 
 ---
 
 ### plugin_files
 
 Finding records - one row per plugin per scan.
-
-**Schema Changes in v1.9.0**: Streamlined to remove duplicate/unnecessary columns. Removed `file_path`, `severity_dir`, `file_created_at`, `file_modified_at`, and `last_parsed_at`.
 
 | Column | Type | Description |
 |---|---|---|
@@ -161,45 +302,61 @@ Finding records - one row per plugin per scan.
 | `reviewed_at` | TIMESTAMP | When finding was reviewed |
 | `reviewed_by` | TEXT | User tracking (future feature) |
 | `review_notes` | TEXT | User notes (future feature) |
-| `host_count` | INTEGER | Number of unique hosts affected |
-| `port_count` | INTEGER | Number of unique ports affected |
+
+**REMOVED in v2.x**:
+- `host_count` - Use `v_plugin_file_stats` view
+- `port_count` - Use `v_plugin_file_stats` view
+- `file_path` - No longer stored
+- `severity_dir` - Derived from JOIN with plugins
+- `file_created_at`, `file_modified_at`, `last_parsed_at` - Unnecessary timestamps
+
+**Foreign Keys**:
+- `scan_id` → `scans.scan_id` (CASCADE DELETE)
+- `plugin_id` → `plugins.plugin_id`
 
 **Constraints**:
-- `UNIQUE(scan_id, plugin_id)` - Each scan can only have one record per plugin
+- `UNIQUE(scan_id, plugin_id)` - One finding per plugin per scan
+- `CHECK(review_state IN ('pending', 'reviewed', 'completed', 'skipped'))`
 
-**Review State Values**:
-- `pending` - Not yet reviewed
-- `reviewed` - Finding opened/viewed
-- `completed` - Marked as REVIEW_COMPLETE
-- `skipped` - Intentionally skipped
-
-**Relationships**: Belongs to one scan and one plugin. Has many plugin_file_hosts and tool_executions.
-
-**Note**: Severity information (e.g., "4_Critical") is obtained via JOIN with the plugins table.
+**Relationships**: Has many `plugin_file_hosts`, `tool_executions`, and `workflow_executions`
 
 ---
 
 ### plugin_file_hosts
 
-Host:port combinations - parsed from plugin .txt files.
+Host:port combinations per finding - **normalized structure in v2.x**.
 
 | Column | Type | Description |
 |---|---|---|
-| `host_id` | INTEGER | Primary key |
+| `pfh_id` | INTEGER | Primary key (renamed from `host_id` in v2.x) |
 | `file_id` | INTEGER | Foreign key to plugin_files |
-| `host` | TEXT | IP address or hostname |
-| `port` | INTEGER | Port number (NULL if no port) |
-| `is_ipv4` | BOOLEAN | IPv4 address flag |
-| `is_ipv6` | BOOLEAN | IPv6 address flag |
-| `plugin_output` | TEXT | Plugin output from Nessus scanner (host-specific) |
+| `host_id` | INTEGER | **Foreign key to hosts** (NEW in v2.x) |
+| `port_number` | INTEGER | **Foreign key to ports** (NEW in v2.x) |
+| `plugin_output` | TEXT | Plugin output from Nessus scanner |
 
-**Relationships**: Belongs to one plugin_file
+**CHANGED in v2.x**:
+- `host_id` renamed to `pfh_id` (avoid confusion)
+- `host` TEXT column → `host_id` INTEGER foreign key
+- `port` INTEGER column → `port_number` INTEGER foreign key
+
+**REMOVED in v2.x**:
+- `is_ipv4`, `is_ipv6` - Host type now in `hosts` table
+
+**Foreign Keys**:
+- `file_id` → `plugin_files.file_id` (CASCADE DELETE)
+- `host_id` → `hosts.host_id`
+- `port_number` → `ports.port_number`
+
+**Constraints**:
+- `UNIQUE(file_id, host_id, port_number)`
+
+**Relationships**: Belongs to one `plugin_file`, one `host`, and optionally one `port`
 
 ---
 
 ### sessions
 
-Review session tracking - one row per review session.
+Review session tracking - **simplified in v2.x**.
 
 | Column | Type | Description |
 |---|---|---|
@@ -207,14 +364,19 @@ Review session tracking - one row per review session.
 | `scan_id` | INTEGER | Foreign key to scans |
 | `session_start` | TIMESTAMP | Session start time |
 | `session_end` | TIMESTAMP | Session end time |
-| `duration_seconds` | INTEGER | Session duration (computed on end) |
-| `files_reviewed` | INTEGER | Count of reviewed files |
-| `files_completed` | INTEGER | Count of completed files |
-| `files_skipped` | INTEGER | Count of skipped files |
-| `tools_executed` | INTEGER | Count of tool runs |
-| `cves_extracted` | INTEGER | Count of CVE extractions |
 
-**Relationships**: Belongs to one scan. Has many tool_executions.
+**REMOVED in v2.x**:
+- `duration_seconds` - Use `v_session_stats` view
+- `files_reviewed` - Use `v_session_stats` view
+- `files_completed` - Use `v_session_stats` view
+- `files_skipped` - Use `v_session_stats` view
+- `tools_executed` - Use `v_session_stats` view
+- `cves_extracted` - Use `v_session_stats` view
+
+**Foreign Keys**:
+- `scan_id` → `scans.scan_id` (CASCADE DELETE)
+
+**Relationships**: Has many `tool_executions`
 
 ---
 
@@ -239,7 +401,11 @@ Command execution tracking - one row per tool run.
 | `ports` | TEXT | Comma-separated port list |
 | `used_sudo` | BOOLEAN | Was sudo used? |
 
-**Relationships**: Belongs to one session and one plugin_file. Has many artifacts.
+**Foreign Keys**:
+- `session_id` → `sessions.session_id` (SET NULL DELETE)
+- `file_id` → `plugin_files.file_id` (SET NULL DELETE)
+
+**Relationships**: Has many `artifacts`
 
 ---
 
@@ -252,22 +418,22 @@ Generated output files - one row per artifact file.
 | `artifact_id` | INTEGER | Primary key |
 | `execution_id` | INTEGER | Foreign key to tool_executions |
 | `artifact_path` | TEXT | Absolute path (unique) |
-| `artifact_type` | TEXT | 'nmap_xml', 'nmap_gnmap', 'netexec_log', etc. |
+| `artifact_type_id` | INTEGER | **Foreign key to artifact_types** (NEW in v2.x) |
 | `file_size_bytes` | INTEGER | File size in bytes |
 | `file_hash` | TEXT | SHA256 hash |
 | `created_at` | TIMESTAMP | Creation timestamp |
 | `last_accessed_at` | TIMESTAMP | Last access time |
 | `metadata` | TEXT | JSON metadata (NSE scripts, UDP flag, etc.) |
 
-**Artifact Types**:
-- `nmap_xml` - Nmap XML output
-- `nmap_gnmap` - Nmap grepable output
-- `nmap_nmap` - Nmap normal output
-- `netexec_log` - NetExec/nxc output
-- `metasploit_rc` - Metasploit resource script
-- `custom` - Custom tool output
+**CHANGED in v2.x**:
+- `artifact_type` TEXT column → `artifact_type_id` INTEGER foreign key
+- Use `v_artifacts_with_types` view to get type names
 
-**Relationships**: Belongs to one tool_execution
+**Foreign Keys**:
+- `execution_id` → `tool_executions.execution_id` (SET NULL DELETE)
+- `artifact_type_id` → `artifact_types.artifact_type_id`
+
+**Relationships**: Belongs to one `tool_execution` and one `artifact_type`
 
 ---
 
@@ -284,81 +450,189 @@ Custom workflow tracking - one row per workflow execution.
 | `completed` | BOOLEAN | Completion status |
 | `results` | TEXT | JSON results (step outcomes) |
 
-**Relationships**: Belongs to one plugin_file
+**Foreign Keys**:
+- `file_id` → `plugin_files.file_id` (CASCADE DELETE)
+
+**Relationships**: Belongs to one `plugin_file`
 
 ---
 
-## Views and Reports
+## SQL Views (Computed Statistics)
 
-Pre-built views for common queries:
+Views provide computed aggregates without storing redundant data. All statistics are computed on-demand from normalized tables.
 
-### v_review_progress
+### v_plugin_file_stats
 
-Review progress by scan and severity.
+Replaces `host_count` and `port_count` columns from `plugin_files` table.
 
-**Columns**: `scan_name`, `severity_dir`, `total_files`, `completed`, `reviewed`, `skipped`, `pending`, `completion_pct`
+**Columns**:
+- `file_id`, `scan_id`, `plugin_id`, `review_state`, `reviewed_at`, `reviewed_by`, `review_notes`
+- `host_count` - COUNT(DISTINCT host_id) from plugin_file_hosts
+- `port_count` - COUNT(DISTINCT port_number) from plugin_file_hosts
 
-**Example**:
+**Usage**:
 ```sql
-SELECT * FROM v_review_progress WHERE scan_name = 'GOAD';
+SELECT * FROM v_plugin_file_stats WHERE file_id = 123;
 ```
 
 ---
 
 ### v_session_stats
 
-Session statistics with scan details.
+Replaces cached statistics columns from `sessions` table.
 
-**Columns**: `session_id`, `session_start`, `session_end`, `duration_seconds`, `scan_name`, `tools_executed`, `cves_extracted`, `files_completed`, `files_reviewed`, `files_skipped`
+**Columns**:
+- `session_id`, `scan_id`, `session_start`, `session_end`
+- `duration_seconds` - Computed from start/end timestamps
+- `files_reviewed` - COUNT files with review_state='reviewed'
+- `files_completed` - COUNT files with review_state='completed'
+- `files_skipped` - COUNT files with review_state='skipped'
+- `tools_executed` - COUNT tool executions in session
+- `cves_extracted` - COUNT plugins with non-NULL cves
 
-**Example**:
+**Usage**:
 ```sql
-SELECT * FROM v_session_stats ORDER BY session_start DESC LIMIT 10;
+SELECT * FROM v_session_stats ORDER BY session_start DESC LIMIT 5;
 ```
 
 ---
 
-### v_tool_summary
+### v_plugins_with_severity
 
-Tool execution summary with success/failure rates.
+Replaces `severity_label` column from `plugins` table - JOINs with `severity_levels`.
 
-**Columns**: `tool_name`, `tool_protocol`, `execution_count`, `avg_duration`, `success_count`, `failure_count`, `artifacts_created`
+**Columns**:
+- `plugin_id`, `plugin_name`, `severity_int`
+- `severity_label` - From severity_levels table
+- `color_hint` - From severity_levels table
+- `has_metasploit`, `cvss3_score`, `cvss2_score`, `cves`, `metasploit_names`, `plugin_url`, `metadata_fetched_at`
 
-**Example**:
+**Usage**:
 ```sql
-SELECT * FROM v_tool_summary WHERE tool_name = 'nmap';
+SELECT plugin_name, severity_label, cvss3_score
+FROM v_plugins_with_severity
+WHERE severity_int >= 3
+ORDER BY severity_int DESC, cvss3_score DESC;
 ```
 
 ---
 
-### v_artifact_storage
+### v_host_findings
 
-Artifact storage summary by type.
+**NEW in v2.x** - Cross-scan host analysis.
 
-**Columns**: `artifact_type`, `file_count`, `total_bytes`, `total_mb`, `avg_file_size`
+**Columns**:
+- `host_id`, `host_address`, `host_type`, `first_seen`, `last_seen`
+- `scan_count` - Number of scans this host appeared in
+- `finding_count` - Total findings across all scans
+- `port_count` - Unique ports across all findings
+- `max_severity` - Highest severity finding for this host
 
-**Example**:
+**Usage**:
 ```sql
-SELECT * FROM v_artifact_storage ORDER BY total_mb DESC;
+-- Find hosts that appeared in multiple scans
+SELECT host_address, scan_count, finding_count
+FROM v_host_findings
+WHERE scan_count > 1
+ORDER BY scan_count DESC;
+```
+
+---
+
+### v_artifacts_with_types
+
+Replaces `artifact_type` TEXT column with JOIN to `artifact_types` table.
+
+**Columns**:
+- `artifact_id`, `execution_id`, `artifact_path`
+- `artifact_type` - type_name from artifact_types table
+- `file_extension`, `artifact_description` - From artifact_types table
+- `file_size_bytes`, `file_hash`, `created_at`, `last_accessed_at`, `metadata`
+
+**Usage**:
+```sql
+SELECT artifact_type, COUNT(*) as count, SUM(file_size_bytes) / 1024.0 / 1024.0 as total_mb
+FROM v_artifacts_with_types
+GROUP BY artifact_type
+ORDER BY total_mb DESC;
 ```
 
 ---
 
 ## Query Examples
 
-### Find All Nmap Scans for a Specific Host
+### Get Plugin File with Host/Port Counts
+
+```sql
+-- Old (v1.x): Query plugin_files table directly
+SELECT file_id, scan_id, plugin_id, host_count, port_count
+FROM plugin_files
+WHERE file_id = 123;
+
+-- New (v2.x): Query view for computed counts
+SELECT file_id, scan_id, plugin_id, host_count, port_count
+FROM v_plugin_file_stats
+WHERE file_id = 123;
+```
+
+---
+
+### Get Plugin with Severity Label
+
+```sql
+-- Old (v1.x): Query plugin table directly
+SELECT plugin_id, plugin_name, severity_label, cvss3_score
+FROM plugins
+WHERE plugin_id = 57608;
+
+-- New (v2.x): Query view with JOIN to severity_levels
+SELECT plugin_id, plugin_name, severity_label, cvss3_score
+FROM v_plugins_with_severity
+WHERE plugin_id = 57608;
+```
+
+---
+
+### Find All Findings for a Specific Host Across All Scans
+
+**NEW capability in v2.x** - enabled by normalized hosts table:
 
 ```sql
 SELECT
-    te.executed_at,
-    te.command_text,
-    a.artifact_path,
-    a.file_size_bytes
-FROM tool_executions te
-JOIN artifacts a ON a.execution_id = te.execution_id
-WHERE te.tool_name = 'nmap'
-  AND te.command_text LIKE '%192.168.1.1%'
-ORDER BY te.executed_at DESC;
+    h.host_address,
+    s.scan_name,
+    s.created_at as scan_date,
+    p.plugin_name,
+    sl.severity_label,
+    pf.review_state
+FROM hosts h
+JOIN plugin_file_hosts pfh ON h.host_id = pfh.host_id
+JOIN plugin_files pf ON pfh.file_id = pf.file_id
+JOIN plugins p ON pf.plugin_id = p.plugin_id
+JOIN severity_levels sl ON p.severity_int = sl.severity_int
+JOIN scans s ON pf.scan_id = s.scan_id
+WHERE h.host_address = '192.168.1.10'
+ORDER BY s.created_at DESC, sl.severity_order DESC;
+```
+
+---
+
+### Get Hosts that Appeared in Multiple Scans
+
+**NEW capability in v2.x**:
+
+```sql
+SELECT
+    host_address,
+    host_type,
+    scan_count,
+    finding_count,
+    port_count,
+    first_seen,
+    last_seen
+FROM v_host_findings
+WHERE scan_count > 1
+ORDER BY scan_count DESC, finding_count DESC;
 ```
 
 ---
@@ -370,6 +644,8 @@ SELECT
     s.scan_name,
     COUNT(*) as total_files,
     SUM(CASE WHEN pf.review_state = 'completed' THEN 1 ELSE 0 END) as completed,
+    SUM(CASE WHEN pf.review_state = 'reviewed' THEN 1 ELSE 0 END) as reviewed,
+    SUM(CASE WHEN pf.review_state = 'pending' THEN 1 ELSE 0 END) as pending,
     ROUND(100.0 * SUM(CASE WHEN pf.review_state = 'completed' THEN 1 ELSE 0 END) / COUNT(*), 1) as completion_pct
 FROM scans s
 JOIN plugin_files pf ON pf.scan_id = s.scan_id
@@ -385,161 +661,158 @@ ORDER BY completion_pct DESC;
 SELECT
     p.plugin_id,
     p.plugin_name,
+    sl.severity_label,
     p.cvss3_score,
+    p.metasploit_names,
     COUNT(DISTINCT pf.scan_id) as scan_count,
-    GROUP_CONCAT(DISTINCT s.scan_name) as affected_scans
+    COUNT(DISTINCT h.host_address) as unique_hosts
 FROM plugins p
+JOIN severity_levels sl ON p.severity_int = sl.severity_int
 JOIN plugin_files pf ON pf.plugin_id = p.plugin_id
-JOIN scans s ON s.scan_id = pf.scan_id
+JOIN plugin_file_hosts pfh ON pfh.file_id = pf.file_id
+JOIN hosts h ON pfh.host_id = h.host_id
 WHERE p.severity_int = 4  -- Critical
   AND p.has_metasploit = 1
-GROUP BY p.plugin_id
-ORDER BY p.cvss3_score DESC;
+GROUP BY p.plugin_id, p.plugin_name, sl.severity_label, p.cvss3_score, p.metasploit_names
+ORDER BY p.cvss3_score DESC, unique_hosts DESC;
 ```
 
 ---
 
-### Tool Execution History for a Scan
+### Session Statistics
 
 ```sql
+-- Get session statistics with computed values
 SELECT
-    te.executed_at,
-    te.tool_name,
-    te.tool_protocol,
-    te.command_text,
-    te.exit_code,
-    te.duration_seconds,
-    te.used_sudo,
-    COUNT(a.artifact_id) as artifact_count
-FROM tool_executions te
-JOIN sessions sess ON sess.session_id = te.session_id
-JOIN scans s ON s.scan_id = sess.scan_id
-LEFT JOIN artifacts a ON a.execution_id = te.execution_id
-WHERE s.scan_name = 'GOAD'
-GROUP BY te.execution_id
-ORDER BY te.executed_at;
+    session_id,
+    session_start,
+    session_end,
+    ROUND(duration_seconds / 60.0, 1) as duration_minutes,
+    files_completed,
+    files_reviewed,
+    files_skipped,
+    tools_executed,
+    cves_extracted
+FROM v_session_stats
+ORDER BY session_start DESC
+LIMIT 10;
 ```
 
 ---
 
-### Find Duplicate Hosts Across Multiple Plugins
+### Artifact Storage by Type
 
 ```sql
 SELECT
-    pfh.host,
-    COUNT(DISTINCT pf.plugin_id) as plugin_count,
-    GROUP_CONCAT(DISTINCT p.plugin_name) as plugins,
-    GROUP_CONCAT(DISTINCT pf.severity_dir) as severities
-FROM plugin_file_hosts pfh
-JOIN plugin_files pf ON pf.file_id = pfh.file_id
-JOIN plugins p ON p.plugin_id = pf.plugin_id
-WHERE pf.scan_id = (SELECT scan_id FROM scans WHERE scan_name = 'GOAD')
-GROUP BY pfh.host
-HAVING COUNT(DISTINCT pf.plugin_id) > 1
-ORDER BY plugin_count DESC;
-```
-
----
-
-### Session Duration Statistics
-
-```sql
-SELECT
-    s.scan_name,
-    COUNT(sess.session_id) as session_count,
-    AVG(sess.duration_seconds) / 60.0 as avg_duration_minutes,
-    MAX(sess.duration_seconds) / 60.0 as max_duration_minutes,
-    SUM(sess.tools_executed) as total_tools_executed,
-    SUM(sess.files_completed) as total_files_completed
-FROM sessions sess
-JOIN scans s ON s.scan_id = sess.scan_id
-WHERE sess.session_end IS NOT NULL
-GROUP BY s.scan_name;
-```
-
----
-
-### Artifact Storage by Scan
-
-```sql
-SELECT
-    s.scan_name,
-    a.artifact_type,
+    artifact_type,
     COUNT(*) as file_count,
-    SUM(a.file_size_bytes) / 1024.0 / 1024.0 as total_mb,
-    AVG(a.file_size_bytes) / 1024.0 as avg_kb
-FROM artifacts a
-JOIN tool_executions te ON te.execution_id = a.execution_id
-JOIN sessions sess ON sess.session_id = te.session_id
-JOIN scans s ON s.scan_id = sess.scan_id
-GROUP BY s.scan_name, a.artifact_type
-ORDER BY s.scan_name, total_mb DESC;
+    SUM(file_size_bytes) / 1024.0 / 1024.0 as total_mb,
+    ROUND(AVG(file_size_bytes) / 1024.0, 1) as avg_kb
+FROM v_artifacts_with_types
+GROUP BY artifact_type
+ORDER BY total_mb DESC;
 ```
 
 ---
 
-### Compare Findings Across Two Scans
+## Cross-Scan Tracking
+
+The normalized schema in v2.x enables powerful cross-scan queries:
+
+### Track Host Appearance History
+
+```sql
+-- When did each host first and last appear?
+SELECT
+    h.host_address,
+    h.first_seen,
+    h.last_seen,
+    julianday(h.last_seen) - julianday(h.first_seen) as days_tracked,
+    v.scan_count,
+    v.finding_count
+FROM hosts h
+JOIN v_host_findings v ON h.host_id = v.host_id
+ORDER BY days_tracked DESC;
+```
+
+---
+
+### Compare Host Findings Between Two Scans
 
 ```sql
 SELECT
-    p.plugin_id,
-    p.plugin_name,
-    p.severity_label,
-    s1.host_count as scan1_hosts,
-    s2.host_count as scan2_hosts,
-    ABS(s1.host_count - s2.host_count) as difference
-FROM plugins p
+    h.host_address,
+    s1_findings.plugin_count as scan1_plugins,
+    s2_findings.plugin_count as scan2_plugins,
+    CASE
+        WHEN s1_findings.plugin_count > s2_findings.plugin_count THEN 'Improved'
+        WHEN s1_findings.plugin_count < s2_findings.plugin_count THEN 'Worsened'
+        ELSE 'Same'
+    END as trend
+FROM hosts h
 LEFT JOIN (
-    SELECT pf.plugin_id, SUM(pf.host_count) as host_count
-    FROM plugin_files pf
-    JOIN scans s ON s.scan_id = pf.scan_id
+    SELECT pfh.host_id, COUNT(DISTINCT pf.plugin_id) as plugin_count
+    FROM plugin_file_hosts pfh
+    JOIN plugin_files pf ON pfh.file_id = pf.file_id
+    JOIN scans s ON pf.scan_id = s.scan_id
     WHERE s.scan_name = 'Scan1'
-    GROUP BY pf.plugin_id
-) s1 ON s1.plugin_id = p.plugin_id
+    GROUP BY pfh.host_id
+) s1_findings ON h.host_id = s1_findings.host_id
 LEFT JOIN (
-    SELECT pf.plugin_id, SUM(pf.host_count) as host_count
-    FROM plugin_files pf
-    JOIN scans s ON s.scan_id = pf.scan_id
+    SELECT pfh.host_id, COUNT(DISTINCT pf.plugin_id) as plugin_count
+    FROM plugin_file_hosts pfh
+    JOIN plugin_files pf ON pfh.file_id = pf.file_id
+    JOIN scans s ON pf.scan_id = s.scan_id
     WHERE s.scan_name = 'Scan2'
-    GROUP BY pf.plugin_id
-) s2 ON s2.plugin_id = p.plugin_id
-WHERE s1.host_count IS NOT NULL OR s2.host_count IS NOT NULL
-ORDER BY difference DESC;
+    GROUP BY pfh.host_id
+) s2_findings ON h.host_id = s2_findings.host_id
+WHERE s1_findings.plugin_count IS NOT NULL
+   OR s2_findings.plugin_count IS NOT NULL
+ORDER BY ABS(COALESCE(s1_findings.plugin_count, 0) - COALESCE(s2_findings.plugin_count, 0)) DESC;
 ```
 
 ---
 
-## Environment Variables
+### Find New Hosts in Latest Scan
 
-Control database behavior with these environment variables:
-
-| Variable | Description | Values | Default |
-|---|---|---|---|
-| `MUNDANE_USE_DB` | Enable database integration | `0`, `1`, `true`, `on` | `1` |
-| `MUNDANE_DB_ONLY` | Skip JSON session files | `0`, `1`, `true`, `on` | `1` *(changed in v1.8.19)* |
-
-**⚠️ Note**: As of version 1.8.19, `MUNDANE_DB_ONLY` defaults to `1` (database-only mode). The dual-mode operation has been deprecated.
-
-**Examples**:
-
-```bash
-# Default operation (database-only, no JSON files) - v1.8.19+
-mundane review --export-root ~/.mundane/scans/<scan_name>
-
-# Disable database entirely (legacy mode) - DEPRECATED
-export MUNDANE_USE_DB=0
-mundane review --export-root ~/.mundane/scans/<scan_name>
+```sql
+-- Hosts that appear in latest scan but not in previous scans
+SELECT
+    h.host_address,
+    h.host_type,
+    COUNT(DISTINCT pf.plugin_id) as finding_count,
+    MAX(p.severity_int) as max_severity
+FROM hosts h
+JOIN plugin_file_hosts pfh ON h.host_id = pfh.host_id
+JOIN plugin_files pf ON pfh.file_id = pf.file_id
+JOIN plugins p ON pf.plugin_id = p.plugin_id
+WHERE pf.scan_id = (SELECT scan_id FROM scans ORDER BY created_at DESC LIMIT 1)
+  AND h.host_id NOT IN (
+      SELECT DISTINCT pfh2.host_id
+      FROM plugin_file_hosts pfh2
+      JOIN plugin_files pf2 ON pfh2.file_id = pf2.file_id
+      WHERE pf2.scan_id != (SELECT scan_id FROM scans ORDER BY created_at DESC LIMIT 1)
+  )
+GROUP BY h.host_id, h.host_address, h.host_type
+ORDER BY max_severity DESC, finding_count DESC;
 ```
 
 ---
 
 ## Schema Reference
 
-Full schema available in [`schema.sql`](../schema.sql).
+Full schema available in [`../schema.sql`](../schema.sql).
 
 ### Database Initialization
 
 The database is initialized automatically on first use. Schema creation is handled by `mundane_pkg/database.py:initialize_database()`.
+
+**Key Points**:
+- Schema version: 1 (single-version, no migration system)
+- All tables created with `CREATE TABLE IF NOT EXISTS` for idempotency
+- Foundation tables pre-populated automatically
+- Views created after tables
+- Foreign key constraints enforced on all connections
 
 ### PRAGMA Settings
 
@@ -563,6 +836,15 @@ scans
 plugins
   └── plugin_files (plugin_id) - RESTRICT DELETE
 
+severity_levels
+  └── plugins (severity_int) - RESTRICT DELETE
+
+hosts
+  └── plugin_file_hosts (host_id) - RESTRICT DELETE
+
+ports
+  └── plugin_file_hosts (port_number) - RESTRICT DELETE
+
 plugin_files
   ├── plugin_file_hosts (file_id) - CASCADE DELETE
   ├── tool_executions (file_id) - SET NULL DELETE
@@ -573,169 +855,118 @@ sessions
 
 tool_executions
   └── artifacts (execution_id) - SET NULL DELETE
+
+artifact_types
+  └── artifacts (artifact_type_id) - RESTRICT DELETE
 ```
 
 **Cascade Rules**:
 - Deleting a scan removes all plugin_files, sessions, and dependent records
-- Deleting a plugin_file removes all hosts and workflow_executions
+- Deleting a plugin_file removes all plugin_file_hosts and workflow_executions
 - Deleting a session or tool_execution sets foreign keys to NULL (preserves artifacts)
+- Cannot delete severity_levels, hosts, ports, or artifact_types if referenced
 
 ---
 
-## Schema Migrations
+## Migration from v1.x
 
-Mundane uses an automated migration system to evolve the database schema over time. Migrations run automatically when the database is initialized.
+⚠️ **Version 2.x requires re-importing all scans**. The schema changes are too extensive for automatic migration.
 
-### How Migrations Work
+### What Changed
 
-1. **Automatic execution**: Migrations run during `initialize_database()` on every startup
-2. **Version tracking**: Current schema version stored in `schema_version` table
-3. **Idempotent**: Migrations check if changes already exist before applying
-4. **One-way**: Migrations only support `upgrade()` (no downgrade)
+**Removed Columns**:
+- `plugin_files`: `host_count`, `port_count`, `file_path`, `severity_dir`, `file_created_at`, `file_modified_at`, `last_parsed_at`
+- `plugins`: `severity_label`
+- `sessions`: `duration_seconds`, `files_reviewed`, `files_completed`, `files_skipped`, `tools_executed`, `cves_extracted`
+- `plugin_file_hosts`: `is_ipv4`, `is_ipv6`, `host` TEXT column
+- `artifacts`: `artifact_type` TEXT column
 
-### Migration System Components
+**Added Tables**:
+- `severity_levels` - Normalized severity reference data
+- `artifact_types` - Artifact type definitions
+- `hosts` - Deduplicated hosts across scans
+- `ports` - Port metadata
+- `audit_log` - Change tracking (future feature)
 
-- **Base class**: `mundane_pkg/migrations/Migration` (abstract base class)
-- **Registry**: `get_all_migrations()` in `mundane_pkg/migrations/__init__.py`
-- **Execution**: `initialize_database()` in `mundane_pkg/database.py`
+**Added Views**:
+- `v_plugin_file_stats` - Computed host/port counts
+- `v_session_stats` - Computed session statistics
+- `v_plugins_with_severity` - Plugins with severity labels
+- `v_host_findings` - Cross-scan host analysis
+- `v_artifacts_with_types` - Artifacts with type names
 
-### Current Migrations
+### Migration Steps
 
-| Version | Description | File |
-|---------|-------------|------|
-| 1 | Add plugin_output column to plugin_file_hosts | migration_001_plugin_output.py |
-| 2 | Remove file_path and severity_dir columns from plugin_files | migration_002_remove_filesystem_columns.py |
+1. **Backup v1.x database**:
+   ```bash
+   cp ~/.mundane/mundane.db ~/.mundane/mundane.db.v1.backup
+   ```
 
-### Creating a New Migration
+2. **Delete old database**:
+   ```bash
+   rm ~/.mundane/mundane.db
+   ```
 
-**Step 1: Create migration file**
+3. **Upgrade Mundane to v2.x**:
+   ```bash
+   pipx upgrade mundane
+   # or: pip install --upgrade mundane
+   ```
 
-Create `mundane_pkg/migrations/migration_XXX_description.py`:
+4. **Re-import scans**:
+   ```bash
+   mundane import nessus scan1.nessus
+   mundane import nessus scan2.nessus
+   # ... repeat for all scans
+   ```
 
-```python
-"""Migration XXX: Brief description of what this migration does."""
+5. **Verify**:
+   ```bash
+   mundane scan list
+   sqlite3 ~/.mundane/mundane.db "SELECT COUNT(*) FROM scans;"
+   ```
 
-import sqlite3
-from . import Migration
+### Why Re-Import is Required
 
+- Structural changes to core tables (`plugin_file_hosts` now uses foreign keys)
+- Denormalization → normalization (extracting hosts/ports into separate tables)
+- View-based statistics replace cached columns
+- No backward-compatible migration path without data loss risk
 
-class MigrationXXX(Migration):
-    """Brief description."""
+### What's Preserved After Re-Import
 
-    @property
-    def version(self) -> int:
-        return XXX  # Next sequential number
+✅ **Preserved**:
+- Plugin metadata (IDs, names, severity, CVEs, Metasploit modules)
+- Host:port combinations (now normalized)
+- Plugin output text
 
-    @property
-    def description(self) -> str:
-        return "Brief description for logging"
+❌ **Lost**:
+- Review state (reviewed/completed/skipped)
+- Session history
+- Tool execution history
+- Generated artifacts
+- Review notes and timestamps
 
-    def upgrade(self, conn: sqlite3.Connection) -> None:
-        """Apply migration changes."""
-        # Check if change already exists (idempotent)
-        cursor = conn.execute("PRAGMA table_info(table_name)")
-        columns = [row[1] for row in cursor.fetchall()]
-
-        if "new_column" not in columns:
-            conn.execute("ALTER TABLE table_name ADD COLUMN new_column TEXT")
-            print("  [OK] Added new_column to table_name")
-        else:
-            print("  [OK] new_column already exists")
-```
-
-**Step 2: Register migration**
-
-Update `get_all_migrations()` in `mundane_pkg/migrations/__init__.py`:
-
-```python
-def get_all_migrations() -> List[Migration]:
-    from . import migration_001_plugin_output
-    from . import migration_002_remove_filesystem_columns
-    from . import migration_XXX_description  # Add import
-
-    migrations = [
-        migration_001_plugin_output.Migration001(),
-        migration_002_remove_filesystem_columns.Migration002(),
-        migration_XXX_description.MigrationXXX(),  # Add to list
-    ]
-    return sorted(migrations, key=lambda m: m.version)
-```
-
-**Step 3: Update schema version**
-
-Update version history in `mundane_pkg/database.py` (lines 40-46):
-
-```python
-SCHEMA_VERSION = XXX  # Update to new version
-"""Current schema version for migrations.
-
-Version history:
-- 0: Initial schema (no version tracking)
-- 1: Added plugin_output column to plugin_file_hosts
-- 2: Removed file_path and severity_dir columns from plugin_files
-- XXX: Description of your changes
-"""
-```
-
-**Step 4: Update documentation schema**
-
-Update `schema.sql` to reflect the new schema (documentation only).
-
-### Migration Best Practices
-
-1. **Make migrations idempotent**: Always check if changes exist before applying
-2. **Use PRAGMA table_info()**: Check column existence before ALTER TABLE
-3. **Preserve data**: When recreating tables, use INSERT INTO ... SELECT pattern
-4. **Print status**: Use `print("  [OK] ...")` for user feedback
-5. **Sequential numbering**: Use next available migration number
-6. **One change per migration**: Keep migrations focused and atomic
-
-### SQLite ALTER TABLE Limitations
-
-SQLite has limited ALTER TABLE support:
-- ✅ **Can do**: ADD COLUMN
-- ❌ **Cannot do**: DROP COLUMN (before 3.35.0), RENAME COLUMN, MODIFY COLUMN
-
-**Workaround for complex changes:**
-1. Create new table with desired schema
-2. Copy data: `INSERT INTO new_table SELECT ... FROM old_table`
-3. Drop old table: `DROP TABLE old_table`
-4. Rename: `ALTER TABLE new_table RENAME TO old_table`
-5. Recreate indexes
-
-See `migration_002_remove_filesystem_columns.py` for a complete example.
-
-### Testing Migrations
-
-**Fresh database test:**
-```bash
-rm ~/.mundane/mundane.db
-python -c "from mundane_pkg.database import initialize_database; initialize_database()"
-```
-
-**Upgrade test:**
-Create a test database with old schema and verify migration runs correctly.
+**Recommendation**: Complete all reviews before upgrading to v2.x.
 
 ---
 
-## Advanced Usage
+## Database Maintenance
 
 ### Direct Database Access
-
-Connect to the database directly with SQLite tools:
 
 ```bash
 # Open database in sqlite3 CLI
 sqlite3 ~/.mundane/mundane.db
 
 # Run a query
-sqlite3 ~/.mundane/mundane.db "SELECT * FROM v_review_progress;"
+sqlite3 ~/.mundane/mundane.db "SELECT * FROM v_host_findings LIMIT 10;"
 
 # Export to CSV
 sqlite3 -csv ~/.mundane/mundane.db "SELECT * FROM v_session_stats;" > sessions.csv
 ```
 
-### Database Maintenance
+### Health Checks
 
 ```bash
 # Check database integrity
@@ -745,16 +976,23 @@ sqlite3 ~/.mundane/mundane.db "PRAGMA integrity_check;"
 sqlite3 ~/.mundane/mundane.db "VACUUM;"
 
 # Database statistics
-sqlite3 ~/.mundane/mundane.db "PRAGMA page_count; PRAGMA page_size;"
+sqlite3 ~/.mundane/mundane.db "
+  SELECT
+    (page_count * page_size) / 1024.0 / 1024.0 as size_mb
+  FROM (
+    SELECT (SELECT * FROM pragma_page_count) as page_count,
+           (SELECT * FROM pragma_page_size) as page_size
+  );
+"
 ```
 
 ### Backup Database
 
 ```bash
-# Create backup
+# Simple copy
 cp ~/.mundane/mundane.db ~/.mundane/mundane.db.backup
 
-# Or use SQLite backup command
+# SQLite backup command (safer during active use)
 sqlite3 ~/.mundane/mundane.db ".backup ~/.mundane/mundane.db.backup"
 ```
 
@@ -762,74 +1000,17 @@ sqlite3 ~/.mundane/mundane.db ".backup ~/.mundane/mundane.db.backup"
 
 ## Future Enhancements
 
-Planned database features (see [TODO.md](../TODO.md)):
+Planned database features:
 
-- **Migration command**: Import existing JSON sessions into database
-- **Enhanced summary command**: Cross-scan analysis, trend analysis
-- **Database query utilities**: Custom SQL queries, exports, statistics
+- **Enhanced cross-scan analytics**: Trend analysis, risk scoring over time
+- **Reverse DNS resolution**: Automatically populate `hosts.reverse_dns`
+- **Port service detection**: Populate `ports.service_name` from nmap results
+- **Audit triggers**: Automatically track changes to critical tables
+- **Export utilities**: Generate reports from database queries
 - **Web UI**: Database-backed web interface for team collaboration
-- **Cloud database support**: Optional PostgreSQL/MySQL for teams
 
 ---
 
----
-
-## Migration Notes (v1.8.19)
-
-### Database-Only Architecture Migration
-
-Version 1.8.19 completed the migration from dual-mode to database-only architecture:
-
-**Completed Changes**:
-1. ✅ Session API migrated from file-based to database-only (scan_id instead of scan_dir)
-2. ✅ Analysis functions (compare, superset) query database instead of parsing files
-3. ✅ Preview mode loads host:port data from `plugin_file_hosts` table
-4. ✅ Review state tracking fully database-driven (no `.mundane_session.json` files)
-5. ✅ Deprecated file-based parsing functions marked with docstring warnings
-
-**Breaking Changes**:
-- `.mundane_session.json` files are no longer created or read
-- Session state is stored exclusively in database `sessions` table
-- Legacy `MUNDANE_DB_ONLY=0` mode is deprecated
-
-**Upgrade Notes**:
-- Existing `.mundane_session.json` files are ignored (data remains in database)
-- Re-export scans to ensure all host:port data is in `plugin_file_hosts` table
-- Use `mundane import` command to populate database from existing .nessus files
-
----
-
-## Migration Notes (v1.9.0)
-
-### Schema Optimization
-
-Version 1.9.0 streamlined the `plugin_files` table to eliminate redundancy:
-
-**Schema Changes**:
-1. ✅ Removed `file_path` column - file paths are no longer stored in database
-2. ✅ Removed `severity_dir` column - severity info obtained via JOIN with `plugins` table
-3. ✅ Removed `file_created_at`, `file_modified_at`, `last_parsed_at` - unused timestamp tracking
-4. ✅ Added `UNIQUE(scan_id, plugin_id)` constraint - enforces one finding per plugin per scan
-5. ✅ Updated `get_severity_dirs_for_scan()` to derive severity labels from `severity_int` when empty
-
-**Breaking Changes**:
-- Each scan can only have **one** PluginFile record per plugin (enforced by UNIQUE constraint)
-- `PluginFile.get_by_path()` method removed (file_path column no longer exists)
-- Tool executions can no longer be linked to findings by file path
-
-**Database Migration**:
-As stated in TODO.md: "Users won't be upgrading tool versions, so existing DBs aren't a concern." Fresh database creation uses the new streamlined schema automatically.
-
-**Additional Changes**:
-- Fixed hosts column double-counting bug (unique hosts vs host:port pairs)
-- Replaced filename display with Plugin ID in review workflow
-- Updated import terminal messages for database-only clarity
-- Removed `--out-dir` flag (breaking change)
-- Unified terminology to "finding" across all user-facing text
-- Added `mundane list` command to display all scans
-- Added `mundane delete <scan_name>` command with confirmation
-
----
-
-**Last Updated**: 2025-01-20 (v1.9.0 - Schema Optimization Complete)
+**Last Updated**: 2025-01-09 (v2.1.6 - Normalized Schema)
 **Maintained By**: Ridgeback InfoSec, LLC
+**Schema Version**: 1

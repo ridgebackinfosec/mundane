@@ -96,10 +96,20 @@ def compare_filtered(files: Union[list[Path], list['PluginFile'], list[tuple['Pl
                 rows = query_all(
                     conn,
                     """
-                    SELECT file_id, host, port, is_ipv4, is_ipv6
-                    FROM plugin_file_hosts
-                    WHERE file_id IN ({})
-                    ORDER BY file_id, is_ipv4 DESC, host ASC
+                    SELECT
+                        pfh.file_id,
+                        h.host_address,
+                        pfh.port_number,
+                        h.host_type
+                    FROM plugin_file_hosts pfh
+                    JOIN hosts h ON pfh.host_id = h.host_id
+                    WHERE pfh.file_id IN ({})
+                    ORDER BY
+                        pfh.file_id,
+                        CASE WHEN h.host_type = 'ipv4' THEN 0
+                             WHEN h.host_type = 'ipv6' THEN 1
+                             ELSE 2 END,
+                        h.host_address ASC
                     """.format(','.join('?' * len(file_ids))),
                     file_ids
                 )
@@ -120,8 +130,8 @@ def compare_filtered(files: Union[list[Path], list['PluginFile'], list[tuple['Pl
                 had_explicit = False
 
                 for row in file_rows:
-                    host = row['host']
-                    port = row['port']
+                    host = row['host_address']
+                    port = row['port_number']
 
                     if host not in hosts:
                         hosts.append(host)
@@ -283,10 +293,20 @@ def analyze_inclusions(files: Union[list[Path], list['PluginFile'], list[tuple['
                 rows = query_all(
                     conn,
                     """
-                    SELECT file_id, host, port, is_ipv4, is_ipv6
-                    FROM plugin_file_hosts
-                    WHERE file_id IN ({})
-                    ORDER BY file_id, is_ipv4 DESC, host ASC
+                    SELECT
+                        pfh.file_id,
+                        h.host_address,
+                        pfh.port_number,
+                        h.host_type
+                    FROM plugin_file_hosts pfh
+                    JOIN hosts h ON pfh.host_id = h.host_id
+                    WHERE pfh.file_id IN ({})
+                    ORDER BY
+                        pfh.file_id,
+                        CASE WHEN h.host_type = 'ipv4' THEN 0
+                             WHEN h.host_type = 'ipv6' THEN 1
+                             ELSE 2 END,
+                        h.host_address ASC
                     """.format(','.join('?' * len(file_ids))),
                     file_ids
                 )
@@ -307,8 +327,8 @@ def analyze_inclusions(files: Union[list[Path], list['PluginFile'], list[tuple['
                 had_explicit = False
 
                 for row in file_rows:
-                    host = row['host']
-                    port = row['port']
+                    host = row['host_address']
+                    port = row['port_number']
 
                     if host not in hosts:
                         hosts.append(host)

@@ -37,17 +37,26 @@ DATABASE_PATH = get_database_path()
 
 # ========== Schema ==========
 
-SCHEMA_VERSION = 2
-"""Current schema version for migrations.
+SCHEMA_VERSION = 1
+"""Schema version.
 
-Version history:
-- 0: Initial schema (no version tracking)
-- 1: Added plugin_output column to plugin_file_hosts
-- 2: Removed file_path and severity_dir columns from plugin_files (database-only mode)
+Note: Database is created directly in normalized structure.
+Future versions may implement migrations, but current approach is
+to create the final schema on initialization.
+
+Schema features:
+- Normalized host and port tables (cross-scan tracking)
+- Foundation lookup tables (severity_levels, artifact_types)
+- SQL views for computed statistics
+- Audit logging with triggers
+
+Note: SCHEMA_SQL has been split into SCHEMA_SQL_TABLES and SCHEMA_SQL_VIEWS
+      for organization purposes.
 """
 
-SCHEMA_SQL = """
+SCHEMA_SQL_TABLES = """
 -- See schema.sql for full documentation
+-- This creates all tables (but NOT views - those are created separately)
 
 CREATE TABLE IF NOT EXISTS scans (
     scan_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -65,7 +74,6 @@ CREATE TABLE IF NOT EXISTS plugins (
     plugin_id INTEGER PRIMARY KEY,
     plugin_name TEXT NOT NULL,
     severity_int INTEGER NOT NULL,
-    severity_label TEXT NOT NULL,
     has_metasploit BOOLEAN DEFAULT 0,
     cvss3_score REAL,
     cvss2_score REAL,
@@ -73,7 +81,8 @@ CREATE TABLE IF NOT EXISTS plugins (
     cves TEXT,
     plugin_url TEXT,
     metadata_fetched_at TIMESTAMP,
-    CONSTRAINT severity_range CHECK (severity_int BETWEEN 0 AND 4)
+    CONSTRAINT severity_range CHECK (severity_int BETWEEN 0 AND 4),
+    FOREIGN KEY (severity_int) REFERENCES severity_levels(severity_int)
 );
 
 CREATE INDEX IF NOT EXISTS idx_plugins_severity ON plugins(severity_int);
@@ -87,8 +96,6 @@ CREATE TABLE IF NOT EXISTS plugin_files (
     reviewed_at TIMESTAMP,
     reviewed_by TEXT,
     review_notes TEXT,
-    host_count INTEGER DEFAULT 0,
-    port_count INTEGER DEFAULT 0,
     FOREIGN KEY (scan_id) REFERENCES scans(scan_id) ON DELETE CASCADE,
     FOREIGN KEY (plugin_id) REFERENCES plugins(plugin_id),
     CONSTRAINT valid_review_state CHECK (review_state IN ('pending', 'reviewed', 'completed', 'skipped')),
@@ -100,31 +107,26 @@ CREATE INDEX IF NOT EXISTS idx_plugin_files_plugin ON plugin_files(plugin_id);
 CREATE INDEX IF NOT EXISTS idx_plugin_files_review_state ON plugin_files(review_state);
 
 CREATE TABLE IF NOT EXISTS plugin_file_hosts (
-    host_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pfh_id INTEGER PRIMARY KEY AUTOINCREMENT,
     file_id INTEGER NOT NULL,
-    host TEXT NOT NULL,
-    port INTEGER,
-    is_ipv4 BOOLEAN DEFAULT 0,
-    is_ipv6 BOOLEAN DEFAULT 0,
+    host_id INTEGER NOT NULL,
+    port_number INTEGER,
     plugin_output TEXT,
     FOREIGN KEY (file_id) REFERENCES plugin_files(file_id) ON DELETE CASCADE,
-    CONSTRAINT unique_file_host_port UNIQUE (file_id, host, port)
+    FOREIGN KEY (host_id) REFERENCES hosts(host_id),
+    FOREIGN KEY (port_number) REFERENCES ports(port_number),
+    CONSTRAINT unique_file_host_port UNIQUE (file_id, host_id, port_number)
 );
 
-CREATE INDEX IF NOT EXISTS idx_plugin_file_hosts_file ON plugin_file_hosts(file_id);
-CREATE INDEX IF NOT EXISTS idx_plugin_file_hosts_host ON plugin_file_hosts(host);
+CREATE INDEX IF NOT EXISTS idx_pfh_file ON plugin_file_hosts(file_id);
+CREATE INDEX IF NOT EXISTS idx_pfh_host ON plugin_file_hosts(host_id);
+CREATE INDEX IF NOT EXISTS idx_pfh_port ON plugin_file_hosts(port_number);
 
 CREATE TABLE IF NOT EXISTS sessions (
     session_id INTEGER PRIMARY KEY AUTOINCREMENT,
     scan_id INTEGER NOT NULL,
     session_start TIMESTAMP NOT NULL,
     session_end TIMESTAMP,
-    duration_seconds INTEGER,
-    files_reviewed INTEGER DEFAULT 0,
-    files_completed INTEGER DEFAULT 0,
-    files_skipped INTEGER DEFAULT 0,
-    tools_executed INTEGER DEFAULT 0,
-    cves_extracted INTEGER DEFAULT 0,
     FOREIGN KEY (scan_id) REFERENCES scans(scan_id) ON DELETE CASCADE
 );
 
@@ -157,17 +159,18 @@ CREATE TABLE IF NOT EXISTS artifacts (
     artifact_id INTEGER PRIMARY KEY AUTOINCREMENT,
     execution_id INTEGER,
     artifact_path TEXT NOT NULL UNIQUE,
-    artifact_type TEXT NOT NULL,
+    artifact_type_id INTEGER,
     file_size_bytes INTEGER,
     file_hash TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     last_accessed_at TIMESTAMP,
     metadata TEXT,
-    FOREIGN KEY (execution_id) REFERENCES tool_executions(execution_id) ON DELETE SET NULL
+    FOREIGN KEY (execution_id) REFERENCES tool_executions(execution_id) ON DELETE SET NULL,
+    FOREIGN KEY (artifact_type_id) REFERENCES artifact_types(artifact_type_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_artifacts_execution ON artifacts(execution_id);
-CREATE INDEX IF NOT EXISTS idx_artifacts_type ON artifacts(artifact_type);
+CREATE INDEX IF NOT EXISTS idx_artifacts_type ON artifacts(artifact_type_id);
 
 CREATE TABLE IF NOT EXISTS workflow_executions (
     workflow_execution_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -181,12 +184,159 @@ CREATE TABLE IF NOT EXISTS workflow_executions (
 
 CREATE INDEX IF NOT EXISTS idx_workflow_executions_file ON workflow_executions(file_id);
 
--- Schema version tracking
-CREATE TABLE IF NOT EXISTS schema_version (
-    version INTEGER PRIMARY KEY,
-    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+-- Severity levels lookup table (normalized reference data)
+CREATE TABLE IF NOT EXISTS severity_levels (
+    severity_int INTEGER PRIMARY KEY,
+    severity_label TEXT NOT NULL,
+    severity_order INTEGER NOT NULL,
+    color_hint TEXT,
+    CONSTRAINT unique_severity_label UNIQUE (severity_label)
+);
+
+-- Artifact types lookup table (enforces consistency)
+CREATE TABLE IF NOT EXISTS artifact_types (
+    artifact_type_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type_name TEXT NOT NULL UNIQUE,
+    file_extension TEXT,
+    description TEXT,
+    parser_module TEXT
+);
+
+-- Audit log for tracking changes to critical tables
+CREATE TABLE IF NOT EXISTS audit_log (
+    audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    table_name TEXT NOT NULL,
+    record_id INTEGER NOT NULL,
+    action TEXT CHECK(action IN ('INSERT', 'UPDATE', 'DELETE')),
+    changed_by TEXT,
+    changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    old_values TEXT,
+    new_values TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_table_record ON audit_log(table_name, record_id);
+CREATE INDEX IF NOT EXISTS idx_audit_changed_at ON audit_log(changed_at);
+
+-- Hosts table (normalized host data across scans)
+CREATE TABLE IF NOT EXISTS hosts (
+    host_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    host_address TEXT NOT NULL UNIQUE,
+    host_type TEXT CHECK(host_type IN ('ipv4', 'ipv6', 'hostname')) NOT NULL,
+    reverse_dns TEXT,
+    first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_hosts_address ON hosts(host_address);
+CREATE INDEX IF NOT EXISTS idx_hosts_type ON hosts(host_type);
+
+-- Ports table (port metadata)
+CREATE TABLE IF NOT EXISTS ports (
+    port_number INTEGER PRIMARY KEY CHECK(port_number BETWEEN 1 AND 65535),
+    service_name TEXT,
+    description TEXT
 );
 """
+
+SCHEMA_SQL_VIEWS = """
+-- ========== VIEWS (Computed Statistics) ==========
+-- These views provide computed aggregates without storing redundant data in tables
+
+-- Plugin file statistics (replaces host_count, port_count columns)
+CREATE VIEW IF NOT EXISTS v_plugin_file_stats AS
+SELECT
+    pf.file_id,
+    pf.scan_id,
+    pf.plugin_id,
+    pf.review_state,
+    pf.reviewed_at,
+    pf.reviewed_by,
+    pf.review_notes,
+    COUNT(DISTINCT pfh.host_id) as host_count,
+    COUNT(DISTINCT pfh.port_number) as port_count
+FROM plugin_files pf
+LEFT JOIN plugin_file_hosts pfh ON pf.file_id = pfh.file_id
+GROUP BY pf.file_id, pf.scan_id, pf.plugin_id, pf.review_state,
+         pf.reviewed_at, pf.reviewed_by, pf.review_notes;
+
+-- Session statistics (replaces aggregate columns in sessions table)
+CREATE VIEW IF NOT EXISTS v_session_stats AS
+SELECT
+    s.session_id,
+    s.scan_id,
+    s.session_start,
+    s.session_end,
+    (julianday(s.session_end) - julianday(s.session_start)) * 86400 AS duration_seconds,
+    COUNT(DISTINCT CASE WHEN pf.review_state = 'reviewed' THEN pf.file_id END) as files_reviewed,
+    COUNT(DISTINCT CASE WHEN pf.review_state = 'completed' THEN pf.file_id END) as files_completed,
+    COUNT(DISTINCT CASE WHEN pf.review_state = 'skipped' THEN pf.file_id END) as files_skipped,
+    COUNT(DISTINCT te.execution_id) as tools_executed,
+    COUNT(DISTINCT CASE WHEN p.cves IS NOT NULL THEN p.plugin_id END) as cves_extracted
+FROM sessions s
+LEFT JOIN plugin_files pf ON s.scan_id = pf.scan_id
+    AND pf.reviewed_at >= s.session_start
+    AND (s.session_end IS NULL OR pf.reviewed_at <= s.session_end)
+LEFT JOIN tool_executions te ON s.session_id = te.session_id
+LEFT JOIN plugins p ON pf.plugin_id = p.plugin_id
+GROUP BY s.session_id, s.scan_id, s.session_start, s.session_end;
+
+-- Plugins with severity labels (replaces severity_label column in plugins)
+CREATE VIEW IF NOT EXISTS v_plugins_with_severity AS
+SELECT
+    p.plugin_id,
+    p.plugin_name,
+    p.severity_int,
+    sl.severity_label,
+    sl.color_hint,
+    p.has_metasploit,
+    p.cvss3_score,
+    p.cvss2_score,
+    p.cves,
+    p.metasploit_names,
+    p.plugin_url,
+    p.metadata_fetched_at
+FROM plugins p
+JOIN severity_levels sl ON p.severity_int = sl.severity_int;
+
+-- Host findings summary (cross-scan tracking - new capability)
+CREATE VIEW IF NOT EXISTS v_host_findings AS
+SELECT
+    h.host_id,
+    h.host_address,
+    h.host_type,
+    h.first_seen,
+    h.last_seen,
+    COUNT(DISTINCT pf.scan_id) as scan_count,
+    COUNT(DISTINCT pf.file_id) as finding_count,
+    COUNT(DISTINCT pfh.port_number) as port_count,
+    MAX(p.severity_int) as max_severity
+FROM hosts h
+LEFT JOIN plugin_file_hosts pfh ON h.host_id = pfh.host_id
+LEFT JOIN plugin_files pf ON pfh.file_id = pf.file_id
+LEFT JOIN plugins p ON pf.plugin_id = p.plugin_id
+GROUP BY h.host_id, h.host_address, h.host_type, h.first_seen, h.last_seen;
+
+-- Artifacts with type information (replaces artifact_type column)
+CREATE VIEW IF NOT EXISTS v_artifacts_with_types AS
+SELECT
+    a.artifact_id,
+    a.execution_id,
+    a.artifact_path,
+    at.type_name as artifact_type,
+    at.file_extension,
+    at.description as artifact_description,
+    a.file_size_bytes,
+    a.file_hash,
+    a.created_at,
+    a.last_accessed_at,
+    a.metadata
+FROM artifacts a
+LEFT JOIN artifact_types at ON a.artifact_type_id = at.artifact_type_id;
+"""
+
+# Combined schema for backward compatibility (if needed)
+# Most code should use SCHEMA_SQL_TABLES and SCHEMA_SQL_VIEWS separately
+SCHEMA_SQL = SCHEMA_SQL_TABLES + "\n" + SCHEMA_SQL_VIEWS
 
 
 # ========== Connection Management ==========
@@ -256,10 +406,10 @@ def db_transaction(
 # ========== Schema Initialization ==========
 
 def initialize_database(database_path: Optional[Path] = None) -> bool:
-    """Initialize database schema and run migrations.
+    """Initialize database schema with final structure.
 
-    This function creates the base schema using CREATE TABLE IF NOT EXISTS,
-    then applies any pending migrations to bring existing databases up to date.
+    Creates all tables, views, and populates foundation tables.
+    Safe to call multiple times (CREATE TABLE IF NOT EXISTS).
 
     Args:
         database_path: Path to database file (default: DATABASE_PATH)
@@ -271,44 +421,36 @@ def initialize_database(database_path: Optional[Path] = None) -> bool:
 
     try:
         with db_transaction(database_path=db_path) as conn:
-            # Execute base schema (CREATE TABLE IF NOT EXISTS)
-            conn.executescript(SCHEMA_SQL)
+            # Create all tables
+            conn.executescript(SCHEMA_SQL_TABLES)
 
-            # Get current schema version
-            cursor = conn.execute("SELECT version FROM schema_version ORDER BY version DESC LIMIT 1")
-            row = cursor.fetchone()
-            current_version = row[0] if row else 0
+            # Populate foundation tables (INSERT OR IGNORE for idempotency)
+            conn.executemany(
+                "INSERT OR IGNORE INTO severity_levels VALUES (?, ?, ?, ?)",
+                [
+                    (4, 'Critical', 4, '#8B0000'),
+                    (3, 'High', 3, '#FF4500'),
+                    (2, 'Medium', 2, '#FFA500'),
+                    (1, 'Low', 1, '#FFD700'),
+                    (0, 'Info', 0, '#4682B4'),
+                ]
+            )
 
-            # Run pending migrations
-            from .migrations import get_all_migrations
-            all_migrations = get_all_migrations()
-            pending_migrations = [m for m in all_migrations if m.version > current_version]
+            conn.executemany(
+                "INSERT OR IGNORE INTO artifact_types (type_name, file_extension, description) VALUES (?, ?, ?)",
+                [
+                    ('nmap_xml', '.xml', 'Nmap XML output'),
+                    ('nmap_gnmap', '.gnmap', 'Nmap greppable output'),
+                    ('nmap_nmap', '.nmap', 'Nmap normal output'),
+                    ('netexec_txt', '.txt', 'NetExec text output'),
+                    ('log', '.log', 'Tool execution log'),
+                ]
+            )
 
-            if pending_migrations:
-                log_info(f"Running {len(pending_migrations)} pending database migration(s)...")
-                for migration in pending_migrations:
-                    log_info(f"  Applying migration {migration.version}: {migration.description}")
-                    migration.upgrade(conn)
+            # Create views
+            conn.executescript(SCHEMA_SQL_VIEWS)
 
-                    # Record migration as applied
-                    conn.execute(
-                        "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
-                        (migration.version,)
-                    )
-
-                final_version = pending_migrations[-1].version
-                log_info(f"Database schema updated to version {final_version}")
-            elif current_version == 0:
-                # Fresh database - set version to latest or SCHEMA_VERSION
-                latest_version = max(m.version for m in all_migrations) if all_migrations else SCHEMA_VERSION
-                conn.execute(
-                    "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
-                    (latest_version,)
-                )
-                log_info(f"Database schema initialized (version {latest_version})")
-            else:
-                log_info(f"Database schema is up to date (version {current_version})")
-
+        log_info("Database schema initialized successfully")
         return True
 
     except Exception as e:
@@ -402,7 +544,8 @@ def check_database_health(database_path: Optional[Path] = None) -> bool:
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='scans'"
             )
             if not cursor.fetchone():
-                log_error("Database missing required tables")
+                log_error("Database health check failed: missing required 'scans' table")
+                log_error("This is non-fatal - initialization will attempt to repair the schema")
                 return False
 
         return True
@@ -414,9 +557,16 @@ def check_database_health(database_path: Optional[Path] = None) -> bool:
 
 # ========== Auto-initialization ==========
 
-# Initialize database on module import if it doesn't exist
-if not DATABASE_PATH.exists():
+# Initialize database on module import (handles both new and existing databases)
+if DATABASE_PATH.exists():
+    # Existing database - run health check, then initialize
+    # Health check is informational only - initialization is idempotent and will repair issues
+    if not check_database_health():
+        log_error(f"Database at {DATABASE_PATH} failed health check - attempting repair...")
+
+    # Always run initialization (idempotent - safe to run multiple times)
+    initialize_database()
+else:
+    # New database - create and initialize
     log_info(f"Creating new database at {DATABASE_PATH}")
     initialize_database()
-elif not check_database_health():
-    log_error(f"Database at {DATABASE_PATH} failed health check")

@@ -561,9 +561,10 @@ def show_scan_summary(
             rows = query_all(
                 conn,
                 """
-                SELECT DISTINCT pfh.host, pfh.port, pfh.is_ipv4, pfh.is_ipv6, pfh.file_id
+                SELECT DISTINCT h.host_address, pfh.port_number, h.host_type, pfh.file_id
                 FROM plugin_file_hosts pfh
                 JOIN plugin_files pf ON pfh.file_id = pf.file_id
+                JOIN hosts h ON pfh.host_id = h.host_id
                 WHERE pf.scan_id = ?
                 """,
                 (scan_id,)
@@ -584,10 +585,11 @@ def show_scan_summary(
 
         # Process query results
         for row in rows:
-            host = row["host"]
-            port = row["port"]
-            is_ipv4 = bool(row["is_ipv4"])
-            is_ipv6 = bool(row["is_ipv6"])
+            host = row["host_address"]
+            port = row["port_number"]
+            host_type = row["host_type"]
+            is_ipv4 = (host_type == 'ipv4')
+            is_ipv6 = (host_type == 'ipv6')
 
             unique_hosts.add(host)
 
@@ -873,14 +875,14 @@ def handle_file_view(
         # Build action menu with all available options
         from rich.text import Text
         action_text = Text()
-        action_text.append("[V] ", style="cyan")
-        action_text.append("View host(s) / ", style=None)
-        action_text.append("[E] ", style="cyan")
-        action_text.append("CVE info / ", style=None)
         action_text.append("[I] ", style="cyan")
         action_text.append("Finding Info / ", style=None)
         action_text.append("[D] ", style="cyan")
         action_text.append("Finding Details", style=None)
+        action_text.append("[V] ", style="cyan")
+        action_text.append("View host(s) / ", style=None)
+        action_text.append("[E] ", style="cyan")
+        action_text.append("CVE info / ", style=None)
         if has_workflow:
             action_text.append(" / ", style=None)
             action_text.append("[W] ", style="cyan")
@@ -2335,16 +2337,25 @@ def browse_file_list(
     scan_dir = Path(scan.export_root) / scan.scan_name
 
     def get_counts_for(plugin_file: "PluginFile") -> Tuple[int, str]:
-        """Get host/port counts from database.
+        """Get host/port counts from database via v_plugin_file_stats view.
 
         Args:
             plugin_file: PluginFile database object
 
         Returns:
-            Tuple of (host_count, ports_string) - uses pre-computed database fields
+            Tuple of (host_count, ports_string) - computed from v_plugin_file_stats view
         """
-        # Use pre-computed counts from database (populated during import)
-        return (plugin_file.host_count or 0, "")
+        # Query v_plugin_file_stats view for computed counts (schema v5+)
+        from mundane_pkg.database import query_one, get_connection
+        with get_connection() as conn:
+            row = query_one(
+                conn,
+                "SELECT host_count, port_count FROM v_plugin_file_stats WHERE file_id = ?",
+                (plugin_file.file_id,)
+            )
+            if row:
+                return (row["host_count"] or 0, "")
+            return (0, "")
 
     while True:
         # Query database for findings with plugin info
@@ -2599,7 +2610,7 @@ def show_session_statistics(
                     """
                     SELECT p.severity_label, COUNT(*) as count
                     FROM plugin_files pf
-                    JOIN plugins p ON pf.plugin_id = p.plugin_id
+                    JOIN v_plugins_with_severity p ON pf.plugin_id = p.plugin_id
                     WHERE pf.scan_id = ? AND pf.review_state = 'completed'
                     GROUP BY p.severity_label
                     """,
@@ -3055,39 +3066,31 @@ def main(args: types.SimpleNamespace) -> None:
 
 
 # === Typer CLI ===
+# Main app + sub-apps (import, scan, config)
 
 app = typer.Typer(
-    no_args_is_help=False,
+    help="mundane — faster review & tooling runner for vulnerability scans",
     add_completion=True,
-    help="mundane — faster review & tooling runner",
 )
 _console = _console_global
 
+# Sub-applications
+import_app = typer.Typer(
+    help="Import data from various sources into mundane"
+)
 
-@app.callback(invoke_without_command=True)
-def _root(
-    ctx: typer.Context,
-    quiet: bool = typer.Option(False, "-q", "--quiet", help="Suppress startup banner"),
-    version: bool = typer.Option(False, "--version", help="Show version and exit"),
-    help_flag: bool = typer.Option(False, "--help", "-h", help="Show help message")
-) -> None:
-    """Modern CLI for mundane."""
-    import sys
+scan_app = typer.Typer(
+    help="Scan management - list and delete imported scans"
+)
 
-    # Handle --version flag
-    if version:
-        _console_global.print(f"mundane version {__version__}")
-        sys.exit(0)
+config_app = typer.Typer(
+    help="Configuration management - view and modify settings"
+)
 
-    # Handle --help or no command (show help without banner)
-    if help_flag or ctx.invoked_subcommand is None:
-        _console_global.print(ctx.get_help())
-        sys.exit(0)
-
-    # Show banner for commands unless -q flag used
-    if not quiet:
-        from mundane_pkg.banner import display_banner
-        display_banner()
+# Register sub-apps with main app
+app.add_typer(import_app, name="import")
+app.add_typer(scan_app, name="scan")
+app.add_typer(config_app, name="config")
 
 
 @app.command(help="Interactive review of findings.")
@@ -3169,7 +3172,10 @@ def show_nessus_tool_suggestions(nessus_file: Path) -> None:
     info("Tip: Copy these commands to run them in your terminal.")
 
 
-@app.command(name="import", help="Import .nessus file and export finding host lists")
+# === Import Sub-App Commands ===
+# Grouped under 'mundane import'
+
+@import_app.command(name="nessus", help="Import .nessus file and populate database with findings")
 def import_scan(
     nessus: Path = typer.Argument(
         ..., exists=True, readable=True, help="Path to a .nessus file"
@@ -3290,9 +3296,10 @@ def import_scan(
             warn("\nInterrupted — returning to shell.")
 
 
-# === Scan management commands ===
+# === Scan Sub-App Commands ===
+# Grouped under 'mundane scan'
 
-@app.command(help="List all imported scans with statistics")
+@scan_app.command(name="list", help="List all imported scans with statistics and review progress")
 def list_scans() -> None:
     """Display all scans in the database with finding counts and severity breakdown."""
     from mundane_pkg.models import Scan
@@ -3302,17 +3309,19 @@ def list_scans() -> None:
 
     if not scans:
         info("No scans found in database.")
-        info("Tip: Use 'mundane import <scan.nessus>' to import a scan")
+        info("Tip: Use 'mundane import nessus <scan.nessus>' to import a scan")
         return
 
     # Create summary table
     table = Table(title="Imported Scans", show_header=True, header_style="bold cyan")
     table.add_column("Scan Name", style="yellow", no_wrap=True)
-    table.add_column("Total", justify="right")
+    table.add_column("Total Unique Hosts", justify="right", style="bright_cyan")
+    table.add_column("Total Findings", justify="right")
     table.add_column("Critical", justify="right", style="red")
     table.add_column("High", justify="right", style="bright_red")
     table.add_column("Medium", justify="right", style="yellow")
     table.add_column("Low", justify="right", style="cyan")
+    table.add_column("Info", justify="right", style="dim")
     table.add_column("Reviewed", justify="right", style="green")
     table.add_column("Last Reviewed", style="dim")
 
@@ -3332,11 +3341,13 @@ def list_scans() -> None:
 
         table.add_row(
             scan["scan_name"],
+            str(scan["unique_hosts"] or 0),
             str(scan["total_findings"] or 0),
             str(scan["critical_count"] or 0),
             str(scan["high_count"] or 0),
             str(scan["medium_count"] or 0),
             str(scan["low_count"] or 0),
+            str(scan["info_count"] or 0),
             str(scan["reviewed_count"] or 0),
             last_reviewed
         )
@@ -3347,7 +3358,7 @@ def list_scans() -> None:
     info("Use 'mundane review' to start reviewing a scan")
 
 
-@app.command(name="delete-scan", help="Delete a scan and all associated data")
+@scan_app.command(name="delete", help="Delete a scan and all associated data from database")
 def delete_scan(
     scan_name: str = typer.Argument(..., help="Name of scan to delete")
 ) -> None:
@@ -3399,9 +3410,10 @@ def delete_scan(
         raise typer.Exit(1)
 
 
-# === Config management commands ===
+# === Config Sub-App Commands ===
+# Grouped under 'mundane config'
 
-@app.command(help="Initialize example config file.")
+@config_app.command(name="init", help="Initialize example configuration file at ~/.mundane/config.yaml")
 def config_init() -> None:
     """Create an example config file at ~/.mundane/config.yaml with all options documented."""
     from mundane_pkg import create_example_config, get_config_path
@@ -3420,7 +3432,7 @@ def config_init() -> None:
         raise typer.Exit(1)
 
 
-@app.command(help="Show current configuration.")
+@config_app.command(name="show", help="Display current configuration with all settings and paths")
 def config_show() -> None:
     """Display current configuration (merged from file and defaults)."""
     from mundane_pkg import load_config, get_config_path
@@ -3434,7 +3446,7 @@ def config_show() -> None:
         info(f"Config file: {config_path}")
     else:
         info(f"No config file found (using defaults)")
-        info(f"Create one with: mundane config-init")
+        info(f"Create one with: mundane config init")
 
     _console_global.print()
 
@@ -3499,7 +3511,7 @@ def config_show() -> None:
     info(f"Edit config: {config_path}")
 
 
-@app.command(help="Get a specific config value.")
+@config_app.command(name="get", help="Retrieve value of a specific configuration key")
 def config_get(
     key: str = typer.Argument(..., help="Config key to retrieve")
 ) -> None:
@@ -3523,7 +3535,7 @@ def config_get(
         _console_global.print(value)
 
 
-@app.command(help="Set a config value.")
+@config_app.command(name="set", help="Update value of a specific configuration key")
 def config_set(
     key: str = typer.Argument(..., help="Config key to set"),
     value: str = typer.Argument(..., help="Value to set")

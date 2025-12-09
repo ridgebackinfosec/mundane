@@ -15,22 +15,45 @@ def temp_db() -> Generator[sqlite3.Connection, None, None]:
     Yields:
         sqlite3.Connection: In-memory database connection with schema initialized
     """
-    from mundane_pkg.database import get_connection, initialize_database
+    from mundane_pkg.database import SCHEMA_SQL_TABLES, SCHEMA_SQL_VIEWS
 
     # Use in-memory database
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
 
-    # Initialize schema using production SCHEMA_SQL (single source of truth)
-    from mundane_pkg.database import SCHEMA_SQL
-
+    # Initialize schema using production schema (single source of truth)
     conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("PRAGMA journal_mode=WAL")
 
     # Execute base schema - disable foreign keys temporarily for executescript
     conn.execute("PRAGMA foreign_keys=OFF")
-    conn.executescript(SCHEMA_SQL)
+    conn.executescript(SCHEMA_SQL_TABLES)
     conn.execute("PRAGMA foreign_keys=ON")
+
+    # Populate foundation tables
+    conn.executemany(
+        "INSERT INTO severity_levels VALUES (?, ?, ?, ?)",
+        [
+            (4, 'Critical', 4, '#8B0000'),
+            (3, 'High', 3, '#FF4500'),
+            (2, 'Medium', 2, '#FFA500'),
+            (1, 'Low', 1, '#FFD700'),
+            (0, 'Info', 0, '#4682B4'),
+        ]
+    )
+    conn.executemany(
+        "INSERT INTO artifact_types (type_name, file_extension, description) VALUES (?, ?, ?)",
+        [
+            ('nmap_xml', '.xml', 'Nmap XML output'),
+            ('nmap_gnmap', '.gnmap', 'Nmap greppable output'),
+            ('nmap_nmap', '.nmap', 'Nmap normal output'),
+            ('netexec_txt', '.txt', 'NetExec text output'),
+            ('log', '.log', 'Tool execution log'),
+        ]
+    )
+
+    # Create views
+    conn.executescript(SCHEMA_SQL_VIEWS)
 
     conn.commit()
 

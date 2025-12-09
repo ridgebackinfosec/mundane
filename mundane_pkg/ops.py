@@ -399,8 +399,19 @@ def _log_artifact_impl(
         artifact_id if successful, None otherwise
     """
     try:
-        from .database import compute_file_hash
+        from .database import compute_file_hash, query_one
         from .models import Artifact, now_iso
+
+        # Look up artifact_type_id from artifact_types table (schema v5)
+        row = query_one(
+            conn,
+            "SELECT artifact_type_id FROM artifact_types WHERE type_name = ?",
+            (artifact_type,)
+        )
+        if not row:
+            log_error(f"Unknown artifact type: {artifact_type}")
+            return None
+        artifact_type_id = row["artifact_type_id"]
 
         # Compute file stats if file exists
         file_size = None
@@ -412,7 +423,7 @@ def _log_artifact_impl(
         artifact = Artifact(
             execution_id=execution_id,
             artifact_path=str(artifact_path.resolve()),
-            artifact_type=artifact_type,
+            artifact_type_id=artifact_type_id,
             file_size_bytes=file_size,
             file_hash=file_hash,
             created_at=now_iso(),

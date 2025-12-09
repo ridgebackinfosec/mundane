@@ -252,9 +252,9 @@ class TestLogArtifact:
         assert artifact_id is not None
         assert artifact_id > 0
 
-        # Verify in database
+        # Verify in database using v_artifacts_with_types view
         cursor = temp_db.execute(
-            "SELECT * FROM artifacts WHERE artifact_id = ?",
+            "SELECT * FROM v_artifacts_with_types WHERE artifact_id = ?",
             (artifact_id,)
         )
         row = cursor.fetchone()
@@ -363,9 +363,9 @@ class TestLogArtifactsForNmap:
 
         assert len(artifact_ids) == 3
 
-        # Verify all artifacts in database
+        # Verify all artifacts in database using v_artifacts_with_types view
         cursor = temp_db.execute(
-            "SELECT artifact_type FROM artifacts WHERE execution_id = ? ORDER BY artifact_type",
+            "SELECT artifact_type FROM v_artifacts_with_types WHERE execution_id = ? ORDER BY artifact_type",
             (exec_id,)
         )
         types = [row["artifact_type"] for row in cursor.fetchall()]
@@ -393,7 +393,7 @@ class TestLogArtifactsForNmap:
         assert len(artifact_ids) == 1
 
         cursor = temp_db.execute(
-            "SELECT artifact_type FROM artifacts WHERE execution_id = ?",
+            "SELECT artifact_type FROM v_artifacts_with_types WHERE execution_id = ?",
             (exec_id,)
         )
         row = cursor.fetchone()

@@ -60,11 +60,11 @@ This includes:
 3. **Temporal Tracking**: Add `first_seen` / `last_seen` timestamps to track entity history across scans
 4. **Global Queries**: Design schema to enable "all findings for host X across all scans" type queries
 
-### Migration Strategy
-1. **Version Tracking**: Increment `SCHEMA_VERSION` in database.py for every schema change
-2. **Migration Scripts**: Create migration file in `mundane_pkg/migrations/migration_XXX_<name>.py`
-3. **Backward Compatibility**: Design migrations to work with existing data (provide defaults, migrate data)
-4. **Testing**: Test migrations against production-like databases with real data before release
+### Schema Changes Strategy
+1. **Breaking Changes**: Schema changes currently require major version bump (e.g., 2.x → 3.0)
+2. **User Impact**: Users must re-import scans after schema changes
+3. **Fresh Start**: Database created directly in final normalized structure
+4. **Future Work**: Migration system will be implemented from clean slate in future release
 
 ### Anti-Patterns to Avoid
 ❌ **Never** store counts/sums in tables when you can compute them with SQL
@@ -82,8 +82,9 @@ Before implementing any schema change, verify:
 - [ ] Computed values use views or aggregation queries
 - [ ] CHECK constraints enforce valid values
 - [ ] Indexes exist for foreign keys and query patterns
-- [ ] Migration script created and tested
-- [ ] SCHEMA_VERSION incremented
+- [ ] Schema tested with fresh database
+- [ ] Breaking change documented in CHANGELOG.md
+- [ ] Major version bumped if needed
 
 ## Project Overview
 
@@ -491,132 +492,41 @@ def test_split_host_port(input_str, expected_host, expected_port):
 
 ### Adding a New Database Column
 
-1. Update `database.py:SCHEMA_SQL` with new column
+**Note**: Database schema changes currently require bumping the major version and having users re-import scans. A proper migration system will be implemented in a future release.
+
+1. Update `database.py:SCHEMA_SQL_TABLES` with new column
 2. Update `schema.sql` (documentation reference)
-3. Create migration in `mundane_pkg/migrations/migration_XXX_<name>.py`
-4. Increment `database.py:SCHEMA_VERSION`
-5. Update `models.py` dataclass if applicable
-6. Test migration with `pytest tests/test_database.py`
+3. Update `models.py` dataclass if applicable
+4. Test with fresh database: `pytest tests/test_database.py`
+5. Document breaking change in CHANGELOG.md
+6. Bump major version in `pyproject.toml`
 
-### Database Migration Best Practices
+### Database Schema Management
 
-**CRITICAL**: All database migrations MUST be idempotent to support seamless upgrades when users update Mundane with existing databases.
+**Current approach**: The database is created directly in its final normalized structure. There is no migration system currently implemented.
 
-#### The Migration Execution Flow
+**Key points**:
+- `initialize_database()` creates all tables in final structure on first run
+- Uses `CREATE TABLE IF NOT EXISTS` for idempotency
+- Foundation tables (severity_levels, artifact_types) populated automatically
+- SQL views created automatically for computed statistics
 
-When `initialize_database()` runs (on every startup):
+**Schema changes**: Currently require major version bump and users re-importing scans. A proper migration system will be implemented in a future release from a clean slate.
 
-1. **SCHEMA_SQL runs FIRST**: Creates tables with `CREATE TABLE IF NOT EXISTS`
-2. **Migrations run SECOND**: Check current schema version, apply pending migrations
-
-This means migrations often see tables that already exist (created by SCHEMA_SQL) but are **empty**.
-
-#### Required Pattern: Idempotent Migrations
-
-**BAD (Non-Idempotent)**:
-```python
-def upgrade(self, conn: sqlite3.Connection) -> None:
-    # Check if table exists
-    cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='my_table'")
-    if not cursor.fetchone():
-        # Create and populate
-        conn.execute("CREATE TABLE my_table (...)")
-        conn.execute("INSERT INTO my_table VALUES (...)")
-    else:
-        # Table exists, skip population - BUG!
-        print("Table already exists")
-```
-
-**Problem**: SCHEMA_SQL creates the table first (empty), migration sees it exists and skips population.
-
-**GOOD (Idempotent)**:
-```python
-def upgrade(self, conn: sqlite3.Connection) -> None:
-    # Check if table exists
-    cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='my_table'")
-    table_exists = cursor.fetchone() is not None
-
-    if not table_exists:
-        conn.execute("CREATE TABLE my_table (...)")
-        print("Created my_table")
-
-    # ALWAYS check if table is populated (separate from existence check)
-    cursor = conn.execute("SELECT COUNT(*) FROM my_table")
-    row_count = cursor.fetchone()[0]
-
-    if row_count == 0:
-        # Populate table
-        conn.executemany("INSERT INTO my_table VALUES (?)", [...])
-        print(f"Populated my_table with {N} rows")
-    else:
-        print(f"my_table already populated ({row_count} rows)")
-```
-
-**Key principle**: Separate table creation from data population. Always check row counts for lookup tables.
-
-#### Migration Checklist
-
-Every migration MUST:
-
-- ✅ **Be idempotent**: Safe to run multiple times
-- ✅ **Check row counts**: For lookup tables, verify population separately from existence
-- ✅ **Check constraints**: Verify indexes, triggers, foreign keys exist before creating
-- ✅ **Print progress**: Informative messages for debugging
-- ✅ **Handle existing data**: Don't assume fresh database
-- ✅ **Include downgrade()**: Rollback logic for testing
-- ✅ **Update SCHEMA_SQL**: Keep in sync with migration
-- ✅ **Bump SCHEMA_VERSION**: Increment version number in database.py
-- ✅ **Register in migrations/__init__.py**: Add to `get_all_migrations()`
-- ✅ **Test with existing DB**: Verify upgrade path works
-
-#### Testing Migrations
-
+**Testing the schema**:
 ```bash
-# Test migration with existing database
-cp ~/.mundane/mundane.db ~/.mundane/mundane.db.backup
-mundane scan list  # Should auto-apply migrations
-sqlite3 ~/.mundane/mundane.db "SELECT * FROM severity_levels"  # Verify populated
-
-# Test migration from scratch
+# Delete existing database
 rm ~/.mundane/mundane.db
-mundane scan list  # Should create fresh DB with migrations
-```
 
-#### Example Migration Structure
+# Run mundane (creates fresh database)
+mundane scan list
 
-See `migration_003_foundation_tables.py` for reference implementation:
+# Verify schema
+sqlite3 ~/.mundane/mundane.db ".schema"
 
-```python
-class Migration003(Migration):
-    @property
-    def version(self) -> int:
-        return 3
-
-    @property
-    def description(self) -> str:
-        return "Add severity_levels, artifact_types, and audit_log tables"
-
-    def upgrade(self, conn: sqlite3.Connection) -> None:
-        """Create foundation lookup tables and populate with initial data.
-
-        This migration is idempotent - it can be safely run multiple times.
-        """
-        # 1. Check table existence
-        cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='my_table'")
-        table_exists = cursor.fetchone() is not None
-
-        # 2. Create table if needed
-        if not table_exists:
-            conn.execute("CREATE TABLE my_table (...)")
-
-        # 3. Check population (CRITICAL: separate from existence)
-        cursor = conn.execute("SELECT COUNT(*) FROM my_table")
-        if cursor.fetchone()[0] == 0:
-            conn.executemany("INSERT INTO my_table VALUES (?)", [...])
-
-    def downgrade(self, conn: sqlite3.Connection) -> None:
-        """Rollback migration."""
-        conn.execute("DROP TABLE IF EXISTS my_table")
+# Check foundation tables populated
+sqlite3 ~/.mundane/mundane.db "SELECT COUNT(*) FROM severity_levels;"  # Expected: 5
+sqlite3 ~/.mundane/mundane.db "SELECT COUNT(*) FROM artifact_types;"   # Expected: 5
 ```
 
 ### Adding a New Tool

@@ -37,20 +37,21 @@ DATABASE_PATH = get_database_path()
 
 # ========== Schema ==========
 
-SCHEMA_VERSION = 5
-"""Current schema version for migrations.
+SCHEMA_VERSION = 1
+"""Schema version.
 
-Version history:
-- 0: Initial schema (no version tracking)
-- 1: Added plugin_output column to plugin_file_hosts
-- 2: Removed file_path and severity_dir columns from plugin_files (database-only mode)
-- 3: Added foundation tables (severity_levels, artifact_types, audit_log) and audit triggers
-- 4: Normalized hosts and ports into separate tables (cross-scan tracking)
-- 5: Removed redundant columns and created views for computed statistics
-     (migration_005 improved in v1.10+ to be more robust and idempotent)
+Note: Database is created directly in normalized structure.
+Future versions may implement migrations, but current approach is
+to create the final schema on initialization.
+
+Schema features:
+- Normalized host and port tables (cross-scan tracking)
+- Foundation lookup tables (severity_levels, artifact_types)
+- SQL views for computed statistics
+- Audit logging with triggers
 
 Note: SCHEMA_SQL has been split into SCHEMA_SQL_TABLES and SCHEMA_SQL_VIEWS
-      to prevent view creation from interfering with migrations.
+      for organization purposes.
 """
 
 SCHEMA_SQL_TABLES = """
@@ -235,18 +236,11 @@ CREATE TABLE IF NOT EXISTS ports (
     service_name TEXT,
     description TEXT
 );
-
--- Schema version tracking
-CREATE TABLE IF NOT EXISTS schema_version (
-    version INTEGER PRIMARY KEY,
-    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
 """
 
 SCHEMA_SQL_VIEWS = """
 -- ========== VIEWS (Computed Statistics) ==========
--- Note: These views are created by migration_005 and may not exist in earlier schema versions
--- They are separated from table creation to allow conditional execution during migrations
+-- These views provide computed aggregates without storing redundant data in tables
 
 -- Plugin file statistics (replaces host_count, port_count columns)
 CREATE VIEW IF NOT EXISTS v_plugin_file_stats AS
@@ -412,10 +406,10 @@ def db_transaction(
 # ========== Schema Initialization ==========
 
 def initialize_database(database_path: Optional[Path] = None) -> bool:
-    """Initialize database schema and run migrations.
+    """Initialize database schema with final structure.
 
-    This function creates the base schema using CREATE TABLE IF NOT EXISTS,
-    then applies any pending migrations to bring existing databases up to date.
+    Creates all tables, views, and populates foundation tables.
+    Safe to call multiple times (CREATE TABLE IF NOT EXISTS).
 
     Args:
         database_path: Path to database file (default: DATABASE_PATH)
@@ -426,72 +420,37 @@ def initialize_database(database_path: Optional[Path] = None) -> bool:
     db_path = database_path or DATABASE_PATH
 
     try:
-        # Execute base table schema in its own transaction
-        # (views are created later, conditionally based on migration status)
         with db_transaction(database_path=db_path) as conn:
-            # Execute table schema only (CREATE TABLE IF NOT EXISTS)
+            # Create all tables
             conn.executescript(SCHEMA_SQL_TABLES)
 
-        # Get current schema version in separate transaction
-        with db_transaction(database_path=db_path) as conn:
-            cursor = conn.execute("SELECT version FROM schema_version ORDER BY version DESC LIMIT 1")
-            row = cursor.fetchone()
-            current_version = row[0] if row else 0
-            log_info(f"Current database schema version: {current_version}")
+            # Populate foundation tables (INSERT OR IGNORE for idempotency)
+            conn.executemany(
+                "INSERT OR IGNORE INTO severity_levels VALUES (?, ?, ?, ?)",
+                [
+                    (4, 'Critical', 4, '#8B0000'),
+                    (3, 'High', 3, '#FF4500'),
+                    (2, 'Medium', 2, '#FFA500'),
+                    (1, 'Low', 1, '#FFD700'),
+                    (0, 'Info', 0, '#4682B4'),
+                ]
+            )
 
-        # Run pending migrations
-        from .migrations import get_all_migrations
-        all_migrations = get_all_migrations()
-        pending_migrations = [m for m in all_migrations if m.version > current_version]
+            conn.executemany(
+                "INSERT OR IGNORE INTO artifact_types (type_name, file_extension, description) VALUES (?, ?, ?)",
+                [
+                    ('nmap_xml', '.xml', 'Nmap XML output'),
+                    ('nmap_gnmap', '.gnmap', 'Nmap greppable output'),
+                    ('nmap_txt', '.txt', 'Nmap text output'),
+                    ('netexec_txt', '.txt', 'NetExec text output'),
+                    ('log', '.log', 'Tool execution log'),
+                ]
+            )
 
-        if pending_migrations:
-            log_info(f"Running {len(pending_migrations)} pending database migration(s)...")
-            for migration in pending_migrations:
-                log_info(f"  Applying migration {migration.version}: {migration.description}")
+            # Create views
+            conn.executescript(SCHEMA_SQL_VIEWS)
 
-                # Run each migration in its own transaction
-                # This prevents one failed migration from rolling back previous successful migrations
-                try:
-                    with db_transaction(database_path=db_path) as conn:
-                        migration.upgrade(conn)
-
-                        # Record migration as applied
-                        conn.execute(
-                            "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
-                            (migration.version,)
-                        )
-
-                    log_info(f"  [OK] Migration {migration.version} completed successfully")
-
-                except Exception as migration_error:
-                    log_error(f"  [FAILED] Migration {migration.version} failed: {migration_error}")
-                    log_error(f"  Stopping at migration {migration.version}. Previous migrations were applied successfully.")
-                    log_error(f"  Current schema version: {migration.version - 1}")
-                    return False
-
-            final_version = pending_migrations[-1].version
-            log_info(f"Database schema updated to version {final_version}")
-            # Views are created by migrations (specifically migration_005), so don't create them here
-        else:
-            # No pending migrations - ensure version is recorded
-            if current_version == 0:
-                with db_transaction(database_path=db_path) as conn:
-                    # Fresh database with no migrations to run - set to SCHEMA_VERSION
-                    conn.execute(
-                        "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
-                        (SCHEMA_VERSION,)
-                    )
-                log_info(f"Database schema initialized (version {SCHEMA_VERSION})")
-
-                # Fresh database at target version - create views from SCHEMA_SQL_VIEWS
-                with db_transaction(database_path=db_path) as conn:
-                    conn.executescript(SCHEMA_SQL_VIEWS)
-                log_info("Created SQL views for fresh database")
-            else:
-                log_info(f"Database schema is up to date (version {current_version})")
-                # Database is up-to-date - views should already exist from migrations
-                # If they don't exist, migrations need to be fixed (don't create here)
-
+        log_info("Database schema initialized successfully")
         return True
 
     except Exception as e:
@@ -598,15 +557,15 @@ def check_database_health(database_path: Optional[Path] = None) -> bool:
 
 # ========== Auto-initialization ==========
 
-# Initialize/update database on module import (handles both new and existing databases)
+# Initialize database on module import (handles both new and existing databases)
 if DATABASE_PATH.exists():
-    # Existing database - run health check, then initialize/update
+    # Existing database - run health check, then initialize
     # Health check is informational only - initialization is idempotent and will repair issues
     if not check_database_health():
         log_error(f"Database at {DATABASE_PATH} failed health check - attempting repair...")
 
     # Always run initialization (idempotent - safe to run multiple times)
-    initialize_database()  # Will run pending migrations if needed
+    initialize_database()
 else:
     # New database - create and initialize
     log_info(f"Creating new database at {DATABASE_PATH}")

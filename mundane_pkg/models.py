@@ -683,10 +683,18 @@ class PluginFile:
             rows = query_all(
                 c,
                 """
-                SELECT host, port, is_ipv4, is_ipv6
-                FROM plugin_file_hosts
-                WHERE file_id = ?
-                ORDER BY is_ipv4 DESC, is_ipv6 DESC, host ASC
+                SELECT
+                    h.host_address,
+                    pfh.port_number,
+                    h.host_type
+                FROM plugin_file_hosts pfh
+                JOIN hosts h ON pfh.host_id = h.host_id
+                WHERE pfh.file_id = ?
+                ORDER BY
+                    CASE WHEN h.host_type = 'ipv4' THEN 0
+                         WHEN h.host_type = 'ipv6' THEN 1
+                         ELSE 2 END,
+                    h.host_address ASC
                 """,
                 (self.file_id,)
             )
@@ -739,10 +747,19 @@ class PluginFile:
             rows = query_all(
                 c,
                 """
-                SELECT host, port, is_ipv4, is_ipv6
-                FROM plugin_file_hosts
-                WHERE file_id = ?
-                ORDER BY is_ipv4 DESC, is_ipv6 DESC, host ASC, port ASC
+                SELECT
+                    h.host_address,
+                    pfh.port_number,
+                    h.host_type
+                FROM plugin_file_hosts pfh
+                JOIN hosts h ON pfh.host_id = h.host_id
+                WHERE pfh.file_id = ?
+                ORDER BY
+                    CASE WHEN h.host_type = 'ipv4' THEN 0
+                         WHEN h.host_type = 'ipv6' THEN 1
+                         ELSE 2 END,
+                    h.host_address ASC,
+                    pfh.port_number ASC
                 """,
                 (self.file_id,)
             )
@@ -759,7 +776,7 @@ class PluginFile:
                 if port is not None:
                     # Format with port
                     # Handle IPv6 addresses (add brackets if needed)
-                    is_ipv6 = bool(row[3])
+                    is_ipv6 = (row[2] == 'ipv6')
                     if is_ipv6 and ":" in host and not host.startswith("["):
                         lines.append(f"[{host}]:{port}")
                     else:
@@ -799,10 +816,19 @@ class PluginFile:
             rows = query_all(
                 c,
                 """
-                SELECT host, port, plugin_output
-                FROM plugin_file_hosts
-                WHERE file_id = ?
-                ORDER BY is_ipv4 DESC, is_ipv6 DESC, host ASC, port ASC
+                SELECT
+                    h.host_address,
+                    pfh.port_number,
+                    pfh.plugin_output
+                FROM plugin_file_hosts pfh
+                JOIN hosts h ON pfh.host_id = h.host_id
+                WHERE pfh.file_id = ?
+                ORDER BY
+                    CASE WHEN h.host_type = 'ipv4' THEN 0
+                         WHEN h.host_type = 'ipv6' THEN 1
+                         ELSE 2 END,
+                    h.host_address ASC,
+                    pfh.port_number ASC
                 """,
                 (self.file_id,)
             )

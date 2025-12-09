@@ -47,10 +47,15 @@ Version history:
 - 3: Added foundation tables (severity_levels, artifact_types, audit_log) and audit triggers
 - 4: Normalized hosts and ports into separate tables (cross-scan tracking)
 - 5: Removed redundant columns and created views for computed statistics
+     (migration_005 improved in v1.10+ to be more robust and idempotent)
+
+Note: SCHEMA_SQL has been split into SCHEMA_SQL_TABLES and SCHEMA_SQL_VIEWS
+      to prevent view creation from interfering with migrations.
 """
 
-SCHEMA_SQL = """
+SCHEMA_SQL_TABLES = """
 -- See schema.sql for full documentation
+-- This creates all tables (but NOT views - those are created separately)
 
 CREATE TABLE IF NOT EXISTS scans (
     scan_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -236,9 +241,12 @@ CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
     applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+"""
 
+SCHEMA_SQL_VIEWS = """
 -- ========== VIEWS (Computed Statistics) ==========
 -- Note: These views are created by migration_005 and may not exist in earlier schema versions
+-- They are separated from table creation to allow conditional execution during migrations
 
 -- Plugin file statistics (replaces host_count, port_count columns)
 CREATE VIEW IF NOT EXISTS v_plugin_file_stats AS
@@ -332,6 +340,10 @@ FROM artifacts a
 LEFT JOIN artifact_types at ON a.artifact_type_id = at.artifact_type_id;
 """
 
+# Combined schema for backward compatibility (if needed)
+# Most code should use SCHEMA_SQL_TABLES and SCHEMA_SQL_VIEWS separately
+SCHEMA_SQL = SCHEMA_SQL_TABLES + "\n" + SCHEMA_SQL_VIEWS
+
 
 # ========== Connection Management ==========
 
@@ -414,10 +426,11 @@ def initialize_database(database_path: Optional[Path] = None) -> bool:
     db_path = database_path or DATABASE_PATH
 
     try:
-        # Execute base schema in its own transaction
+        # Execute base table schema in its own transaction
+        # (views are created later, conditionally based on migration status)
         with db_transaction(database_path=db_path) as conn:
-            # Execute base schema (CREATE TABLE IF NOT EXISTS)
-            conn.executescript(SCHEMA_SQL)
+            # Execute table schema only (CREATE TABLE IF NOT EXISTS)
+            conn.executescript(SCHEMA_SQL_TABLES)
 
         # Get current schema version in separate transaction
         with db_transaction(database_path=db_path) as conn:
@@ -458,6 +471,7 @@ def initialize_database(database_path: Optional[Path] = None) -> bool:
 
             final_version = pending_migrations[-1].version
             log_info(f"Database schema updated to version {final_version}")
+            # Views are created by migrations (specifically migration_005), so don't create them here
         else:
             # No pending migrations - ensure version is recorded
             if current_version == 0:
@@ -468,8 +482,15 @@ def initialize_database(database_path: Optional[Path] = None) -> bool:
                         (SCHEMA_VERSION,)
                     )
                 log_info(f"Database schema initialized (version {SCHEMA_VERSION})")
+
+                # Fresh database at target version - create views from SCHEMA_SQL_VIEWS
+                with db_transaction(database_path=db_path) as conn:
+                    conn.executescript(SCHEMA_SQL_VIEWS)
+                log_info("Created SQL views for fresh database")
             else:
                 log_info(f"Database schema is up to date (version {current_version})")
+                # Database is up-to-date - views should already exist from migrations
+                # If they don't exist, migrations need to be fixed (don't create here)
 
         return True
 

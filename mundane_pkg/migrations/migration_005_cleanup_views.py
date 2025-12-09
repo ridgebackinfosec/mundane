@@ -51,30 +51,25 @@ class Migration005(Migration):
         fk_was_on = cursor.fetchone()[0] == 1
         conn.execute("PRAGMA foreign_keys=OFF")
 
-        # ========== Step 1: Drop any existing views (will be recreated later) ==========
-        print("  [1/6] Dropping any existing views (will recreate after table migrations)...")
-        for view_name in ['v_plugin_file_stats', 'v_session_stats', 'v_plugins_with_severity',
-                          'v_host_findings', 'v_artifacts_with_types']:
-            conn.execute(f"DROP VIEW IF EXISTS {view_name}")
-
-        # ========== Step 2: Migrate artifacts table ==========
-        print("  [2/6] Migrating artifacts table to use artifact_type_id FK...")
+        # ========== Step 1: Migrate artifacts table ==========
+        print("  [1/5] Migrating artifacts table to use artifact_type_id FK...")
         self._migrate_artifacts_table(conn)
 
-        # ========== Step 3: Recreate plugin_files table ==========
-        print("  [3/6] Recreating plugin_files table without host_count/port_count...")
+        # ========== Step 2: Recreate plugin_files table ==========
+        print("  [2/5] Recreating plugin_files table without host_count/port_count...")
         self._recreate_plugin_files_table(conn)
 
-        # ========== Step 4: Recreate plugins table ==========
-        print("  [4/6] Recreating plugins table without severity_label...")
+        # ========== Step 3: Recreate plugins table ==========
+        print("  [3/5] Recreating plugins table without severity_label...")
         self._recreate_plugins_table(conn)
 
-        # ========== Step 5: Recreate sessions table ==========
-        print("  [5/6] Recreating sessions table without aggregate columns...")
+        # ========== Step 4: Recreate sessions table ==========
+        print("  [4/5] Recreating sessions table without aggregate columns...")
         self._recreate_sessions_table(conn)
 
-        # ========== Step 6: Create Views (after tables are migrated) ==========
-        print("  [6/6] Creating SQL views for computed statistics...")
+        # ========== Step 5: Create Views (after tables are migrated) ==========
+        # Views are dropped and recreated inside _create_views() to ensure correct schema
+        print("  [5/5] Recreating SQL views with correct schema...")
         self._create_views(conn)
 
         # ========== Re-enable FK checks ==========
@@ -86,19 +81,8 @@ class Migration005(Migration):
     def _create_views(self, conn: sqlite3.Connection) -> None:
         """Create SQL views for computed statistics (idempotent)."""
 
-        # Check if views already exist
-        cursor = conn.execute(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type='view' AND name IN "
-            "('v_plugin_file_stats', 'v_session_stats', 'v_plugins_with_severity', "
-            "'v_host_findings', 'v_artifacts_with_types')"
-        )
-        existing_views_count = cursor.fetchone()[0]
-
-        if existing_views_count == 5:
-            print("    [OK] All views already exist")
-            return
-
-        # Drop existing views (if partial migration)
+        # ALWAYS drop existing views to ensure correct schema after table migrations
+        # (don't check if they exist - we need to recreate them to match the new table schemas)
         for view_name in ['v_plugin_file_stats', 'v_session_stats', 'v_plugins_with_severity',
                           'v_host_findings', 'v_artifacts_with_types']:
             conn.execute(f"DROP VIEW IF EXISTS {view_name}")

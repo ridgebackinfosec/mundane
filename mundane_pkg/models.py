@@ -169,15 +169,18 @@ class Scan:
                     s.scan_name,
                     s.created_at,
                     s.last_reviewed_at,
+                    COUNT(DISTINCT pfh.host_id) as unique_hosts,
                     COUNT(DISTINCT pf.file_id) as total_findings,
                     SUM(CASE WHEN p.severity_int = 4 THEN 1 ELSE 0 END) as critical_count,
                     SUM(CASE WHEN p.severity_int = 3 THEN 1 ELSE 0 END) as high_count,
                     SUM(CASE WHEN p.severity_int = 2 THEN 1 ELSE 0 END) as medium_count,
                     SUM(CASE WHEN p.severity_int = 1 THEN 1 ELSE 0 END) as low_count,
+                    SUM(CASE WHEN p.severity_int = 0 THEN 1 ELSE 0 END) as info_count,
                     SUM(CASE WHEN pf.review_state = 'completed' THEN 1 ELSE 0 END) as reviewed_count
                 FROM scans s
                 LEFT JOIN plugin_files pf ON s.scan_id = pf.scan_id
                 LEFT JOIN plugins p ON pf.plugin_id = p.plugin_id
+                LEFT JOIN plugin_file_hosts pfh ON pf.file_id = pfh.file_id
                 GROUP BY s.scan_id, s.scan_name, s.created_at, s.last_reviewed_at
                 ORDER BY s.last_reviewed_at DESC NULLS LAST, s.created_at DESC
                 """

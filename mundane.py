@@ -3315,11 +3315,13 @@ def list_scans() -> None:
     # Create summary table
     table = Table(title="Imported Scans", show_header=True, header_style="bold cyan")
     table.add_column("Scan Name", style="yellow", no_wrap=True)
-    table.add_column("Total", justify="right")
+    table.add_column("Total Unique Hosts", justify="right", style="bright_cyan")
+    table.add_column("Total Findings", justify="right")
     table.add_column("Critical", justify="right", style="red")
     table.add_column("High", justify="right", style="bright_red")
     table.add_column("Medium", justify="right", style="yellow")
     table.add_column("Low", justify="right", style="cyan")
+    table.add_column("Info", justify="right", style="dim")
     table.add_column("Reviewed", justify="right", style="green")
     table.add_column("Last Reviewed", style="dim")
 
@@ -3339,11 +3341,13 @@ def list_scans() -> None:
 
         table.add_row(
             scan["scan_name"],
+            str(scan["unique_hosts"] or 0),
             str(scan["total_findings"] or 0),
             str(scan["critical_count"] or 0),
             str(scan["high_count"] or 0),
             str(scan["medium_count"] or 0),
             str(scan["low_count"] or 0),
+            str(scan["info_count"] or 0),
             str(scan["reviewed_count"] or 0),
             last_reviewed
         )

@@ -169,7 +169,10 @@ class Scan:
                     s.scan_name,
                     s.created_at,
                     s.last_reviewed_at,
-                    COUNT(DISTINCT pfh.host_id) as unique_hosts,
+                    (SELECT COUNT(DISTINCT pfh.host_id)
+                     FROM plugin_file_hosts pfh
+                     JOIN plugin_files pf2 ON pfh.file_id = pf2.file_id
+                     WHERE pf2.scan_id = s.scan_id) as unique_hosts,
                     COUNT(DISTINCT pf.file_id) as total_findings,
                     SUM(CASE WHEN p.severity_int = 4 THEN 1 ELSE 0 END) as critical_count,
                     SUM(CASE WHEN p.severity_int = 3 THEN 1 ELSE 0 END) as high_count,
@@ -180,7 +183,6 @@ class Scan:
                 FROM scans s
                 LEFT JOIN plugin_files pf ON s.scan_id = pf.scan_id
                 LEFT JOIN plugins p ON pf.plugin_id = p.plugin_id
-                LEFT JOIN plugin_file_hosts pfh ON pf.file_id = pfh.file_id
                 GROUP BY s.scan_id, s.scan_name, s.created_at, s.last_reviewed_at
                 ORDER BY s.last_reviewed_at DESC NULLS LAST, s.created_at DESC
                 """

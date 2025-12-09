@@ -875,14 +875,14 @@ def handle_file_view(
         # Build action menu with all available options
         from rich.text import Text
         action_text = Text()
-        action_text.append("[V] ", style="cyan")
-        action_text.append("View host(s) / ", style=None)
-        action_text.append("[E] ", style="cyan")
-        action_text.append("CVE info / ", style=None)
         action_text.append("[I] ", style="cyan")
         action_text.append("Finding Info / ", style=None)
         action_text.append("[D] ", style="cyan")
         action_text.append("Finding Details", style=None)
+        action_text.append("[V] ", style="cyan")
+        action_text.append("View host(s) / ", style=None)
+        action_text.append("[E] ", style="cyan")
+        action_text.append("CVE info / ", style=None)
         if has_workflow:
             action_text.append(" / ", style=None)
             action_text.append("[W] ", style="cyan")

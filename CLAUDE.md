@@ -281,13 +281,14 @@ mypy mundane_pkg/
 
 ## Architecture
 
-### Database-Only Design (v1.9.0+)
+### Database-Only Design (v2.0.0+)
 
-Mundane uses a **database-first architecture** with SQLite as the source of truth:
+Mundane uses a **fully normalized database architecture** with SQLite as the source of truth:
 
 - **Location**: `~/.mundane/mundane.db` (global, cross-scan)
-- **Schema version**: Tracked in `database.py:SCHEMA_VERSION` (current: 2)
-- **Migrations**: `mundane_pkg/migrations/migration_XXX_*.py`
+- **Schema version**: Tracked in `database.py:SCHEMA_VERSION` (current: 1)
+- **Schema approach**: Single-version, normalized structure created on initialization
+- **No migration system**: Breaking changes require major version bump and re-import
 - `.txt` files are **reference only** - all data lives in database
 
 **Key design principles**:
@@ -295,6 +296,8 @@ Mundane uses a **database-first architecture** with SQLite as the source of trut
 - File browsing queries database directly (no filesystem walks during review)
 - Review state tracked in `plugin_files.review_state` column, synchronized to filename prefixes
 - CVEs cached in `plugins.cves` JSON column after fetching from Tenable
+- **NEW in v2.x**: Normalized host/port tables enable cross-scan tracking
+- **NEW in v2.x**: SQL views compute statistics on-demand (no redundant cached data)
 
 ### Module Structure
 
@@ -344,20 +347,38 @@ mundane_pkg/
 - Decouples tool definitions from execution logic
 - Enables adding new tools without modifying core code
 
-### Database Schema
+### Database Schema (v2.x Normalized)
 
-**Tables**:
+**Foundation Tables** (NEW in v2.x):
+- `severity_levels`: Normalized severity reference data (0-4, labels, colors)
+- `artifact_types`: Artifact type definitions
+- `hosts`: Normalized host data across ALL scans (enables cross-scan tracking)
+- `ports`: Port metadata
+- `audit_log`: Change tracking (future feature)
+
+**Core Tables**:
 - `scans`: Top-level scan metadata (scan_name, export_root, .nessus hash)
-- `plugins`: Plugin metadata (plugin_id, severity, CVSS, CVEs, Metasploit modules)
-- `plugin_files`: Findings per scan (scan_id + plugin_id, review_state, host_count, port_count)
-- `plugin_file_hosts`: Host:port combinations (file_id, host, port, plugin_output)
-- `sessions`: Review session tracking (start time, duration, statistics)
+- `plugins`: Plugin metadata (plugin_id, severity_int, CVSS, CVEs, Metasploit modules)
+  - **REMOVED in v2.x**: `severity_label` column (now in `severity_levels` table)
+- `plugin_files`: Findings per scan (scan_id + plugin_id, review_state)
+  - **REMOVED in v2.x**: `host_count`, `port_count` (computed via `v_plugin_file_stats` view)
+- `plugin_file_hosts`: Host:port combinations (file_id, host_id FK, port_number FK, plugin_output)
+  - **CHANGED in v2.x**: `host`/`port` columns → foreign keys to normalized tables
+- `sessions`: Review session tracking (start time, end time)
+  - **REMOVED in v2.x**: cached statistics (computed via `v_session_stats` view)
 - `tool_executions`: Command history (tool_name, command_text, exit_code, duration, sudo usage)
-- `artifacts`: Generated files (artifact_path, file_hash, file_size, metadata JSON)
+- `artifacts`: Generated files (artifact_path, artifact_type_id FK, file_hash, file_size, metadata JSON)
+  - **CHANGED in v2.x**: `artifact_type` TEXT → `artifact_type_id` INTEGER FK
+- `workflow_executions`: Custom workflow tracking
 
-**Views**: `v_review_progress`, `v_session_stats`, `v_tool_summary`, `v_artifact_storage`
+**SQL Views** (Computed Statistics):
+- `v_plugin_file_stats`: Host/port counts per finding (replaces cached columns)
+- `v_session_stats`: Session duration and statistics (replaces cached columns)
+- `v_plugins_with_severity`: Plugins with severity labels (replaces `severity_label` column)
+- `v_host_findings`: Cross-scan host analysis (NEW capability in v2.x)
+- `v_artifacts_with_types`: Artifacts with type names (replaces `artifact_type` column)
 
-**Schema changes**: Update `database.py:SCHEMA_SQL` AND create migration in `migrations/`
+**Schema changes**: Update `database.py:SCHEMA_SQL_TABLES` and `SCHEMA_SQL_VIEWS`. Breaking changes require major version bump and user re-import.
 
 ### Version Management
 

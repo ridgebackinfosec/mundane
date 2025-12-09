@@ -46,7 +46,7 @@ def temp_db() -> Generator[sqlite3.Connection, None, None]:
         [
             ('nmap_xml', '.xml', 'Nmap XML output'),
             ('nmap_gnmap', '.gnmap', 'Nmap greppable output'),
-            ('nmap_txt', '.txt', 'Nmap text output'),
+            ('nmap_nmap', '.nmap', 'Nmap normal output'),
             ('netexec_txt', '.txt', 'NetExec text output'),
             ('log', '.log', 'Tool execution log'),
         ]

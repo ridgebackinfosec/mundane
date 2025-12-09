@@ -219,12 +219,13 @@ class Plugin:
     """Represents a Nessus plugin (finding type).
 
     NOTE: "plugin" is internal terminology. User-facing commands use "findings".
-    Updated in v2.0.8 (schema v5) - removed severity_label (use v_plugins_with_severity view).
+    Updated in v2.0.8 (schema v5) - severity_label not in plugins table, fetch from v_plugins_with_severity view.
     """
 
     plugin_id: int
     plugin_name: str = ""
     severity_int: int = 0
+    severity_label: str = ""  # Populated from v_plugins_with_severity view, not stored in plugins table
     has_metasploit: bool = False
     cvss3_score: Optional[float] = None
     cvss2_score: Optional[float] = None
@@ -253,6 +254,7 @@ class Plugin:
             plugin_id=row["plugin_id"],
             plugin_name=row["plugin_name"],
             severity_int=row["severity_int"],
+            severity_label=row.get("severity_label", ""),  # Optional, from v_plugins_with_severity view
             has_metasploit=bool(row["has_metasploit"]),
             cvss3_score=row["cvss3_score"],
             cvss2_score=row["cvss2_score"],
@@ -443,7 +445,7 @@ class PluginFile:
             List of (PluginFile, Plugin) tuples
         """
         with db_transaction(conn) as c:
-            # Build query with JOIN (excluding host_count/port_count - use v_plugin_file_stats view when needed)
+            # Build query with JOIN (use v_plugins_with_severity view to get severity_label)
             query = """
                 SELECT
                     pf.file_id, pf.scan_id, pf.plugin_id,
@@ -452,7 +454,7 @@ class PluginFile:
                     p.has_metasploit, p.cvss3_score, p.cvss2_score, p.cves,
                     p.plugin_url, p.metadata_fetched_at
                 FROM plugin_files pf
-                INNER JOIN plugins p ON pf.plugin_id = p.plugin_id
+                INNER JOIN v_plugins_with_severity p ON pf.plugin_id = p.plugin_id
                 WHERE pf.scan_id = ?
             """
             params: list[Any] = [scan_id]

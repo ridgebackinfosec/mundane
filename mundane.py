@@ -2610,7 +2610,7 @@ def show_session_statistics(
                     """
                     SELECT p.severity_label, COUNT(*) as count
                     FROM plugin_files pf
-                    JOIN plugins p ON pf.plugin_id = p.plugin_id
+                    JOIN v_plugins_with_severity p ON pf.plugin_id = p.plugin_id
                     WHERE pf.scan_id = ? AND pf.review_state = 'completed'
                     GROUP BY p.severity_label
                     """,

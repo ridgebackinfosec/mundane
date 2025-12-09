@@ -254,7 +254,7 @@ class Plugin:
             plugin_id=row["plugin_id"],
             plugin_name=row["plugin_name"],
             severity_int=row["severity_int"],
-            severity_label=row.get("severity_label", ""),  # Optional, from v_plugins_with_severity view
+            severity_label=row["severity_label"] if "severity_label" in row.keys() else "",  # Optional, from v_plugins_with_severity view
             has_metasploit=bool(row["has_metasploit"]),
             cvss3_score=row["cvss3_score"],
             cvss2_score=row["cvss2_score"],
@@ -1266,9 +1266,9 @@ class Host:
             host_id=row["host_id"],
             host_address=row["host_address"],
             host_type=row["host_type"],
-            reverse_dns=row.get("reverse_dns"),
-            first_seen=row.get("first_seen"),
-            last_seen=row.get("last_seen")
+            reverse_dns=row["reverse_dns"] if "reverse_dns" in row.keys() else None,
+            first_seen=row["first_seen"] if "first_seen" in row.keys() else None,
+            last_seen=row["last_seen"] if "last_seen" in row.keys() else None
         )
 
     @classmethod
@@ -1389,8 +1389,8 @@ class Port:
         """
         return cls(
             port_number=row["port_number"],
-            service_name=row.get("service_name"),
-            description=row.get("description")
+            service_name=row["service_name"] if "service_name" in row.keys() else None,
+            description=row["description"] if "description" in row.keys() else None
         )
 
     @classmethod

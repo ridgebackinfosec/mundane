@@ -92,6 +92,8 @@ from mundane_pkg import (
     analyze_inclusions,
     natural_key,
     count_reviewed_in_scan,
+    # banner
+    display_banner,
 )
 
 # === Standard library imports ===
@@ -3112,6 +3114,9 @@ def review(
         "--custom-workflows-only",
         help="Use ONLY this workflow YAML (ignores default workflows).",
     ),
+    quiet: bool = typer.Option(
+        False, "--quiet", "-q", help="Suppress promotional banner display."
+    ),
 ) -> None:
     """
     Run interactive review mode with database-driven workflow.
@@ -3127,6 +3132,11 @@ def review(
         mundane review              # Select from imported scans
         mundane import scan.nessus  # Import scan first if needed
     """
+    # Display promotional banner (unless suppressed)
+    if not quiet:
+        display_banner()
+        _console_global.print()  # Add spacing after banner
+
     # Validate: can't use both flags
     if custom_workflows and custom_workflows_only:
         err("Cannot use both --custom-workflows and --custom-workflows-only")

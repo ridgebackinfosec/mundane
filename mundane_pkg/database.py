@@ -414,46 +414,62 @@ def initialize_database(database_path: Optional[Path] = None) -> bool:
     db_path = database_path or DATABASE_PATH
 
     try:
+        # Execute base schema in its own transaction
         with db_transaction(database_path=db_path) as conn:
             # Execute base schema (CREATE TABLE IF NOT EXISTS)
             conn.executescript(SCHEMA_SQL)
 
-            # Get current schema version
+        # Get current schema version in separate transaction
+        with db_transaction(database_path=db_path) as conn:
             cursor = conn.execute("SELECT version FROM schema_version ORDER BY version DESC LIMIT 1")
             row = cursor.fetchone()
             current_version = row[0] if row else 0
             log_info(f"Current database schema version: {current_version}")
 
-            # Run pending migrations
-            from .migrations import get_all_migrations
-            all_migrations = get_all_migrations()
-            pending_migrations = [m for m in all_migrations if m.version > current_version]
+        # Run pending migrations
+        from .migrations import get_all_migrations
+        all_migrations = get_all_migrations()
+        pending_migrations = [m for m in all_migrations if m.version > current_version]
 
-            if pending_migrations:
-                log_info(f"Running {len(pending_migrations)} pending database migration(s)...")
-                for migration in pending_migrations:
-                    log_info(f"  Applying migration {migration.version}: {migration.description}")
-                    migration.upgrade(conn)
+        if pending_migrations:
+            log_info(f"Running {len(pending_migrations)} pending database migration(s)...")
+            for migration in pending_migrations:
+                log_info(f"  Applying migration {migration.version}: {migration.description}")
 
-                    # Record migration as applied
-                    conn.execute(
-                        "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
-                        (migration.version,)
-                    )
+                # Run each migration in its own transaction
+                # This prevents one failed migration from rolling back previous successful migrations
+                try:
+                    with db_transaction(database_path=db_path) as conn:
+                        migration.upgrade(conn)
 
-                final_version = pending_migrations[-1].version
-                log_info(f"Database schema updated to version {final_version}")
-            else:
-                # No pending migrations - ensure version is recorded
-                if current_version == 0:
+                        # Record migration as applied
+                        conn.execute(
+                            "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
+                            (migration.version,)
+                        )
+
+                    log_info(f"  [OK] Migration {migration.version} completed successfully")
+
+                except Exception as migration_error:
+                    log_error(f"  [FAILED] Migration {migration.version} failed: {migration_error}")
+                    log_error(f"  Stopping at migration {migration.version}. Previous migrations were applied successfully.")
+                    log_error(f"  Current schema version: {migration.version - 1}")
+                    return False
+
+            final_version = pending_migrations[-1].version
+            log_info(f"Database schema updated to version {final_version}")
+        else:
+            # No pending migrations - ensure version is recorded
+            if current_version == 0:
+                with db_transaction(database_path=db_path) as conn:
                     # Fresh database with no migrations to run - set to SCHEMA_VERSION
                     conn.execute(
                         "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
                         (SCHEMA_VERSION,)
                     )
-                    log_info(f"Database schema initialized (version {SCHEMA_VERSION})")
-                else:
-                    log_info(f"Database schema is up to date (version {current_version})")
+                log_info(f"Database schema initialized (version {SCHEMA_VERSION})")
+            else:
+                log_info(f"Database schema is up to date (version {current_version})")
 
         return True
 

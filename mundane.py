@@ -561,9 +561,10 @@ def show_scan_summary(
             rows = query_all(
                 conn,
                 """
-                SELECT DISTINCT pfh.host, pfh.port, pfh.is_ipv4, pfh.is_ipv6, pfh.file_id
+                SELECT DISTINCT h.host_address, pfh.port_number, h.host_type, pfh.file_id
                 FROM plugin_file_hosts pfh
                 JOIN plugin_files pf ON pfh.file_id = pf.file_id
+                JOIN hosts h ON pfh.host_id = h.host_id
                 WHERE pf.scan_id = ?
                 """,
                 (scan_id,)
@@ -584,10 +585,11 @@ def show_scan_summary(
 
         # Process query results
         for row in rows:
-            host = row["host"]
-            port = row["port"]
-            is_ipv4 = bool(row["is_ipv4"])
-            is_ipv6 = bool(row["is_ipv6"])
+            host = row["host_address"]
+            port = row["port_number"]
+            host_type = row["host_type"]
+            is_ipv4 = (host_type == 'ipv4')
+            is_ipv6 = (host_type == 'ipv6')
 
             unique_hosts.add(host)
 

@@ -422,6 +422,7 @@ def initialize_database(database_path: Optional[Path] = None) -> bool:
             cursor = conn.execute("SELECT version FROM schema_version ORDER BY version DESC LIMIT 1")
             row = cursor.fetchone()
             current_version = row[0] if row else 0
+            log_info(f"Current database schema version: {current_version}")
 
             # Run pending migrations
             from .migrations import get_all_migrations
@@ -547,7 +548,8 @@ def check_database_health(database_path: Optional[Path] = None) -> bool:
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='scans'"
             )
             if not cursor.fetchone():
-                log_error("Database missing required tables")
+                log_error("Database health check failed: missing required 'scans' table")
+                log_error("This is non-fatal - initialization will attempt to repair the schema")
                 return False
 
         return True
@@ -561,11 +563,13 @@ def check_database_health(database_path: Optional[Path] = None) -> bool:
 
 # Initialize/update database on module import (handles both new and existing databases)
 if DATABASE_PATH.exists():
-    # Existing database - run health check, then check for pending migrations
-    if check_database_health():
-        initialize_database()  # Will run pending migrations if needed (idempotent)
-    else:
-        log_error(f"Database at {DATABASE_PATH} failed health check")
+    # Existing database - run health check, then initialize/update
+    # Health check is informational only - initialization is idempotent and will repair issues
+    if not check_database_health():
+        log_error(f"Database at {DATABASE_PATH} failed health check - attempting repair...")
+
+    # Always run initialization (idempotent - safe to run multiple times)
+    initialize_database()  # Will run pending migrations if needed
 else:
     # New database - create and initialize
     log_info(f"Creating new database at {DATABASE_PATH}")

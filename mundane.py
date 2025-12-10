@@ -344,9 +344,13 @@ def _display_bulk_cve_results(results: dict[str, list[str]]) -> None:
     # Display results
     if results:
         # Ask user for display format
+        print_action_menu([
+            ("S", "Separated (by finding)"),
+            ("C", "Combined (all unique CVEs)")
+        ])
         try:
             format_choice = Prompt.ask(
-                "\nDisplay format",
+                "Choose format",
                 default="s"
             ).lower()
         except KeyboardInterrupt:

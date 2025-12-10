@@ -341,30 +341,6 @@ def _build_index_stream(
         raise
 
 
-def _write_plugin_file(
-    path: Path,
-    lines: list[str]
-) -> bool:
-    """Write plugin host list to file.
-
-    Args:
-        path: Output file path
-        lines: Host entries to write (one per line)
-
-    Returns:
-        True if file was written, False if no lines provided
-    """
-    if not lines:
-        return False
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    with path.open("w", encoding="utf-8") as fh:
-        fh.writelines(line + "\n" for line in lines)
-
-    return True
-
-
 @log_timing
 def import_nessus_file(
     nessus_file: Path,

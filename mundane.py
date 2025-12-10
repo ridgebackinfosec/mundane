@@ -3099,6 +3099,29 @@ app.add_typer(scan_app, name="scan")
 app.add_typer(config_app, name="config")
 
 
+# Version callback for --version flag
+def version_callback(value: bool):
+    """Print version and exit."""
+    if value:
+        print(f"mundane {__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def main_callback(
+    version: Optional[bool] = typer.Option(
+        None,
+        "--version",
+        "-v",
+        callback=version_callback,
+        is_eager=True,
+        help="Show version and exit",
+    )
+):
+    """mundane CLI - faster review & tooling runner for vulnerability scans."""
+    pass
+
+
 @app.command(help="Interactive review of findings.")
 def review(
     export_root: Optional[Path] = typer.Option(

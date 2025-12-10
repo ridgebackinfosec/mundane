@@ -974,7 +974,7 @@ def handle_file_view(
                 if plugin_obj and plugin_obj.cves:
                     info(f"Found {len(plugin_obj.cves)} CVE(s):")
                     for cve in plugin_obj.cves:
-                        info(f"  {cve}")
+                        info(f"{cve}")
                 else:
                     warn("No CVEs associated with this finding.")
             except Exception as exc:

@@ -110,7 +110,7 @@ from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from mundane_pkg.models import Plugin, PluginFile
+    from mundane_pkg.models import Plugin, Finding
 
 # === Third-party imports ===
 import click
@@ -180,30 +180,30 @@ def print_action_menu(actions: list[tuple[str, str]]) -> None:
 # === File viewing helpers ===
 
 
-def _file_raw_payload_text(plugin_file: "PluginFile") -> str:
+def _file_raw_payload_text(finding: "Finding") -> str:
     """
     Get raw file content from database (all host:port lines).
 
     Args:
-        plugin_file: PluginFile database object
+        finding: Finding database object
 
     Returns:
         File content as UTF-8 string (one host:port per line)
     """
     # Get all host:port lines from database
-    lines = plugin_file.get_all_host_port_lines()
+    lines = finding.get_all_host_port_lines()
     content = "\n".join(lines)
     if lines:
         content += "\n"  # Add trailing newline
     return content
 
 
-def _file_raw_paged_text(plugin_file: "PluginFile", plugin: "Plugin") -> str:
+def _file_raw_paged_text(finding: "Finding", plugin: "Plugin") -> str:
     """
     Prepare raw file content for paged viewing with metadata from database.
 
     Args:
-        plugin_file: PluginFile database object
+        finding: Finding database object
         plugin: Plugin metadata object
 
     Returns:
@@ -212,7 +212,7 @@ def _file_raw_paged_text(plugin_file: "PluginFile", plugin: "Plugin") -> str:
     display_name = f"Plugin {plugin.plugin_id}: {plugin.plugin_name}"
 
     # Get content from database
-    content = _file_raw_payload_text(plugin_file)
+    content = _file_raw_payload_text(finding)
     size_bytes = len(content.encode('utf-8'))
 
     lines = [f"Showing: {display_name} ({size_bytes} bytes from database)"]
@@ -344,9 +344,13 @@ def _display_bulk_cve_results(results: dict[str, list[str]]) -> None:
     # Display results
     if results:
         # Ask user for display format
+        print_action_menu([
+            ("S", "Separated (by finding)"),
+            ("C", "Combined (all unique CVEs)")
+        ])
         try:
             format_choice = Prompt.ask(
-                "\nDisplay format",
+                "Choose format",
                 default="s"
             ).lower()
         except KeyboardInterrupt:
@@ -563,11 +567,11 @@ def show_scan_summary(
             rows = query_all(
                 conn,
                 """
-                SELECT DISTINCT h.host_address, pfh.port_number, h.host_type, pfh.file_id
-                FROM plugin_file_hosts pfh
-                JOIN plugin_files pf ON pfh.file_id = pf.file_id
-                JOIN hosts h ON pfh.host_id = h.host_id
-                WHERE pf.scan_id = ?
+                SELECT DISTINCT h.host_address, fah.port_number, h.host_type, fah.finding_id
+                FROM finding_affected_hosts fah
+                JOIN findings f ON fah.finding_id = f.finding_id
+                JOIN hosts h ON fah.host_id = h.host_id
+                WHERE f.scan_id = ?
                 """,
                 (scan_id,)
             )
@@ -576,10 +580,10 @@ def show_scan_summary(
             empty_files = query_all(
                 conn,
                 """
-                SELECT pf.file_id
-                FROM plugin_files pf
-                LEFT JOIN plugin_file_hosts pfh ON pf.file_id = pfh.file_id
-                WHERE pf.scan_id = ? AND pfh.file_id IS NULL
+                SELECT f.finding_id
+                FROM findings f
+                LEFT JOIN finding_affected_hosts fah ON f.finding_id = fah.finding_id
+                WHERE f.scan_id = ? AND fah.finding_id IS NULL
                 """,
                 (scan_id,)
             )
@@ -674,18 +678,18 @@ def print_grouped_hosts_ports(path: Path) -> None:
         warn(f"Error grouping hosts/ports: {exc}")
 
 
-def _grouped_payload_text(plugin_file: "PluginFile") -> str:
+def _grouped_payload_text(finding: "Finding") -> str:
     """
     Generate grouped host:port text for copying/viewing from database.
 
     Args:
-        plugin_file: PluginFile database object
+        finding: Finding database object
 
     Returns:
         Formatted string with host:port,port,... lines
     """
     # Get all host:port lines from database
-    lines = plugin_file.get_all_host_port_lines()
+    lines = finding.get_all_host_port_lines()
 
     # Group ports by host
     from collections import defaultdict
@@ -721,18 +725,18 @@ def _grouped_payload_text(plugin_file: "PluginFile") -> str:
     return "\n".join(out) + ("\n" if out else "")
 
 
-def _grouped_paged_text(plugin_file: "PluginFile", plugin: "Plugin") -> str:
+def _grouped_paged_text(finding: "Finding", plugin: "Plugin") -> str:
     """
     Prepare grouped host:port content for paged viewing from database.
 
     Args:
-        plugin_file: PluginFile database object
+        finding: Finding database object
         plugin: Plugin metadata object
 
     Returns:
         Formatted string with header and grouped content
     """
-    body = _grouped_payload_text(plugin_file)
+    body = _grouped_payload_text(finding)
     display_name = f"Plugin {plugin.plugin_id}: {plugin.plugin_name}"
     return f"Grouped view: {display_name}\n{body}"
 
@@ -740,33 +744,33 @@ def _grouped_paged_text(plugin_file: "PluginFile", plugin: "Plugin") -> str:
 # === Hosts-only helpers ===
 
 
-def _hosts_only_payload_text(plugin_file: "PluginFile") -> str:
+def _hosts_only_payload_text(finding: "Finding") -> str:
     """
     Extract only hosts (IPs or FQDNs) without port information from database.
 
     Args:
-        plugin_file: PluginFile database object
+        finding: Finding database object
 
     Returns:
         One host per line
     """
     # Get unique hosts from database (already sorted: IPs first, then hostnames)
-    hosts, _ports_str = plugin_file.get_hosts_and_ports()
+    hosts, _ports_str = finding.get_hosts_and_ports()
     return "\n".join(hosts) + ("\n" if hosts else "")
 
 
-def _hosts_only_paged_text(plugin_file: "PluginFile", plugin: "Plugin") -> str:
+def _hosts_only_paged_text(finding: "Finding", plugin: "Plugin") -> str:
     """
     Prepare hosts-only content for paged viewing from database.
 
     Args:
-        plugin_file: PluginFile database object
+        finding: Finding database object
         plugin: Plugin metadata object
 
     Returns:
         Formatted string with header and host list
     """
-    body = _hosts_only_payload_text(plugin_file)
+    body = _hosts_only_payload_text(finding)
     display_name = f"Plugin {plugin.plugin_id}: {plugin.plugin_name}"
     return f"Hosts-only view: {display_name}\n{body}"
 
@@ -775,7 +779,7 @@ def _hosts_only_paged_text(plugin_file: "PluginFile", plugin: "Plugin") -> str:
 
 
 def _build_plugin_output_details(
-    plugin_file: "PluginFile",
+    finding: "Finding",
     plugin: "Plugin"
 ) -> Optional[str]:
     """Build formatted text for plugin output details display.
@@ -784,7 +788,7 @@ def _build_plugin_output_details(
     If multiple hosts have the same output, shows all separately (no deduplication).
 
     Args:
-        plugin_file: PluginFile database object
+        finding: Finding database object
         plugin: Plugin metadata object
 
     Returns:
@@ -794,7 +798,7 @@ def _build_plugin_output_details(
 
     # Get all plugin outputs from database
     with get_connection() as conn:
-        outputs = plugin_file.get_plugin_outputs_by_host(conn)
+        outputs = finding.get_plugin_outputs_by_host(conn)
 
     if not outputs:
         return None
@@ -834,7 +838,7 @@ def _build_plugin_output_details(
 
 def handle_file_view(
     chosen: Path,
-    plugin_file: Optional["PluginFile"] = None,
+    finding: Optional["Finding"] = None,
     plugin: Optional["Plugin"] = None,
     plugin_url: Optional[str] = None,
     workflow_mapper: Optional[WorkflowMapper] = None,
@@ -850,7 +854,7 @@ def handle_file_view(
 
     Args:
         chosen: Plugin file to view
-        plugin_file: PluginFile database object (None if database not available)
+        finding: Finding database object (None if database not available)
         plugin: Plugin metadata object (None if database not available)
         plugin_url: Optional Tenable plugin URL for CVE extraction
         workflow_mapper: Optional workflow mapper for plugin workflows
@@ -912,11 +916,11 @@ def handle_file_view(
         # Handle Mark reviewed action
         if action_choice in ("m", "mark"):
             from mundane_pkg.fs import mark_review_complete
-            if plugin_file is None:
+            if finding is None:
                 warn("Database not available - cannot mark file as reviewed")
                 continue
             try:
-                if mark_review_complete(plugin_file, plugin):
+                if mark_review_complete(finding, plugin):
                     return "mark_complete"
             except Exception as exc:
                 warn(f"Failed to mark file: {exc}")
@@ -970,7 +974,7 @@ def handle_file_view(
                 if plugin_obj and plugin_obj.cves:
                     info(f"Found {len(plugin_obj.cves)} CVE(s):")
                     for cve in plugin_obj.cves:
-                        info(f"  {cve}")
+                        info(f"{cve}")
                 else:
                     warn("No CVEs associated with this finding.")
             except Exception as exc:
@@ -984,17 +988,17 @@ def handle_file_view(
             if plugin is None or sev_dir is None:
                 warn("Plugin metadata not available - cannot display finding info")
                 continue
-            _display_finding_preview(plugin, plugin_file, sev_dir, chosen)
+            _display_finding_preview(plugin, finding, sev_dir, chosen)
             continue
 
         # Handle Finding Details action
         if action_choice in ("d", "details"):
-            if plugin_file is None:
+            if finding is None:
                 warn("Database not available - cannot display finding details")
                 continue
 
             # Generate and display plugin output details
-            details_text = _build_plugin_output_details(plugin_file, plugin)
+            details_text = _build_plugin_output_details(finding, plugin)
 
             if details_text:
                 menu_pager(details_text)
@@ -1023,7 +1027,7 @@ def handle_file_view(
             return
 
         # Check if plugin_file is available (database mode)
-        if plugin_file is None:
+        if finding is None:
             warn("Database not available - cannot view file contents")
             continue
 
@@ -1041,14 +1045,14 @@ def handle_file_view(
 
         # Default to grouped
         if format_choice in ("", "g", "grouped"):
-            text = _grouped_paged_text(plugin_file, plugin)
-            payload = _grouped_payload_text(plugin_file)
+            text = _grouped_paged_text(finding, plugin)
+            payload = _grouped_payload_text(finding)
         elif format_choice in ("h", "hosts", "hosts-only"):
-            text = _hosts_only_paged_text(plugin_file, plugin)
-            payload = _hosts_only_payload_text(plugin_file)
+            text = _hosts_only_paged_text(finding, plugin)
+            payload = _hosts_only_payload_text(finding)
         elif format_choice in ("r", "raw"):
-            text = _file_raw_paged_text(plugin_file, plugin)
-            payload = _file_raw_payload_text(plugin_file)
+            text = _file_raw_paged_text(finding, plugin)
+            payload = _file_raw_payload_text(finding)
         else:
             warn("Invalid format choice.")
             continue
@@ -1585,7 +1589,7 @@ def run_tool_workflow(
 
 def _display_finding_preview(
     plugin: "Plugin",
-    plugin_file: Optional["PluginFile"],
+    finding: Optional["Finding"],
     sev_dir: Path,
     chosen: Path,
 ) -> None:
@@ -1593,7 +1597,7 @@ def _display_finding_preview(
 
     Args:
         plugin: Plugin metadata object
-        plugin_file: PluginFile database object (None if database not available)
+        finding: Finding database object (None if database not available)
         sev_dir: Severity directory path
         chosen: File path (for URL extraction)
     """
@@ -1601,8 +1605,8 @@ def _display_finding_preview(
     from rich.panel import Panel
 
     # Get hosts and ports from database
-    if plugin_file is not None:
-        hosts, ports_str = plugin_file.get_hosts_and_ports()
+    if finding is not None:
+        hosts, ports_str = finding.get_hosts_and_ports()
     else:
         # Fallback to file reading if database not available
         lines = read_text_lines(chosen)
@@ -1671,7 +1675,7 @@ def _display_finding_preview(
 def process_single_file(
     chosen: Path,
     plugin: "Plugin",
-    plugin_file: Optional["PluginFile"],
+    finding: Optional["Finding"],
     scan_dir: Path,
     sev_dir: Path,
     args: types.SimpleNamespace,
@@ -1688,7 +1692,7 @@ def process_single_file(
     Args:
         chosen: Selected plugin file
         plugin: Plugin metadata object
-        plugin_file: PluginFile database object (None if database not available)
+        finding: Finding database object (None if database not available)
         scan_dir: Scan directory
         sev_dir: Severity directory
         args: Command-line arguments
@@ -1700,8 +1704,8 @@ def process_single_file(
         workflow_mapper: Optional workflow mapper for plugin workflows
     """
     # Get hosts and ports from database instead of reading file
-    if plugin_file is not None:
-        hosts, ports_str = plugin_file.get_hosts_and_ports()
+    if finding is not None:
+        hosts, ports_str = finding.get_hosts_and_ports()
     else:
         # Fallback to file reading if database not available (backward compatibility)
         lines = read_text_lines(chosen)
@@ -1717,7 +1721,7 @@ def process_single_file(
         return
 
     # Display finding preview panel
-    _display_finding_preview(plugin, plugin_file, sev_dir, chosen)
+    _display_finding_preview(plugin, finding, sev_dir, chosen)
 
     # Extract plugin URL for handle_file_view
     plugin_url = None
@@ -1732,7 +1736,7 @@ def process_single_file(
     # View file and handle actions
     result = handle_file_view(
         chosen,
-        plugin_file=plugin_file,
+        finding=finding,
         plugin=plugin,
         plugin_url=plugin_url,
         workflow_mapper=workflow_mapper,
@@ -1767,25 +1771,25 @@ ActionResult = Tuple[Optional[str], str, str, Optional[Tuple[int, set]], str, in
 
 def handle_file_list_actions(
     ans: str,
-    candidates: List[Any],  # List of (PluginFile, Plugin) tuples
-    page_items: List[Any],  # List of (PluginFile, Plugin) tuples
-    display: List[Any],  # List of (PluginFile, Plugin) tuples
+    candidates: List[Any],  # List of (Finding, Plugin) tuples
+    page_items: List[Any],  # List of (Finding, Plugin) tuples
+    display: List[Any],  # List of (Finding, Plugin) tuples
     file_filter: str,
     reviewed_filter: str,
     group_filter: Optional[Tuple[int, set]],
     sort_mode: str,
     page_idx: int,
     total_pages: int,
-    reviewed: List[Any],  # List of (PluginFile, Plugin) tuples
+    reviewed: List[Any],  # List of (Finding, Plugin) tuples
     sev_map: Optional[Dict[Path, Path]] = None,
-    get_counts_for: Optional[Callable[["PluginFile"], Tuple[int, str]]] = None,
+    get_counts_for: Optional[Callable[["Finding"], Tuple[int, str]]] = None,
 ) -> ActionResult:
     """
     Handle file list actions (filter, sort, navigate, group, etc.).
 
     Args:
         ans: User input command
-        candidates: Filtered candidate records (PluginFile, Plugin) tuples
+        candidates: Filtered candidate records (Finding, Plugin) tuples
         page_items: Records on current page
         display: All records to display (after sort)
         file_filter: Current file filter string
@@ -1796,7 +1800,7 @@ def handle_file_list_actions(
         total_pages: Total number of pages
         reviewed: List of reviewed records
         sev_map: Map of file to severity dir (deprecated, unused)
-        get_counts_for: Function to get host counts for a PluginFile (database-driven)
+        get_counts_for: Function to get host counts for a Finding (database-driven)
 
     Returns:
         Tuple of (action_type, file_filter, reviewed_filter,
@@ -1878,7 +1882,7 @@ def handle_file_list_actions(
             if (reviewed_filter.lower() in p.plugin_name.lower())
         ]
 
-        for idx, (plugin_file, plugin) in enumerate(filtered_reviewed, 1):
+        for idx, (finding, plugin) in enumerate(filtered_reviewed, 1):
             display_name = f"Plugin {plugin.plugin_id}: {plugin.plugin_name}"
             if sev_map:  # MSF mode with severity labels (deprecated)
                 # Get severity label from plugin metadata
@@ -1965,8 +1969,8 @@ def handle_file_list_actions(
 
             # Undo each file (lists will be regenerated on next loop)
             from mundane_pkg.fs import undo_review_complete
-            for plugin_file, plugin in files_to_undo:
-                undo_review_complete(plugin_file)
+            for finding, plugin in files_to_undo:
+                undo_review_complete(finding)
 
             return (
                 None,
@@ -2022,7 +2026,7 @@ def handle_file_list_actions(
                 page_idx,
             )
 
-        # Extract plugin info from (PluginFile, Plugin) tuples for CVE extraction
+        # Extract plugin info from (Finding, Plugin) tuples for CVE extraction
         # Pass list of (plugin_id, plugin_name) tuples instead of file paths
         plugin_info_list = [(p.plugin_id, p.plugin_name) for pf, p in candidates]
         bulk_extract_cves_for_plugins(plugin_info_list)
@@ -2080,7 +2084,7 @@ def handle_file_list_actions(
                 page_idx,
             )
 
-        # Pass (PluginFile, Plugin) tuples for database queries with plugin info
+        # Pass (Finding, Plugin) tuples for database queries with plugin info
         groups = compare_filtered(candidates)
         if groups:
             visible = min(VISIBLE_GROUPS, len(groups))
@@ -2112,7 +2116,7 @@ def handle_file_list_actions(
                 page_idx,
             )
 
-        # Pass full (PluginFile, Plugin) tuples to preserve display names
+        # Pass full (Finding, Plugin) tuples to preserve display names
         groups = analyze_inclusions(candidates)
         if groups:
             visible = min(VISIBLE_GROUPS, len(groups))
@@ -2196,7 +2200,7 @@ def browse_workflow_groups(
 
     Args:
         scan: Scan database object
-        workflow_groups: Dict mapping workflow_name -> list of (PluginFile, Plugin) tuples
+        workflow_groups: Dict mapping workflow_name -> list of (Finding, Plugin) tuples
         args: Command-line arguments
         use_sudo: Whether sudo is available
         skipped_total: List of skipped filenames
@@ -2260,7 +2264,7 @@ def browse_workflow_groups(
 
         # Extract plugin IDs from database records instead of filenames
         plugin_ids = []
-        for plugin_file, plugin in workflow_files:
+        for finding, plugin in workflow_files:
             plugin_ids.append(plugin.plugin_id)
 
         # Browse findings for this workflow using database query filtered by plugin IDs
@@ -2281,8 +2285,8 @@ def browse_workflow_groups(
 
         # Refresh workflow files from database to get updated review_state values
         # This ensures the statistics display shows current counts after marking files reviewed
-        from mundane_pkg.models import PluginFile
-        refreshed_files = PluginFile.get_by_scan_with_plugin(
+        from mundane_pkg.models import Finding
+        refreshed_files = Finding.get_by_scan_with_plugin(
             scan_id=scan.scan_id,
             plugin_ids=plugin_ids if plugin_ids else None,
         )
@@ -2326,7 +2330,7 @@ def browse_file_list(
         has_metasploit_filter: Optional filter for metasploit plugins
         plugin_ids_filter: Optional list of specific plugin IDs to include
     """
-    from mundane_pkg.models import PluginFile, Scan
+    from mundane_pkg.models import Finding, Scan
 
     file_filter = ""
     reviewed_filter = ""
@@ -2338,22 +2342,22 @@ def browse_file_list(
     # Derive scan_dir from scan object
     scan_dir = Path(scan.export_root) / scan.scan_name
 
-    def get_counts_for(plugin_file: "PluginFile") -> Tuple[int, str]:
-        """Get host/port counts from database via v_plugin_file_stats view.
+    def get_counts_for(finding: "Finding") -> Tuple[int, str]:
+        """Get host/port counts from database via v_finding_stats view.
 
         Args:
-            plugin_file: PluginFile database object
+            finding: Finding database object
 
         Returns:
-            Tuple of (host_count, ports_string) - computed from v_plugin_file_stats view
+            Tuple of (host_count, ports_string) - computed from v_finding_stats view
         """
-        # Query v_plugin_file_stats view for computed counts (schema v5+)
+        # Query v_finding_stats view for computed counts (schema v2.1.12+)
         from mundane_pkg.database import query_one, get_connection
         with get_connection() as conn:
             row = query_one(
                 conn,
-                "SELECT host_count, port_count FROM v_plugin_file_stats WHERE file_id = ?",
-                (plugin_file.file_id,)
+                "SELECT host_count, port_count FROM v_finding_stats WHERE finding_id = ?",
+                (finding.finding_id,)
             )
             if row:
                 return (row["host_count"] or 0, "")
@@ -2361,7 +2365,7 @@ def browse_file_list(
 
     while True:
         # Query database for findings with plugin info
-        all_records = PluginFile.get_by_scan_with_plugin(
+        all_records = Finding.get_by_scan_with_plugin(
             scan_id=scan.scan_id,
             severity_dir=severity_dir_filter,
             severity_dirs=severity_dirs_filter,
@@ -2494,8 +2498,8 @@ def browse_file_list(
                 task = progress.add_task(
                     "Marking findings as review complete...", total=len(candidates)
                 )
-                for plugin_file, plugin in candidates:
-                    if mark_review_complete(plugin_file):
+                for finding, plugin in candidates:
+                    if mark_review_complete(finding):
                         marked += 1
                         display_name = f"Plugin {plugin.plugin_id}: {plugin.plugin_name}"
                         completed_total.append(display_name)
@@ -2511,7 +2515,7 @@ def browse_file_list(
                 chosen_record = display[global_idx]
 
             # Extract plugin info from record
-            plugin_file, plugin = chosen_record
+            finding, plugin = chosen_record
 
             # Create synthetic path for legacy code that still uses chosen.name
             # In database-only mode, construct a name from plugin ID
@@ -2530,7 +2534,7 @@ def browse_file_list(
             process_single_file(
                 chosen_path,
                 plugin,
-                plugin_file,
+                finding,
                 scan_dir,
                 chosen_sev_dir,
                 args,
@@ -2602,7 +2606,7 @@ def show_session_statistics(
 
         # Use database if available, otherwise fall back to filesystem
         if scan_id is not None:
-            from mundane_pkg.models import PluginFile
+            from mundane_pkg.models import Finding
             from mundane_pkg.database import db_transaction, query_all
 
             # Query database for completed findings grouped by severity
@@ -2611,9 +2615,9 @@ def show_session_statistics(
                     conn,
                     """
                     SELECT p.severity_label, COUNT(*) as count
-                    FROM plugin_files pf
-                    JOIN v_plugins_with_severity p ON pf.plugin_id = p.plugin_id
-                    WHERE pf.scan_id = ? AND pf.review_state = 'completed'
+                    FROM findings f
+                    JOIN v_plugins_with_severity p ON f.plugin_id = p.plugin_id
+                    WHERE f.scan_id = ? AND f.review_state = 'completed'
                     GROUP BY p.severity_label
                     """,
                     (scan_id,)
@@ -2741,7 +2745,7 @@ def main(args: types.SimpleNamespace) -> None:
 
     # If no export_root specified, use database scan selection
     if export_root is None:
-        from mundane_pkg.models import Scan, PluginFile
+        from mundane_pkg.models import Scan, Finding
         from datetime import datetime
 
         # Outer loop for scan selection
@@ -2857,7 +2861,7 @@ def main(args: types.SimpleNamespace) -> None:
                 header(bc if bc else f"Scan: {scan_dir.name} — choose severity")
 
                 # Get severity directories from database (database-only mode)
-                severity_dir_names = PluginFile.get_severity_dirs_for_scan(selected_scan.scan_id)
+                severity_dir_names = Finding.get_severity_dirs_for_scan(selected_scan.scan_id)
                 if not severity_dir_names:
                     warn("No severity directories in this scan.")
                     break
@@ -2867,7 +2871,7 @@ def main(args: types.SimpleNamespace) -> None:
                 severities = [scan_dir / sev_name for sev_name in severity_dir_names]
 
                 # Metasploit Module virtual group (menu counts) - query from database
-                msf_files = PluginFile.get_by_scan_with_plugin(
+                msf_files = Finding.get_by_scan_with_plugin(
                     scan_id=selected_scan.scan_id,
                     has_metasploit=True
                 )
@@ -2891,7 +2895,7 @@ def main(args: types.SimpleNamespace) -> None:
                 workflow_plugin_ids = workflow_mapper.get_all_plugin_ids()
                 if workflow_plugin_ids:
                     workflow_plugin_ids_int = [int(pid) for pid in workflow_plugin_ids if pid.isdigit()]
-                    workflow_files = PluginFile.get_by_scan_with_plugin(
+                    workflow_files = Finding.get_by_scan_with_plugin(
                         scan_id=selected_scan.scan_id,
                         plugin_ids=workflow_plugin_ids_int
                     )

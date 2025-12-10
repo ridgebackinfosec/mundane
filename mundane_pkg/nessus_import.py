@@ -341,30 +341,6 @@ def _build_index_stream(
         raise
 
 
-def _write_plugin_file(
-    path: Path,
-    lines: list[str]
-) -> bool:
-    """Write plugin host list to file.
-
-    Args:
-        path: Output file path
-        lines: Host entries to write (one per line)
-
-    Returns:
-        True if file was written, False if no lines provided
-    """
-    if not lines:
-        return False
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    with path.open("w", encoding="utf-8") as fh:
-        fh.writelines(line + "\n" for line in lines)
-
-    return True
-
-
 @log_timing
 def import_nessus_file(
     nessus_file: Path,
@@ -484,7 +460,7 @@ def _write_to_database(
     """
     try:
         from .database import db_transaction, compute_file_hash
-        from .models import Scan, Plugin, PluginFile, now_iso
+        from .models import Scan, Plugin, Finding, now_iso
         from .parsing import is_ipv4, is_ipv6, detect_host_type
         import time
 
@@ -625,13 +601,13 @@ def _write_to_database(
                     else:
                         unique_hosts_for_plugin.add(host_entry)
 
-                plugin_file = PluginFile(
+                plugin_file = Finding(
                     scan_id=scan_id,
                     plugin_id=plugin_id,
                     review_state="pending"
                 )
 
-                file_id = plugin_file.save(conn)
+                finding_id = plugin_file.save(conn)
 
                 # ========== Step 6: Collect junction records for bulk insert ==========
                 junction_records = []
@@ -658,14 +634,14 @@ def _write_to_database(
                     # Get host_id from map
                     host_id = host_id_map.get(host)
                     if host_id:
-                        junction_records.append((file_id, host_id, port, plugin_output))
+                        junction_records.append((finding_id, host_id, port, plugin_output))
 
                 # Bulk insert junction records
                 if junction_records:
                     conn.executemany(
                         """
-                        INSERT OR REPLACE INTO plugin_file_hosts (
-                            file_id, host_id, port_number, plugin_output
+                        INSERT OR REPLACE INTO finding_affected_hosts (
+                            finding_id, host_id, port_number, plugin_output
                         ) VALUES (?, ?, ?, ?)
                         """,
                         junction_records

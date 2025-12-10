@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional, Union, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .models import Plugin, PluginFile
+    from .models import Plugin, Finding
 
 from rich import box
 from rich.console import Console
@@ -37,7 +37,7 @@ from .render import render_compare_tables
 _console_global = Console()
 
 @log_timing
-def compare_filtered(files: Union[list[Path], list['PluginFile'], list[tuple['PluginFile', 'Plugin']]]) -> list[list[str]]:
+def compare_filtered(files: Union[list[Path], list['Finding'], list[tuple['Finding', 'Plugin']]]) -> list[list[str]]:
     """Compare host/port combinations across multiple filtered files.
 
     Parses each file, computes intersections and unions of hosts and ports,
@@ -45,7 +45,7 @@ def compare_filtered(files: Union[list[Path], list['PluginFile'], list[tuple['Pl
     comparison tables.
 
     Args:
-        files: List of file paths, PluginFile objects, or (PluginFile, Plugin) tuples to compare
+        files: List of file paths, Finding objects, or (Finding, Plugin) tuples to compare
 
     Returns:
         List of groups where each group is a list of plugin identifiers with
@@ -59,20 +59,20 @@ def compare_filtered(files: Union[list[Path], list['PluginFile'], list[tuple['Pl
     info(f"Files compared: {len(files)}")
 
     # Detect what type of input we have
-    from .models import PluginFile, Plugin
+    from .models import Finding, Plugin
     if files and isinstance(files[0], tuple) and len(files[0]) == 2:
-        # (PluginFile, Plugin) tuples - extract PluginFiles
-        plugin_files = [pf for pf, _ in files]
+        # (Finding, Plugin) tuples - extract Findings
+        findings = [pf for pf, _ in files]
         plugins_map = {pf.plugin_id: plugin for pf, plugin in files}
         use_database = True
-    elif files and isinstance(files[0], PluginFile):
-        # Just PluginFile objects (need to query plugins separately for display)
-        plugin_files = files
+    elif files and isinstance(files[0], Finding):
+        # Just Finding objects (need to query plugins separately for display)
+        findings = files
         plugins_map = {}  # Will be populated if needed
         use_database = True
     else:
         # Path objects (legacy file-based mode)
-        plugin_files = None
+        findings = None
         use_database = False
 
     parsed = []
@@ -91,37 +91,37 @@ def compare_filtered(files: Union[list[Path], list['PluginFile'], list[tuple['Pl
             # Database mode: query all hosts/ports in a single batch
             from .database import db_transaction, query_all
 
-            file_ids = [pf.file_id for pf in plugin_files]
+            finding_ids = [pf.finding_id for pf in findings]
             with db_transaction() as conn:
                 rows = query_all(
                     conn,
                     """
                     SELECT
-                        pfh.file_id,
+                        fah.finding_id,
                         h.host_address,
-                        pfh.port_number,
+                        fah.port_number,
                         h.host_type
-                    FROM plugin_file_hosts pfh
-                    JOIN hosts h ON pfh.host_id = h.host_id
-                    WHERE pfh.file_id IN ({})
+                    FROM finding_affected_hosts fah
+                    JOIN hosts h ON fah.host_id = h.host_id
+                    WHERE fah.finding_id IN ({})
                     ORDER BY
-                        pfh.file_id,
+                        fah.finding_id,
                         CASE WHEN h.host_type = 'ipv4' THEN 0
                              WHEN h.host_type = 'ipv6' THEN 1
                              ELSE 2 END,
                         h.host_address ASC
-                    """.format(','.join('?' * len(file_ids))),
-                    file_ids
+                    """.format(','.join('?' * len(finding_ids))),
+                    finding_ids
                 )
 
-            # Group results by file_id
+            # Group results by finding_id
             hosts_by_file = defaultdict(list)
             for row in rows:
-                hosts_by_file[row['file_id']].append(row)
+                hosts_by_file[row['finding_id']].append(row)
 
-            # Process each PluginFile
-            for pf in plugin_files:
-                file_rows = hosts_by_file.get(pf.file_id, [])
+            # Process each Finding
+            for pf in findings:
+                file_rows = hosts_by_file.get(pf.finding_id, [])
 
                 # Extract hosts and ports from database rows
                 hosts = []
@@ -236,14 +236,14 @@ def compare_filtered(files: Union[list[Path], list['PluginFile'], list[tuple['Pl
 
 
 @log_timing
-def analyze_inclusions(files: Union[list[Path], list['PluginFile'], list[tuple['PluginFile', 'Plugin']]]) -> list[list[str]]:
+def analyze_inclusions(files: Union[list[Path], list['Finding'], list[tuple['Finding', 'Plugin']]]) -> list[list[str]]:
     """Analyze superset relationships across filtered files.
 
     Identifies which files are supersets of others (contain all their
     host:port combinations) and groups them accordingly.
 
     Args:
-        files: List of file paths, PluginFile objects, or (PluginFile, Plugin) tuples to analyze
+        files: List of file paths, Finding objects, or (Finding, Plugin) tuples to analyze
 
     Returns:
         List of groups where each group is [superset_name, *covered_names],
@@ -257,20 +257,20 @@ def analyze_inclusions(files: Union[list[Path], list['PluginFile'], list[tuple['
     info(f"Files analyzed: {len(files)}")
 
     # Detect what type of input we have
-    from .models import PluginFile, Plugin
+    from .models import Finding, Plugin
     if files and isinstance(files[0], tuple) and len(files[0]) == 2:
-        # (PluginFile, Plugin) tuples - extract PluginFiles
-        plugin_files = [pf for pf, _ in files]
+        # (Finding, Plugin) tuples - extract Findings
+        findings = [pf for pf, _ in files]
         plugins_map = {pf.plugin_id: plugin for pf, plugin in files}
         use_database = True
-    elif files and isinstance(files[0], PluginFile):
-        # Just PluginFile objects
-        plugin_files = files
+    elif files and isinstance(files[0], Finding):
+        # Just Finding objects
+        findings = files
         plugins_map = {}
         use_database = True
     else:
         # Path objects (legacy file-based mode)
-        plugin_files = None
+        findings = None
         use_database = False
 
     parsed = []
@@ -288,37 +288,37 @@ def analyze_inclusions(files: Union[list[Path], list['PluginFile'], list[tuple['
             # Database mode: query all hosts/ports in a single batch
             from .database import db_transaction, query_all
 
-            file_ids = [pf.file_id for pf in plugin_files]
+            finding_ids = [pf.finding_id for pf in findings]
             with db_transaction() as conn:
                 rows = query_all(
                     conn,
                     """
                     SELECT
-                        pfh.file_id,
+                        fah.finding_id,
                         h.host_address,
-                        pfh.port_number,
+                        fah.port_number,
                         h.host_type
-                    FROM plugin_file_hosts pfh
-                    JOIN hosts h ON pfh.host_id = h.host_id
-                    WHERE pfh.file_id IN ({})
+                    FROM finding_affected_hosts fah
+                    JOIN hosts h ON fah.host_id = h.host_id
+                    WHERE fah.finding_id IN ({})
                     ORDER BY
-                        pfh.file_id,
+                        fah.finding_id,
                         CASE WHEN h.host_type = 'ipv4' THEN 0
                              WHEN h.host_type = 'ipv6' THEN 1
                              ELSE 2 END,
                         h.host_address ASC
-                    """.format(','.join('?' * len(file_ids))),
-                    file_ids
+                    """.format(','.join('?' * len(finding_ids))),
+                    finding_ids
                 )
 
-            # Group results by file_id
+            # Group results by finding_id
             hosts_by_file = defaultdict(list)
             for row in rows:
-                hosts_by_file[row['file_id']].append(row)
+                hosts_by_file[row['finding_id']].append(row)
 
-            # Process each PluginFile
-            for pf in plugin_files:
-                file_rows = hosts_by_file.get(pf.file_id, [])
+            # Process each Finding
+            for pf in findings:
+                file_rows = hosts_by_file.get(pf.finding_id, [])
 
                 # Extract hosts and ports from database rows
                 hosts = []
@@ -484,8 +484,8 @@ def count_reviewed_in_scan(
     """
     # Database is required for review state tracking
     if scan_id is not None:
-        from .models import PluginFile
-        return PluginFile.count_by_scan(scan_id)
+        from .models import Finding
+        return Finding.count_by_scan(scan_id)
 
     # Fallback: count files but no review state available
     total_files = 0

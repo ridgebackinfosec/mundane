@@ -90,7 +90,7 @@ from .database import (
 from .models import (
     Scan,
     Plugin,
-    PluginFile,
+    Finding,
     ToolExecution,
     Artifact,
 )

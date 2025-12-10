@@ -169,20 +169,20 @@ class Scan:
                     s.scan_name,
                     s.created_at,
                     s.last_reviewed_at,
-                    (SELECT COUNT(DISTINCT pfh.host_id)
-                     FROM plugin_file_hosts pfh
-                     JOIN plugin_files pf2 ON pfh.file_id = pf2.file_id
-                     WHERE pf2.scan_id = s.scan_id) as unique_hosts,
-                    COUNT(DISTINCT pf.file_id) as total_findings,
+                    (SELECT COUNT(DISTINCT fah.host_id)
+                     FROM finding_affected_hosts fah
+                     JOIN findings f2 ON fah.finding_id = f2.finding_id
+                     WHERE f2.scan_id = s.scan_id) as unique_hosts,
+                    COUNT(DISTINCT f.finding_id) as total_findings,
                     SUM(CASE WHEN p.severity_int = 4 THEN 1 ELSE 0 END) as critical_count,
                     SUM(CASE WHEN p.severity_int = 3 THEN 1 ELSE 0 END) as high_count,
                     SUM(CASE WHEN p.severity_int = 2 THEN 1 ELSE 0 END) as medium_count,
                     SUM(CASE WHEN p.severity_int = 1 THEN 1 ELSE 0 END) as low_count,
                     SUM(CASE WHEN p.severity_int = 0 THEN 1 ELSE 0 END) as info_count,
-                    SUM(CASE WHEN pf.review_state = 'completed' THEN 1 ELSE 0 END) as reviewed_count
+                    SUM(CASE WHEN f.review_state = 'completed' THEN 1 ELSE 0 END) as reviewed_count
                 FROM scans s
-                LEFT JOIN plugin_files pf ON s.scan_id = pf.scan_id
-                LEFT JOIN plugins p ON pf.plugin_id = p.plugin_id
+                LEFT JOIN findings f ON s.scan_id = f.scan_id
+                LEFT JOIN plugins p ON f.plugin_id = p.plugin_id
                 GROUP BY s.scan_id, s.scan_name, s.created_at, s.last_reviewed_at
                 ORDER BY s.last_reviewed_at DESC NULLS LAST, s.created_at DESC
                 """
@@ -194,8 +194,8 @@ class Scan:
         """Delete a scan and all associated data by name.
 
         Due to CASCADE DELETE constraints, this will automatically delete:
-        - All plugin_files entries
-        - All plugin_file_hosts entries
+        - All findings entries
+        - All finding_affected_hosts entries
         - All sessions
         - All tool_executions (and their artifacts)
 
@@ -313,17 +313,17 @@ class Plugin:
             return cls.from_row(row) if row else None
 
 
-# ========== Model: PluginFile ==========
+# ========== Model: Finding ==========
 
 @dataclass
-class PluginFile:
+class Finding:
     """Represents a finding (plugin instance) for a specific scan.
 
     Streamlined in v1.9.0 - removed duplicate/unnecessary fields.
-    Updated in v2.0.8 (schema v5) - removed host_count/port_count (use v_plugin_file_stats view).
+    Updated in v2.0.8 (schema v5) - removed host_count/port_count (use v_finding_stats view).
     """
 
-    file_id: Optional[int] = None
+    finding_id: Optional[int] = None
     scan_id: int = 0
     plugin_id: int = 0
     review_state: str = "pending"  # 'pending', 'reviewed', 'completed', 'skipped'
@@ -332,17 +332,17 @@ class PluginFile:
     review_notes: Optional[str] = None
 
     @classmethod
-    def from_row(cls, row: sqlite3.Row) -> PluginFile:
-        """Create PluginFile from database row.
+    def from_row(cls, row: sqlite3.Row) -> Finding:
+        """Create Finding from database row.
 
         Args:
             row: SQLite row
 
         Returns:
-            PluginFile instance
+            Finding instance
         """
         return cls(
-            file_id=row["file_id"],
+            finding_id=row["finding_id"],
             scan_id=row["scan_id"],
             plugin_id=row["plugin_id"],
             review_state=row["review_state"],
@@ -352,20 +352,20 @@ class PluginFile:
         )
 
     def save(self, conn: Optional[sqlite3.Connection] = None) -> int:
-        """Insert or update plugin file in database.
+        """Insert or update finding in database.
 
         Args:
             conn: Database connection
 
         Returns:
-            file_id of saved record
+            finding_id of saved record
         """
         with db_transaction(conn) as c:
-            if self.file_id is None:
-                # Insert new file
+            if self.finding_id is None:
+                # Insert new finding
                 cursor = c.execute(
                     """
-                    INSERT INTO plugin_files (
+                    INSERT INTO findings (
                         scan_id, plugin_id, review_state,
                         reviewed_at, reviewed_by, review_notes
                     ) VALUES (?, ?, ?, ?, ?, ?)
@@ -373,33 +373,33 @@ class PluginFile:
                     (self.scan_id, self.plugin_id, self.review_state,
                      self.reviewed_at, self.reviewed_by, self.review_notes)
                 )
-                self.file_id = cursor.lastrowid
+                self.finding_id = cursor.lastrowid
             else:
-                # Update existing file
+                # Update existing finding
                 c.execute(
                     """
-                    UPDATE plugin_files
+                    UPDATE findings
                     SET review_state=?, reviewed_at=?, reviewed_by=?, review_notes=?
-                    WHERE file_id=?
+                    WHERE finding_id=?
                     """,
-                    (self.review_state, self.reviewed_at, self.reviewed_by, self.review_notes, self.file_id)
+                    (self.review_state, self.reviewed_at, self.reviewed_by, self.review_notes, self.finding_id)
                 )
 
-        return self.file_id
+        return self.finding_id
 
     @classmethod
-    def get_by_id(cls, file_id: int, conn: Optional[sqlite3.Connection] = None) -> Optional[PluginFile]:
-        """Retrieve plugin file by ID.
+    def get_by_id(cls, finding_id: int, conn: Optional[sqlite3.Connection] = None) -> Optional[Finding]:
+        """Retrieve finding by ID.
 
         Args:
-            file_id: Plugin file ID
+            finding_id: Finding ID
             conn: Database connection
 
         Returns:
-            PluginFile instance or None if not found
+            Finding instance or None if not found
         """
         with db_transaction(conn) as c:
-            row = query_one(c, "SELECT * FROM plugin_files WHERE file_id = ?", (file_id,))
+            row = query_one(c, "SELECT * FROM findings WHERE finding_id = ?", (finding_id,))
             return cls.from_row(row) if row else None
 
     def update_review_state(
@@ -433,8 +433,8 @@ class PluginFile:
         has_metasploit: Optional[bool] = None,
         plugin_ids: Optional[list[int]] = None,
         conn: Optional[sqlite3.Connection] = None
-    ) -> list[tuple[PluginFile, Plugin]]:
-        """Retrieve plugin files with plugin info for a scan.
+    ) -> list[tuple[Finding, Plugin]]:
+        """Retrieve findings with plugin info for a scan.
 
         Args:
             scan_id: Scan ID to filter by
@@ -447,20 +447,20 @@ class PluginFile:
             conn: Database connection
 
         Returns:
-            List of (PluginFile, Plugin) tuples
+            List of (Finding, Plugin) tuples
         """
         with db_transaction(conn) as c:
             # Build query with JOIN (use v_plugins_with_severity view to get severity_label)
             query = """
                 SELECT
-                    pf.file_id, pf.scan_id, pf.plugin_id,
-                    pf.review_state, pf.reviewed_at, pf.reviewed_by, pf.review_notes,
+                    f.finding_id, f.scan_id, f.plugin_id,
+                    f.review_state, f.reviewed_at, f.reviewed_by, f.review_notes,
                     p.plugin_id as p_plugin_id, p.plugin_name, p.severity_int, p.severity_label,
                     p.has_metasploit, p.cvss3_score, p.cvss2_score, p.cves,
                     p.plugin_url, p.metadata_fetched_at
-                FROM plugin_files pf
-                INNER JOIN v_plugins_with_severity p ON pf.plugin_id = p.plugin_id
-                WHERE pf.scan_id = ?
+                FROM findings f
+                INNER JOIN v_plugins_with_severity p ON f.plugin_id = p.plugin_id
+                WHERE f.scan_id = ?
             """
             params: list[Any] = [scan_id]
 
@@ -488,7 +488,7 @@ class PluginFile:
                     params.extend(severity_ints)
 
             if review_state is not None:
-                query += " AND pf.review_state = ?"
+                query += " AND f.review_state = ?"
                 params.append(review_state)
 
             if plugin_name_filter is not None:
@@ -501,7 +501,7 @@ class PluginFile:
 
             if plugin_ids is not None and len(plugin_ids) > 0:
                 placeholders = ",".join("?" * len(plugin_ids))
-                query += f" AND pf.plugin_id IN ({placeholders})"
+                query += f" AND f.plugin_id IN ({placeholders})"
                 params.extend(plugin_ids)
 
             # Order by plugin_id for consistent results
@@ -511,9 +511,9 @@ class PluginFile:
 
             results = []
             for row in rows:
-                # Create PluginFile from row (columns 0-6, host_count/port_count removed from query)
+                # Create Finding from row (columns 0-6, host_count/port_count removed from query)
                 plugin_file = cls(
-                    file_id=row[0],
+                    finding_id=row[0],
                     scan_id=row[1],
                     plugin_id=row[2],
                     review_state=row[3],
@@ -572,7 +572,7 @@ class PluginFile:
             # Count total files in this severity (JOIN with plugins to filter by severity_int)
             total_row = query_one(
                 c,
-                """SELECT COUNT(*) FROM plugin_files pf
+                """SELECT COUNT(*) FROM findings pf
                    JOIN plugins p ON pf.plugin_id = p.plugin_id
                    WHERE pf.scan_id = ? AND p.severity_int = ?""",
                 (scan_id, severity_int)
@@ -582,7 +582,7 @@ class PluginFile:
             # Count reviewed files (review_state = 'completed')
             reviewed_row = query_one(
                 c,
-                """SELECT COUNT(*) FROM plugin_files pf
+                """SELECT COUNT(*) FROM findings pf
                    JOIN plugins p ON pf.plugin_id = p.plugin_id
                    WHERE pf.scan_id = ? AND p.severity_int = ? AND pf.review_state = 'completed'""",
                 (scan_id, severity_int)
@@ -614,7 +614,7 @@ class PluginFile:
             # Count total files
             total_row = query_one(
                 c,
-                "SELECT COUNT(*) FROM plugin_files WHERE scan_id = ?",
+                "SELECT COUNT(*) FROM findings WHERE scan_id = ?",
                 (scan_id,)
             )
             total_count = total_row[0] if total_row else 0
@@ -622,7 +622,7 @@ class PluginFile:
             # Count reviewed files (review_state = 'completed')
             reviewed_row = query_one(
                 c,
-                "SELECT COUNT(*) FROM plugin_files WHERE scan_id = ? AND review_state = 'completed'",
+                "SELECT COUNT(*) FROM findings WHERE scan_id = ? AND review_state = 'completed'",
                 (scan_id,)
             )
             reviewed_count = reviewed_row[0] if reviewed_row else 0
@@ -652,7 +652,7 @@ class PluginFile:
                 c,
                 """
                 SELECT DISTINCT p.severity_int, p.severity_label
-                FROM plugin_files pf
+                FROM findings pf
                 JOIN v_plugins_with_severity p ON pf.plugin_id = p.plugin_id
                 WHERE pf.scan_id = ?
                 ORDER BY p.severity_int DESC
@@ -668,8 +668,8 @@ class PluginFile:
     def get_hosts_and_ports(self, conn: Optional[sqlite3.Connection] = None) -> tuple[list[str], str]:
         """Retrieve hosts and formatted port string from database.
 
-        Queries the plugin_file_hosts table to get all host:port combinations
-        for this plugin file. Returns data in the same format as parse_hosts_ports()
+        Queries the finding_affected_hosts table to get all host:port combinations
+        for this finding. Returns data in the same format as parse_hosts_ports()
         for backward compatibility.
 
         Args:
@@ -679,8 +679,8 @@ class PluginFile:
             Tuple of (unique_hosts_list, comma_separated_ports_string)
             Example: (["192.168.1.1", "192.168.1.2"], "80,443,8080")
         """
-        if self.file_id is None:
-            log_error("Cannot get hosts for unsaved PluginFile (file_id is None)")
+        if self.finding_id is None:
+            log_error("Cannot get hosts for unsaved Finding (finding_id is None)")
             return [], ""
 
         with db_transaction(conn) as c:
@@ -690,18 +690,18 @@ class PluginFile:
                 """
                 SELECT
                     h.host_address,
-                    pfh.port_number,
+                    fah.port_number,
                     h.host_type
-                FROM plugin_file_hosts pfh
-                JOIN hosts h ON pfh.host_id = h.host_id
-                WHERE pfh.file_id = ?
+                FROM finding_affected_hosts fah
+                JOIN hosts h ON fah.host_id = h.host_id
+                WHERE fah.finding_id = ?
                 ORDER BY
                     CASE WHEN h.host_type = 'ipv4' THEN 0
                          WHEN h.host_type = 'ipv6' THEN 1
                          ELSE 2 END,
                     h.host_address ASC
                 """,
-                (self.file_id,)
+                (self.finding_id,)
             )
 
             if not rows:
@@ -733,7 +733,7 @@ class PluginFile:
     def get_all_host_port_lines(self, conn: Optional[sqlite3.Connection] = None) -> list[str]:
         """Retrieve all host:port combinations as formatted lines.
 
-        Queries the plugin_file_hosts table and returns each entry as a
+        Queries the finding_affected_hosts table and returns each entry as a
         "host:port" string, matching the format of plugin file contents.
 
         Args:
@@ -743,8 +743,8 @@ class PluginFile:
             List of "host:port" strings, sorted (IPs first, then hostnames)
             Example: ["192.168.1.1:80", "192.168.1.1:443", "example.com:80"]
         """
-        if self.file_id is None:
-            log_error("Cannot get host:port lines for unsaved PluginFile (file_id is None)")
+        if self.finding_id is None:
+            log_error("Cannot get host:port lines for unsaved Finding (finding_id is None)")
             return []
 
         with db_transaction(conn) as c:
@@ -754,19 +754,19 @@ class PluginFile:
                 """
                 SELECT
                     h.host_address,
-                    pfh.port_number,
+                    fah.port_number,
                     h.host_type
-                FROM plugin_file_hosts pfh
-                JOIN hosts h ON pfh.host_id = h.host_id
-                WHERE pfh.file_id = ?
+                FROM finding_affected_hosts fah
+                JOIN hosts h ON fah.host_id = h.host_id
+                WHERE fah.finding_id = ?
                 ORDER BY
                     CASE WHEN h.host_type = 'ipv4' THEN 0
                          WHEN h.host_type = 'ipv6' THEN 1
                          ELSE 2 END,
                     h.host_address ASC,
-                    pfh.port_number ASC
+                    fah.port_number ASC
                 """,
-                (self.file_id,)
+                (self.finding_id,)
             )
 
             if not rows:
@@ -798,7 +798,7 @@ class PluginFile:
     ) -> list[tuple[str, Optional[int], Optional[str]]]:
         """Retrieve all plugin outputs grouped by host:port.
 
-        Queries the plugin_file_hosts table and returns plugin output for each
+        Queries the finding_affected_hosts table and returns plugin output for each
         host:port combination. Used by the Finding Details UI action.
 
         Args:
@@ -812,8 +812,8 @@ class PluginFile:
                 ("example.com", 80, None)  # No plugin output for this host
             ]
         """
-        if self.file_id is None:
-            log_error("Cannot get plugin outputs for unsaved PluginFile (file_id is None)")
+        if self.finding_id is None:
+            log_error("Cannot get plugin outputs for unsaved Finding (finding_id is None)")
             return []
 
         with db_transaction(conn) as c:
@@ -823,19 +823,19 @@ class PluginFile:
                 """
                 SELECT
                     h.host_address,
-                    pfh.port_number,
-                    pfh.plugin_output
-                FROM plugin_file_hosts pfh
-                JOIN hosts h ON pfh.host_id = h.host_id
-                WHERE pfh.file_id = ?
+                    fah.port_number,
+                    fah.plugin_output
+                FROM finding_affected_hosts fah
+                JOIN hosts h ON fah.host_id = h.host_id
+                WHERE fah.finding_id = ?
                 ORDER BY
                     CASE WHEN h.host_type = 'ipv4' THEN 0
                          WHEN h.host_type = 'ipv6' THEN 1
                          ELSE 2 END,
                     h.host_address ASC,
-                    pfh.port_number ASC
+                    fah.port_number ASC
                 """,
-                (self.file_id,)
+                (self.finding_id,)
             )
 
             if not rows:
@@ -853,7 +853,7 @@ class ToolExecution:
 
     execution_id: Optional[int] = None
     session_id: Optional[int] = None
-    file_id: Optional[int] = None
+    finding_id: Optional[int] = None
     tool_name: str = ""
     tool_protocol: Optional[str] = None
     command_text: str = ""
@@ -882,7 +882,7 @@ class ToolExecution:
         return cls(
             execution_id=row["execution_id"],
             session_id=row["session_id"],
-            file_id=row["file_id"],
+            finding_id=row["finding_id"],
             tool_name=row["tool_name"],
             tool_protocol=row["tool_protocol"],
             command_text=row["command_text"],
@@ -913,12 +913,12 @@ class ToolExecution:
                 cursor = c.execute(
                     """
                     INSERT INTO tool_executions (
-                        session_id, file_id, tool_name, tool_protocol, command_text,
+                        session_id, finding_id, tool_name, tool_protocol, command_text,
                         command_args, executed_at, exit_code, duration_seconds,
                         host_count, sampled, ports, used_sudo
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (self.session_id, self.file_id, self.tool_name, self.tool_protocol,
+                    (self.session_id, self.finding_id, self.tool_name, self.tool_protocol,
                      self.command_text, cmd_args_json, self.executed_at or now_iso(),
                      self.exit_code, self.duration_seconds, self.host_count,
                      self.sampled, self.ports, self.used_sudo)
@@ -1359,13 +1359,13 @@ class Host:
                     h.host_type,
                     h.first_seen,
                     h.last_seen,
-                    COUNT(DISTINCT pfh.file_id) as finding_count,
-                    COUNT(DISTINCT pf.scan_id) as scan_count,
+                    COUNT(DISTINCT fah.finding_id) as finding_count,
+                    COUNT(DISTINCT f.scan_id) as scan_count,
                     MAX(p.severity_int) as max_severity
                 FROM hosts h
-                LEFT JOIN plugin_file_hosts pfh ON h.host_id = pfh.host_id
-                LEFT JOIN plugin_files pf ON pfh.file_id = pf.file_id
-                LEFT JOIN plugins p ON pf.plugin_id = p.plugin_id
+                LEFT JOIN finding_affected_hosts fah ON h.host_id = fah.host_id
+                LEFT JOIN findings f ON fah.finding_id = f.finding_id
+                LEFT JOIN plugins p ON f.plugin_id = p.plugin_id
                 GROUP BY h.host_id
                 ORDER BY finding_count DESC
             """)

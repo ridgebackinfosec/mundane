@@ -186,8 +186,8 @@ jobs:
         echo "=== Wheel contents ==="
         unzip -l dist/*.whl | grep mundane_pkg
         echo ""
-        echo "=== Checking for migrations subpackage ==="
-        unzip -l dist/*.whl | grep "mundane_pkg/migrations" || (echo "ERROR: migrations subpackage not found in wheel!" && exit 1)
+        echo "=== Verifying mundane_pkg is included ==="
+        unzip -l dist/*.whl | grep "mundane_pkg/__init__.py" || (echo "ERROR: mundane_pkg not found in wheel!" && exit 1)
 
     - name: Install from wheel
       run: |
@@ -196,8 +196,8 @@ jobs:
     - name: Test imports
       run: |
         python -c "import mundane_pkg"
-        python -c "from mundane_pkg import __version__"
-        python -c "from mundane_pkg.migrations import get_all_migrations; print(f'Found {len(get_all_migrations())} migrations')"
+        python -c "from mundane_pkg import __version__; print(f'Version: {__version__}')"
+        python -c "from mundane_pkg.database import initialize_database; print('Database module imported successfully')"
 
     - name: Smoke test CLI
       run: |

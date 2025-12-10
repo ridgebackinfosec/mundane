@@ -1732,7 +1732,7 @@ def process_single_file(
     # View file and handle actions
     result = handle_file_view(
         chosen,
-        plugin_file=finding,
+        finding=finding,
         plugin=plugin,
         plugin_url=plugin_url,
         workflow_mapper=workflow_mapper,

@@ -74,45 +74,6 @@ def temp_dir() -> Generator[Path, None, None]:
 
 
 @pytest.fixture
-def sample_scan_dir(temp_dir: Path) -> Path:
-    """Create a sample scan directory structure.
-
-    Args:
-        temp_dir: Temporary directory fixture
-
-    Returns:
-        Path: Root scan directory with subdirectories
-    """
-    scan_dir = temp_dir / "test_scan"
-    scan_dir.mkdir()
-
-    # Create severity directories
-    for sev in ["0_Critical", "1_High", "2_Medium", "3_Low", "4_Info"]:
-        (scan_dir / sev).mkdir()
-
-    return scan_dir
-
-
-@pytest.fixture
-def sample_plugin_file(sample_scan_dir: Path) -> Path:
-    """Create a sample plugin file with hosts.
-
-    Args:
-        sample_scan_dir: Sample scan directory fixture
-
-    Returns:
-        Path: Path to created plugin file
-    """
-    plugin_file = sample_scan_dir / "2_Medium" / "12345_Test_Plugin.txt"
-    content = """192.168.1.1:80
-192.168.1.2:443
-10.0.0.1:22
-"""
-    plugin_file.write_text(content)
-    return plugin_file
-
-
-@pytest.fixture
 def goad_nessus_fixture() -> Path:
     """Get path to GOAD.nessus test fixture.
 
@@ -123,23 +84,6 @@ def goad_nessus_fixture() -> Path:
     if not fixture_path.exists():
         pytest.skip("GOAD.nessus fixture not found")
     return fixture_path
-
-
-@pytest.fixture
-def mock_session_state():
-    """Create a mock session state for testing.
-
-    Returns:
-        dict: Mock session state dictionary
-    """
-    return {
-        "scan_dir": "/tmp/test_scan",
-        "reviewed": ["file1.txt", "file2.txt"],
-        "completed": ["file3.txt"],
-        "skipped": ["file4.txt"],
-        "tool_used": False,
-        "session_start": "2024-01-01T12:00:00",
-    }
 
 
 @pytest.fixture

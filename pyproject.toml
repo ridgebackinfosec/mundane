@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mundane"
-version = "2.2.0"
+version = "2.2.1"
 description = "Modern CLI for Nessus findings review and security tool orchestration"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -44,7 +44,6 @@ dev = [
     "pytest-cov>=4.0",
     "pytest-mock>=3.10",
     "pytest-timeout>=2.1",
-    "pytest-monitor>=1.6",
     "black>=23.0",
     "mypy>=1.0",
 ]

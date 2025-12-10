@@ -32,7 +32,7 @@ def read_text_lines(path: Path) -> list[str]:
 
     .. deprecated:: 1.8.19
         This function is part of the legacy file-based architecture.
-        Database-only mode uses PluginFile.get_all_host_port_lines() instead.
+        Database-only mode uses Finding.get_all_host_port_lines() instead.
         This function is kept as a fallback but should not be used for new code.
 
     Args:
@@ -90,7 +90,7 @@ def list_dirs(directory: Path) -> list[Path]:
 
     .. deprecated:: 1.8.19
         This function is part of the legacy file-based architecture.
-        Database-only mode uses PluginFile.get_severity_dirs_for_scan() instead.
+        Database-only mode uses Finding.get_severity_dirs_for_scan() instead.
         This function is kept as a fallback but should not be used for new code.
 
     Args:
@@ -108,7 +108,7 @@ def mark_review_complete(plugin_file, plugin=None) -> bool:
     """Mark a file as review complete in the database.
 
     Args:
-        plugin_file: PluginFile object to mark as completed
+        plugin_file: Finding object to mark as completed
         plugin: Optional Plugin object for display name
 
     Returns:
@@ -144,7 +144,7 @@ def undo_review_complete(plugin_file, plugin=None) -> bool:
     """Remove review complete status from the database.
 
     Args:
-        plugin_file: PluginFile object to mark as pending
+        plugin_file: Finding object to mark as pending
         plugin: Optional Plugin object for display name
 
     Returns:
@@ -224,7 +224,7 @@ def list_files(directory: Path) -> list[Path]:
 
     .. deprecated:: 1.8.19
         This function is part of the legacy file-based architecture.
-        Database-only mode uses PluginFile.query_by_scan() instead.
+        Database-only mode uses Finding.query_by_scan() instead.
         This function is kept as a fallback but should not be used for new code.
 
     Args:

@@ -294,7 +294,7 @@ Mundane uses a **fully normalized database architecture** with SQLite as the sou
 **Key design principles**:
 - Database is source of truth for review state, host:port data, session state
 - File browsing queries database directly (no filesystem walks during review)
-- Review state tracked in `plugin_files.review_state` column, synchronized to filename prefixes
+- Review state tracked in `findings.review_state` column, synchronized to filename prefixes
 - CVEs cached in `plugins.cves` JSON column after fetching from Tenable
 - **NEW in v2.x**: Normalized host/port tables enable cross-scan tracking
 - **NEW in v2.x**: SQL views compute statistics on-demand (no redundant cached data)
@@ -305,7 +305,7 @@ Mundane uses a **fully normalized database architecture** with SQLite as the sou
 mundane.py                  # Main entry point (Typer CLI commands)
 mundane_pkg/
   ├── database.py          # SQLite connection, schema, transactions
-  ├── models.py            # ORM models (Scan, Plugin, PluginFile, Session, ToolExecution, Artifact)
+  ├── models.py            # ORM models (Scan, Plugin, Finding, Session, ToolExecution, Artifact)
   ├── nessus_import.py     # .nessus XML parsing and database import
   ├── parsing.py           # Host:port parsing (canonical parser, ParsedHostsPorts model)
   ├── analysis.py          # Cross-file comparison, superset analysis
@@ -325,7 +325,7 @@ mundane_pkg/
 
 ### Core Data Flow
 
-1. **Import**: `.nessus` XML → `nessus_import.py` → SQLite (`scans`, `plugins`, `plugin_files`, `plugin_file_hosts`)
+1. **Import**: `.nessus` XML → `nessus_import.py` → SQLite (`scans`, `plugins`, `findings`, `finding_affected_hosts`)
 2. **Review**: Database query → `render.py` tables → User actions → Update `review_state` column
 3. **Tools**: TUI menu → `tools.py` → Execute command → `tool_executions` + `artifacts` tables
 4. **Session**: Auto-save to `sessions` table (start time, duration, statistics)
@@ -360,9 +360,9 @@ mundane_pkg/
 - `scans`: Top-level scan metadata (scan_name, export_root, .nessus hash)
 - `plugins`: Plugin metadata (plugin_id, severity_int, CVSS, CVEs, Metasploit modules)
   - **REMOVED in v2.x**: `severity_label` column (now in `severity_levels` table)
-- `plugin_files`: Findings per scan (scan_id + plugin_id, review_state)
-  - **REMOVED in v2.x**: `host_count`, `port_count` (computed via `v_plugin_file_stats` view)
-- `plugin_file_hosts`: Host:port combinations (file_id, host_id FK, port_number FK, plugin_output)
+- `findings`: Findings per scan (scan_id + plugin_id, review_state)
+  - **REMOVED in v2.x**: `host_count`, `port_count` (computed via `v_finding_stats` view)
+- `finding_affected_hosts`: Host:port combinations (finding_id, host_id FK, port_number FK, plugin_output)
   - **CHANGED in v2.x**: `host`/`port` columns → foreign keys to normalized tables
 - `sessions`: Review session tracking (start time, end time)
   - **REMOVED in v2.x**: cached statistics (computed via `v_session_stats` view)
@@ -372,7 +372,7 @@ mundane_pkg/
 - `workflow_executions`: Custom workflow tracking
 
 **SQL Views** (Computed Statistics):
-- `v_plugin_file_stats`: Host/port counts per finding (replaces cached columns)
+- `v_finding_stats`: Host/port counts per finding (replaces cached columns)
 - `v_session_stats`: Session duration and statistics (replaces cached columns)
 - `v_plugins_with_severity`: Plugins with severity labels (replaces `severity_label` column)
 - `v_host_findings`: Cross-scan host analysis (NEW capability in v2.x)
@@ -453,7 +453,7 @@ Version is defined in `pyproject.toml:project.version` (single source of truth).
 
 **States**: `pending`, `reviewed`, `completed`, `skipped`
 
-**Database-first**: Update `plugin_files.review_state` column → Sync to filename prefix (`[R]`, `[X]`, `[S]`).
+**Database-first**: Update `findings.review_state` column → Sync to filename prefix (`[R]`, `[X]`, `[S]`).
 
 **Reversible**: Press `[U]` to undo review-complete (multi-select support).
 

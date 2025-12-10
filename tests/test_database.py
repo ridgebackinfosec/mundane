@@ -135,8 +135,8 @@ class TestSchemaInitialization:
         expected_tables = [
             "scans",
             "plugins",
-            "plugin_files",
-            "plugin_file_hosts",
+            "findings",
+            "finding_affected_hosts",
             "sessions",
             "tool_executions",
             "artifacts",
@@ -167,8 +167,8 @@ class TestSchemaInitialization:
 class TestForeignKeyConstraints:
     """Tests for foreign key constraint enforcement."""
 
-    def test_cascade_delete_plugin_files(self, temp_db):
-        """Test that deleting scan cascades to plugin_files."""
+    def test_cascade_delete_findings(self, temp_db):
+        """Test that deleting scan cascades to findings."""
         # Insert scan
         cursor = temp_db.execute(
             "INSERT INTO scans (scan_name, export_root) VALUES (?, ?)",
@@ -184,7 +184,7 @@ class TestForeignKeyConstraints:
 
         # Insert plugin file
         temp_db.execute(
-            """INSERT INTO plugin_files (scan_id, plugin_id)
+            """INSERT INTO findings (scan_id, plugin_id)
                VALUES (?, ?)""",
             (scan_id, 12345)
         )
@@ -196,7 +196,7 @@ class TestForeignKeyConstraints:
         temp_db.commit()
 
         # Plugin files should be deleted
-        cursor = temp_db.execute("SELECT COUNT(*) as count FROM plugin_files")
+        cursor = temp_db.execute("SELECT COUNT(*) as count FROM findings")
         result = cursor.fetchone()
         assert result["count"] == 0
 
@@ -204,7 +204,7 @@ class TestForeignKeyConstraints:
         """Test that invalid foreign keys are rejected."""
         with pytest.raises(sqlite3.IntegrityError):
             temp_db.execute(
-                """INSERT INTO plugin_files (scan_id, plugin_id)
+                """INSERT INTO findings (scan_id, plugin_id)
                    VALUES (?, ?)""",
                 (9999, 12345)  # scan_id 9999 doesn't exist
             )

@@ -16,7 +16,7 @@ class SessionState:
     Represents the state of a mundane review session.
 
     In database-only mode, file lists are replaced with counts queried
-    from the plugin_files table review_state field.
+    from the findings table review_state field.
 
     Attributes:
         scan_name: Name of the scan (for display)
@@ -77,7 +77,7 @@ def load_session(scan_id: int) -> Optional[SessionState]:
     Load active session state from database.
 
     Queries the database for the most recent active session (session_end IS NULL)
-    and retrieves file counts by querying the plugin_files review_state field.
+    and retrieves file counts by querying the findings review_state field.
 
     Args:
         scan_id: Scan ID

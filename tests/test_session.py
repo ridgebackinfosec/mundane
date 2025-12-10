@@ -88,7 +88,7 @@ class TestSaveSession:
 
     def test_save_session_basic(self, temp_db):
         """Test basic session save to database."""
-        from mundane_pkg.models import Scan, Plugin, PluginFile
+        from mundane_pkg.models import Scan, Plugin, Finding
 
         # Create scan in database
         scan = Scan(scan_name="test_scan", export_root="/tmp")
@@ -104,7 +104,7 @@ class TestSaveSession:
         for i in range(2):
             plugin = Plugin(plugin_id=1000+i, plugin_name=f"Test{i}", severity_int=3)
             plugin.save(temp_db)
-            pf = PluginFile(
+            pf = Finding(
                 scan_id=scan_id,
                 plugin_id=1000+i,
                 review_state="reviewed",
@@ -115,7 +115,7 @@ class TestSaveSession:
         # Create 1 completed file
         plugin = Plugin(plugin_id=1002, plugin_name="Test2", severity_int=3)
         plugin.save(temp_db)
-        pf = PluginFile(
+        pf = Finding(
             scan_id=scan_id,
             plugin_id=1002,
             review_state="completed",
@@ -126,7 +126,7 @@ class TestSaveSession:
         # Create 1 skipped file
         plugin = Plugin(plugin_id=1003, plugin_name="Test3", severity_int=3)
         plugin.save(temp_db)
-        pf = PluginFile(
+        pf = Finding(
             scan_id=scan_id,
             plugin_id=1003,
             review_state="skipped",
@@ -134,7 +134,7 @@ class TestSaveSession:
         )
         pf.save(temp_db)
 
-        # Save session (counts are now computed from plugin_files, not stored)
+        # Save session (counts are now computed from findings, not stored)
         session_id = save_session(
             scan_id=scan_id,
             session_start=session_start,
@@ -189,7 +189,7 @@ class TestSaveSession:
 
     def test_save_session_updates_existing_session(self, temp_db):
         """Test that save_session updates existing active session."""
-        from mundane_pkg.models import Scan, Plugin, PluginFile
+        from mundane_pkg.models import Scan, Plugin, Finding
 
         # Create scan
         scan = Scan(scan_name="test_scan", export_root="/tmp")
@@ -214,7 +214,7 @@ class TestSaveSession:
         for i in range(3):
             plugin = Plugin(plugin_id=2000+i, plugin_name=f"Test{i}", severity_int=3)
             plugin.save(temp_db)
-            pf = PluginFile(
+            pf = Finding(
                 scan_id=scan_id,
                 plugin_id=2000+i,
                 review_state="reviewed",
@@ -226,7 +226,7 @@ class TestSaveSession:
         for i in range(2):
             plugin = Plugin(plugin_id=2010+i, plugin_name=f"Complete{i}", severity_int=3)
             plugin.save(temp_db)
-            pf = PluginFile(
+            pf = Finding(
                 scan_id=scan_id,
                 plugin_id=2010+i,
                 review_state="completed",
@@ -304,7 +304,7 @@ class TestLoadSession:
 
     def test_load_session_success(self, temp_db):
         """Test loading active session from database."""
-        from mundane_pkg.models import Scan, Plugin, PluginFile
+        from mundane_pkg.models import Scan, Plugin, Finding
 
         # Create scan
         scan = Scan(scan_name="test_scan", export_root="/tmp")
@@ -315,13 +315,13 @@ class TestLoadSession:
         review_time = (session_start + __import__('datetime').timedelta(minutes=5)).isoformat()
 
         # Create plugins and files to match expected counts
-        # Need unique plugin_id for each PluginFile due to UNIQUE(scan_id, plugin_id)
+        # Need unique plugin_id for each Finding due to UNIQUE(scan_id, plugin_id)
 
         # Create 2 reviewed files
         for i in range(2):
             plugin = Plugin(plugin_id=1001+i, plugin_name=f"Test{i}", severity_int=3)
             plugin.save(temp_db)
-            pf = PluginFile(
+            pf = Finding(
                 scan_id=scan_id,
                 plugin_id=1001+i,
                 review_state="reviewed",
@@ -332,7 +332,7 @@ class TestLoadSession:
         # Create 1 completed file
         plugin = Plugin(plugin_id=1003, plugin_name="Test3", severity_int=3)
         plugin.save(temp_db)
-        pf = PluginFile(
+        pf = Finding(
             scan_id=scan_id,
             plugin_id=1003,
             review_state="completed",
@@ -343,7 +343,7 @@ class TestLoadSession:
         # Create 1 skipped file
         plugin = Plugin(plugin_id=1004, plugin_name="Test4", severity_int=3)
         plugin.save(temp_db)
-        pf = PluginFile(
+        pf = Finding(
             scan_id=scan_id,
             plugin_id=1004,
             review_state="skipped",
@@ -362,7 +362,7 @@ class TestLoadSession:
             cve_extractions=2
         )
 
-        # Load session - counts should come from actual plugin_files review_state
+        # Load session - counts should come from actual findings review_state
         state = load_session(scan_id)
 
         assert state is not None
@@ -402,9 +402,9 @@ class TestLoadSession:
         state = load_session(scan_id)
         assert state is None
 
-    def test_load_session_with_plugin_files(self, temp_db):
-        """Test that load_session aggregates review states from plugin_files."""
-        from mundane_pkg.models import Scan, Plugin, PluginFile
+    def test_load_session_with_findings(self, temp_db):
+        """Test that load_session aggregates review states from findings."""
+        from mundane_pkg.models import Scan, Plugin, Finding
 
         # Create scan
         scan = Scan(scan_name="test_scan", export_root="/tmp")
@@ -415,11 +415,11 @@ class TestLoadSession:
         review_time = (session_start + __import__('datetime').timedelta(minutes=5)).isoformat()
 
         # Create plugins and plugin files with different review states
-        # Need unique plugin_id for each PluginFile due to UNIQUE(scan_id, plugin_id)
+        # Need unique plugin_id for each Finding due to UNIQUE(scan_id, plugin_id)
 
         plugin1 = Plugin(plugin_id=1001, plugin_name="Test Plugin 1", severity_int=3)
         plugin1.save(temp_db)
-        pf1 = PluginFile(
+        pf1 = Finding(
             scan_id=scan_id,
             plugin_id=1001,
             review_state="reviewed",
@@ -429,7 +429,7 @@ class TestLoadSession:
 
         plugin2 = Plugin(plugin_id=1002, plugin_name="Test Plugin 2", severity_int=3)
         plugin2.save(temp_db)
-        pf2 = PluginFile(
+        pf2 = Finding(
             scan_id=scan_id,
             plugin_id=1002,
             review_state="completed",
@@ -439,7 +439,7 @@ class TestLoadSession:
 
         plugin3 = Plugin(plugin_id=1003, plugin_name="Test Plugin 3", severity_int=3)
         plugin3.save(temp_db)
-        pf3 = PluginFile(
+        pf3 = Finding(
             scan_id=scan_id,
             plugin_id=1003,
             review_state="skipped",
@@ -450,7 +450,7 @@ class TestLoadSession:
         # Create session
         save_session(scan_id=scan_id, session_start=session_start, tool_executions=3)
 
-        # Load session - should aggregate from plugin_files
+        # Load session - should aggregate from findings
         state = load_session(scan_id)
 
         assert state is not None
@@ -535,13 +535,13 @@ class TestSessionLifecycle:
 
     def test_complete_session_lifecycle(self, temp_db):
         """Test complete session lifecycle: save → load → update → delete."""
-        from mundane_pkg.models import Scan, Plugin, PluginFile
+        from mundane_pkg.models import Scan, Plugin, Finding
 
         # Create scan
         scan = Scan(scan_name="lifecycle_scan", export_root="/tmp")
         scan_id = scan.save(temp_db)
 
-        # Create plugins - need unique plugin_id for each PluginFile due to UNIQUE(scan_id, plugin_id)
+        # Create plugins - need unique plugin_id for each Finding due to UNIQUE(scan_id, plugin_id)
         for i in range(1, 7):
             plugin = Plugin(plugin_id=1000+i, plugin_name=f"Test{i}", severity_int=3)
             plugin.save(temp_db)
@@ -550,7 +550,7 @@ class TestSessionLifecycle:
         review_time = (session_start + __import__('datetime').timedelta(minutes=5)).isoformat()
 
         # 1. Create initial session with 1 reviewed file
-        pf1 = PluginFile(
+        pf1 = Finding(
             scan_id=scan_id,
             plugin_id=1001,
             review_state="reviewed",
@@ -575,7 +575,7 @@ class TestSessionLifecycle:
         # tool_executions will be 0 since we didn't create tool_executions records
 
         # 3. Update: add more files with different review states
-        pf2 = PluginFile(
+        pf2 = Finding(
             scan_id=scan_id,
             plugin_id=1002,
             review_state="reviewed",
@@ -583,7 +583,7 @@ class TestSessionLifecycle:
         )
         pf2.save(temp_db)
 
-        pf3 = PluginFile(
+        pf3 = Finding(
             scan_id=scan_id,
             plugin_id=1003,
             review_state="reviewed",
@@ -591,7 +591,7 @@ class TestSessionLifecycle:
         )
         pf3.save(temp_db)
 
-        pf4 = PluginFile(
+        pf4 = Finding(
             scan_id=scan_id,
             plugin_id=1004,
             review_state="completed",
@@ -599,7 +599,7 @@ class TestSessionLifecycle:
         )
         pf4.save(temp_db)
 
-        pf5 = PluginFile(
+        pf5 = Finding(
             scan_id=scan_id,
             plugin_id=1005,
             review_state="completed",
@@ -607,7 +607,7 @@ class TestSessionLifecycle:
         )
         pf5.save(temp_db)
 
-        pf6 = PluginFile(
+        pf6 = Finding(
             scan_id=scan_id,
             plugin_id=1006,
             review_state="skipped",
@@ -626,7 +626,7 @@ class TestSessionLifecycle:
             cve_extractions=3
         )
 
-        # 4. Load updated session - counts from plugin_files
+        # 4. Load updated session - counts from findings
         state = load_session(scan_id)
         assert state is not None
         assert state.reviewed_count == 3

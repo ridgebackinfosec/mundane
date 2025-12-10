@@ -298,9 +298,9 @@ def _log_tool_execution_impl(
         from .database import query_one
         from .models import ToolExecution, now_iso
 
-        # Determine session_id and file_id
+        # Determine session_id and finding_id
         session_id = None
-        file_id = None
+        finding_id = None
 
         if scan_dir and scan_dir.exists():
             # Try to find active session
@@ -319,14 +319,14 @@ def _log_tool_execution_impl(
             if row:
                 session_id = row["session_id"]
 
-        # Note: file_id is optional and can remain None
+        # Note: finding_id is optional and can remain None
         # In v1.9.0+, file_path is no longer stored in database
         # Tool executions are still tracked, just not linked to specific findings
 
         # Create tool execution record
         tool_exec = ToolExecution(
             session_id=session_id,
-            file_id=file_id,
+            finding_id=finding_id,
             tool_name=tool_name,
             tool_protocol=tool_protocol,
             command_text=command_text,

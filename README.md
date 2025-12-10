@@ -424,8 +424,8 @@ Mundane includes an **integrated SQLite database** that automatically tracks sca
 The database maintains comprehensive records of:
 
 - **Scans**: Export metadata (scan name, export directory, timestamp)
-- **Plugins**: Vulnerability findings (plugin ID, name, severity, CVSS scores)
-- **Plugin Files**: Individual plugin host list files (file paths, line counts)
+- **Plugins**: Vulnerability definitions (plugin ID, name, severity, CVSS scores)
+- **Findings**: Individual vulnerability findings per scan (review state, affected hosts/ports)
 - **Sessions**: Review session state (start time, completed files, progress)
 - **Tool Executions**: Commands run during reviews (tool name, command text, exit codes, execution duration)
 - **Artifacts**: Generated files from tool runs (file paths, SHA256 hashes, file sizes)
@@ -556,7 +556,7 @@ cat {TCP_IPS} | xargs -I{} sh -c 'echo {}; nmap -Pn -p {PORTS} {}'
 
 Mundane prioritizes the SQLite database for all operations, minimizing filesystem dependencies:
 
-- **File browsing**: Queries database directly using `Scan → PluginFiles → Plugins` relationships
+- **File browsing**: Queries database directly using `Scan → Findings → Plugins` relationships
   - Eliminates filesystem walks during review
   - No per-file database lookups (single JOIN query)
   - All metadata available immediately from database

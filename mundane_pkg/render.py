@@ -195,9 +195,9 @@ def render_file_list_table(
     """Render a paginated file list table with plugin info from database.
 
     Args:
-        display: List of (PluginFile, Plugin) tuples to display on this page
+        display: List of (Finding, Plugin) tuples to display on this page
         sort_mode: Current sort mode ("hosts", "name", or "plugin_id")
-        get_counts_for: Function to get (host_count, ports_str) for a PluginFile object
+        get_counts_for: Function to get (host_count, ports_str) for a Finding object
         row_offset: Starting row number for pagination
         show_severity: Whether to show severity column (for MSF mode)
     """
@@ -531,9 +531,9 @@ def count_severity_files(
     """
     # Database is required for review state tracking
     if scan_id is not None:
-        from .models import PluginFile
+        from .models import Finding
         severity_dir_name = directory.name
-        return PluginFile.count_by_scan_severity(scan_id, severity_dir_name)
+        return Finding.count_by_scan_severity(scan_id, severity_dir_name)
 
     # Fallback: count files but no review state available
     files = [f for f in list_files(directory) if f.suffix.lower() == ".txt"]

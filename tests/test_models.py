@@ -8,7 +8,7 @@ import pytest
 from mundane_pkg.models import (
     Scan,
     Plugin,
-    PluginFile,
+    Finding,
     ToolExecution,
     Artifact,
     now_iso,
@@ -205,10 +205,10 @@ class TestPluginModel:
         assert retrieved.cves == ["CVE-2024-0001"]
 
 
-class TestPluginFileModel:
-    """Tests for PluginFile model."""
+class TestFindingModel:
+    """Tests for Finding model."""
 
-    def test_plugin_file_save_creates_record(self, temp_db):
+    def test_finding_save_creates_record(self, temp_db):
         """Test saving a new plugin file."""
         # Create dependencies
         scan = Scan(scan_name="test_scan", export_root="/tmp")
@@ -218,18 +218,18 @@ class TestPluginFileModel:
         plugin.save(temp_db)
 
         # Create plugin file (host_count removed in schema v5)
-        pf = PluginFile(
+        pf = Finding(
             scan_id=scan_id,
             plugin_id=12345
         )
 
-        file_id = pf.save(temp_db)
+        finding_id = pf.save(temp_db)
 
-        assert file_id is not None
-        assert file_id > 0
+        assert finding_id is not None
+        assert finding_id > 0
 
     @pytest.mark.skip(reason="file_path column removed in v1.9.0 schema optimization")
-    def test_plugin_file_get_by_path(self, temp_db):
+    def test_finding_get_by_path(self, temp_db):
         """Test retrieving plugin file by path."""
         # Setup
         scan = Scan(scan_name="test_scan", export_root="/tmp")
@@ -237,19 +237,19 @@ class TestPluginFileModel:
         plugin = Plugin(plugin_id=12345, plugin_name="Test", severity_int=2)
         plugin.save(temp_db)
 
-        pf = PluginFile(
+        pf = Finding(
             scan_id=scan_id,
             plugin_id=12345,
         )
         pf.save(temp_db)
 
         # Retrieve
-        retrieved = PluginFile.get_by_path("/tmp/test/plugin.txt", temp_db)
+        retrieved = Finding.get_by_path("/tmp/test/plugin.txt", temp_db)
 
         assert retrieved is not None
         assert retrieved.file_path == "/tmp/test/plugin.txt"
 
-    def test_plugin_file_update_review_state(self, temp_db):
+    def test_finding_update_review_state(self, temp_db):
         """Test updating plugin file review state."""
         # Setup
         scan = Scan(scan_name="test_scan", export_root="/tmp")
@@ -257,36 +257,36 @@ class TestPluginFileModel:
         plugin = Plugin(plugin_id=12345, plugin_name="Test", severity_int=2)
         plugin.save(temp_db)
 
-        pf = PluginFile(
+        pf = Finding(
             scan_id=scan_id,
             plugin_id=12345,
             review_state="pending"
         )
-        file_id = pf.save(temp_db)
+        finding_id = pf.save(temp_db)
 
         # Update review state
-        pf.file_id = file_id
+        pf.finding_id = finding_id
         pf.update_review_state("completed", notes="All fixed", conn=temp_db)
 
         # Verify
-        retrieved = PluginFile.get_by_id(file_id, temp_db)
+        retrieved = Finding.get_by_id(finding_id, temp_db)
         assert retrieved.review_state == "completed"
         assert retrieved.reviewed_at is not None
 
-    def test_plugin_file_default_review_state(self, temp_db):
+    def test_finding_default_review_state(self, temp_db):
         """Test default review state is 'pending'."""
         scan = Scan(scan_name="test_scan", export_root="/tmp")
         scan_id = scan.save(temp_db)
         plugin = Plugin(plugin_id=12345, plugin_name="Test", severity_int=2)
         plugin.save(temp_db)
 
-        pf = PluginFile(
+        pf = Finding(
             scan_id=scan_id,
             plugin_id=12345,
         )
-        file_id = pf.save(temp_db)
+        finding_id = pf.save(temp_db)
 
-        retrieved = PluginFile.get_by_id(file_id, temp_db)
+        retrieved = Finding.get_by_id(finding_id, temp_db)
         assert retrieved.review_state == "pending"
 
     def test_get_severity_dirs_for_scan_empty(self, temp_db):
@@ -296,7 +296,7 @@ class TestPluginFileModel:
         scan_id = scan.save(temp_db)
 
         # Query severity directories
-        severity_dirs = PluginFile.get_severity_dirs_for_scan(scan_id, temp_db)
+        severity_dirs = Finding.get_severity_dirs_for_scan(scan_id, temp_db)
 
         assert severity_dirs == []
 
@@ -317,32 +317,32 @@ class TestPluginFileModel:
         plugin4.save(temp_db)
 
         # Create plugin files with severity directories
-        pf1 = PluginFile(
+        pf1 = Finding(
             scan_id=scan_id,
             plugin_id=1001,
         )
         pf1.save(temp_db)
 
-        pf2 = PluginFile(
+        pf2 = Finding(
             scan_id=scan_id,
             plugin_id=1002,
         )
         pf2.save(temp_db)
 
-        pf3 = PluginFile(
+        pf3 = Finding(
             scan_id=scan_id,
             plugin_id=1003,
         )
         pf3.save(temp_db)
 
-        pf4 = PluginFile(
+        pf4 = Finding(
             scan_id=scan_id,
             plugin_id=1004,
         )
         pf4.save(temp_db)
 
         # Query severity directories
-        severity_dirs = PluginFile.get_severity_dirs_for_scan(scan_id, temp_db)
+        severity_dirs = Finding.get_severity_dirs_for_scan(scan_id, temp_db)
 
         # Should be sorted from highest to lowest severity
         assert severity_dirs == ["4_Critical", "3_High", "2_Medium", "0_Info"]
@@ -359,20 +359,20 @@ class TestPluginFileModel:
         plugin.save(temp_db)
 
         # Create multiple plugin files with same severity
-        pf1 = PluginFile(
+        pf1 = Finding(
             scan_id=scan_id,
             plugin_id=1001,
         )
         pf1.save(temp_db)
 
-        pf2 = PluginFile(
+        pf2 = Finding(
             scan_id=scan_id,
             plugin_id=1001,
         )
         pf2.save(temp_db)
 
         # Query severity directories
-        severity_dirs = PluginFile.get_severity_dirs_for_scan(scan_id, temp_db)
+        severity_dirs = Finding.get_severity_dirs_for_scan(scan_id, temp_db)
 
         # Should only return one instance of "3_High"
         assert severity_dirs == ["3_High"]
@@ -385,12 +385,12 @@ class TestPluginFileModel:
         plugin = Plugin(plugin_id=12345, plugin_name="Test", severity_int=2)
         plugin.save(temp_db)
 
-        pf = PluginFile(
+        pf = Finding(
             scan_id=scan_id,
             plugin_id=12345,
         )
-        file_id = pf.save(temp_db)
-        pf.file_id = file_id
+        finding_id = pf.save(temp_db)
+        pf.finding_id = finding_id
 
         # Query hosts
         hosts, ports_str = pf.get_hosts_and_ports(temp_db)
@@ -406,43 +406,43 @@ class TestPluginFileModel:
         plugin = Plugin(plugin_id=12345, plugin_name="Test", severity_int=2)
         plugin.save(temp_db)
 
-        pf = PluginFile(
+        pf = Finding(
             scan_id=scan_id,
             plugin_id=12345
         )
-        file_id = pf.save(temp_db)
-        pf.file_id = file_id
+        finding_id = pf.save(temp_db)
+        pf.finding_id = finding_id
 
-        # Insert test data into plugin_file_hosts using normalized schema
+        # Insert test data into finding_affected_hosts using normalized schema
         from mundane_pkg.models import Host, Port
 
         # Insert 192.168.1.1:80
         host_id_1 = Host.get_or_create("192.168.1.1", "ipv4", conn=temp_db)
         port_id_80 = Port.get_or_create(80, conn=temp_db)
         temp_db.execute(
-            "INSERT INTO plugin_file_hosts (file_id, host_id, port_number, plugin_output) VALUES (?, ?, ?, ?)",
-            (file_id, host_id_1, port_id_80, None)
+            "INSERT INTO finding_affected_hosts (finding_id, host_id, port_number, plugin_output) VALUES (?, ?, ?, ?)",
+            (finding_id, host_id_1, port_id_80, None)
         )
 
         # Insert 192.168.1.1:443
         port_id_443 = Port.get_or_create(443, conn=temp_db)
         temp_db.execute(
-            "INSERT INTO plugin_file_hosts (file_id, host_id, port_number, plugin_output) VALUES (?, ?, ?, ?)",
-            (file_id, host_id_1, port_id_443, None)
+            "INSERT INTO finding_affected_hosts (finding_id, host_id, port_number, plugin_output) VALUES (?, ?, ?, ?)",
+            (finding_id, host_id_1, port_id_443, None)
         )
 
         # Insert 192.168.1.2:80
         host_id_2 = Host.get_or_create("192.168.1.2", "ipv4", conn=temp_db)
         temp_db.execute(
-            "INSERT INTO plugin_file_hosts (file_id, host_id, port_number, plugin_output) VALUES (?, ?, ?, ?)",
-            (file_id, host_id_2, port_id_80, None)
+            "INSERT INTO finding_affected_hosts (finding_id, host_id, port_number, plugin_output) VALUES (?, ?, ?, ?)",
+            (finding_id, host_id_2, port_id_80, None)
         )
 
         # Insert example.com:443
         host_id_3 = Host.get_or_create("example.com", "hostname", conn=temp_db)
         temp_db.execute(
-            "INSERT INTO plugin_file_hosts (file_id, host_id, port_number, plugin_output) VALUES (?, ?, ?, ?)",
-            (file_id, host_id_3, port_id_443, None)
+            "INSERT INTO finding_affected_hosts (finding_id, host_id, port_number, plugin_output) VALUES (?, ?, ?, ?)",
+            (finding_id, host_id_3, port_id_443, None)
         )
         temp_db.commit()
 
@@ -471,12 +471,12 @@ class TestPluginFileModel:
         plugin = Plugin(plugin_id=12345, plugin_name="Test", severity_int=2)
         plugin.save(temp_db)
 
-        pf = PluginFile(
+        pf = Finding(
             scan_id=scan_id,
             plugin_id=12345,
         )
-        file_id = pf.save(temp_db)
-        pf.file_id = file_id
+        finding_id = pf.save(temp_db)
+        pf.finding_id = finding_id
 
         # Insert IPv6 data using normalized schema
         from mundane_pkg.models import Host, Port
@@ -485,15 +485,15 @@ class TestPluginFileModel:
         host_id_ipv6 = Host.get_or_create("2001:db8::1", "ipv6", conn=temp_db)
         port_id_80 = Port.get_or_create(80, conn=temp_db)
         temp_db.execute(
-            "INSERT INTO plugin_file_hosts (file_id, host_id, port_number, plugin_output) VALUES (?, ?, ?, ?)",
-            (file_id, host_id_ipv6, port_id_80, None)
+            "INSERT INTO finding_affected_hosts (finding_id, host_id, port_number, plugin_output) VALUES (?, ?, ?, ?)",
+            (finding_id, host_id_ipv6, port_id_80, None)
         )
 
         # Insert 192.168.1.1:80 (IPv4)
         host_id_ipv4 = Host.get_or_create("192.168.1.1", "ipv4", conn=temp_db)
         temp_db.execute(
-            "INSERT INTO plugin_file_hosts (file_id, host_id, port_number, plugin_output) VALUES (?, ?, ?, ?)",
-            (file_id, host_id_ipv4, port_id_80, None)
+            "INSERT INTO finding_affected_hosts (finding_id, host_id, port_number, plugin_output) VALUES (?, ?, ?, ?)",
+            (finding_id, host_id_ipv4, port_id_80, None)
         )
         temp_db.commit()
 
@@ -514,12 +514,12 @@ class TestPluginFileModel:
         plugin = Plugin(plugin_id=12345, plugin_name="Test", severity_int=2)
         plugin.save(temp_db)
 
-        pf = PluginFile(
+        pf = Finding(
             scan_id=scan_id,
             plugin_id=12345,
         )
-        file_id = pf.save(temp_db)
-        pf.file_id = file_id
+        finding_id = pf.save(temp_db)
+        pf.finding_id = finding_id
 
         # Query lines
         lines = pf.get_all_host_port_lines(temp_db)
@@ -534,12 +534,12 @@ class TestPluginFileModel:
         plugin = Plugin(plugin_id=12345, plugin_name="Test", severity_int=2)
         plugin.save(temp_db)
 
-        pf = PluginFile(
+        pf = Finding(
             scan_id=scan_id,
             plugin_id=12345,
         )
-        file_id = pf.save(temp_db)
-        pf.file_id = file_id
+        finding_id = pf.save(temp_db)
+        pf.finding_id = finding_id
 
         # Insert test data using normalized schema
         from mundane_pkg.models import Host, Port
@@ -548,22 +548,22 @@ class TestPluginFileModel:
         host_id_1 = Host.get_or_create("192.168.1.1", "ipv4", conn=temp_db)
         port_id_80 = Port.get_or_create(80, conn=temp_db)
         temp_db.execute(
-            "INSERT INTO plugin_file_hosts (file_id, host_id, port_number, plugin_output) VALUES (?, ?, ?, ?)",
-            (file_id, host_id_1, port_id_80, None)
+            "INSERT INTO finding_affected_hosts (finding_id, host_id, port_number, plugin_output) VALUES (?, ?, ?, ?)",
+            (finding_id, host_id_1, port_id_80, None)
         )
 
         # Insert 192.168.1.1:443
         port_id_443 = Port.get_or_create(443, conn=temp_db)
         temp_db.execute(
-            "INSERT INTO plugin_file_hosts (file_id, host_id, port_number, plugin_output) VALUES (?, ?, ?, ?)",
-            (file_id, host_id_1, port_id_443, None)
+            "INSERT INTO finding_affected_hosts (finding_id, host_id, port_number, plugin_output) VALUES (?, ?, ?, ?)",
+            (finding_id, host_id_1, port_id_443, None)
         )
 
         # Insert example.com:80
         host_id_2 = Host.get_or_create("example.com", "hostname", conn=temp_db)
         temp_db.execute(
-            "INSERT INTO plugin_file_hosts (file_id, host_id, port_number, plugin_output) VALUES (?, ?, ?, ?)",
-            (file_id, host_id_2, port_id_80, None)
+            "INSERT INTO finding_affected_hosts (finding_id, host_id, port_number, plugin_output) VALUES (?, ?, ?, ?)",
+            (finding_id, host_id_2, port_id_80, None)
         )
         temp_db.commit()
 
@@ -589,12 +589,12 @@ class TestPluginFileModel:
         plugin = Plugin(plugin_id=12345, plugin_name="Test", severity_int=2)
         plugin.save(temp_db)
 
-        pf = PluginFile(
+        pf = Finding(
             scan_id=scan_id,
             plugin_id=12345,
         )
-        file_id = pf.save(temp_db)
-        pf.file_id = file_id
+        finding_id = pf.save(temp_db)
+        pf.finding_id = finding_id
 
         # Insert IPv6 data using normalized schema
         from mundane_pkg.models import Host, Port
@@ -603,8 +603,8 @@ class TestPluginFileModel:
         host_id = Host.get_or_create("2001:db8::1", "ipv6", conn=temp_db)
         port_id = Port.get_or_create(80, conn=temp_db)
         temp_db.execute(
-            "INSERT INTO plugin_file_hosts (file_id, host_id, port_number, plugin_output) VALUES (?, ?, ?, ?)",
-            (file_id, host_id, port_id, None)
+            "INSERT INTO finding_affected_hosts (finding_id, host_id, port_number, plugin_output) VALUES (?, ?, ?, ?)",
+            (finding_id, host_id, port_id, None)
         )
         temp_db.commit()
 
@@ -623,12 +623,12 @@ class TestPluginFileModel:
         plugin = Plugin(plugin_id=12345, plugin_name="Test", severity_int=2)
         plugin.save(temp_db)
 
-        pf = PluginFile(
+        pf = Finding(
             scan_id=scan_id,
             plugin_id=12345,
         )
-        file_id = pf.save(temp_db)
-        pf.file_id = file_id
+        finding_id = pf.save(temp_db)
+        pf.finding_id = finding_id
 
         # Insert data without port using normalized schema
         from mundane_pkg.models import Host
@@ -636,8 +636,8 @@ class TestPluginFileModel:
         # Insert 192.168.1.1 with no port
         host_id = Host.get_or_create("192.168.1.1", "ipv4", conn=temp_db)
         temp_db.execute(
-            "INSERT INTO plugin_file_hosts (file_id, host_id, port_number, plugin_output) VALUES (?, ?, ?, ?)",
-            (file_id, host_id, None, None)
+            "INSERT INTO finding_affected_hosts (finding_id, host_id, port_number, plugin_output) VALUES (?, ?, ?, ?)",
+            (finding_id, host_id, None, None)
         )
         temp_db.commit()
 
@@ -648,9 +648,9 @@ class TestPluginFileModel:
         assert len(lines) == 1
         assert lines[0] == "192.168.1.1"
 
-    def test_get_hosts_and_ports_no_file_id(self, temp_db):
-        """Test get_hosts_and_ports handles unsaved PluginFile gracefully."""
-        pf = PluginFile()  # No file_id
+    def test_get_hosts_and_ports_no_finding_id(self, temp_db):
+        """Test get_hosts_and_ports handles unsaved Finding gracefully."""
+        pf = Finding()  # No finding_id
 
         hosts, ports_str = pf.get_hosts_and_ports(temp_db)
 
@@ -658,9 +658,9 @@ class TestPluginFileModel:
         assert hosts == []
         assert ports_str == ""
 
-    def test_get_all_host_port_lines_no_file_id(self, temp_db):
-        """Test get_all_host_port_lines handles unsaved PluginFile gracefully."""
-        pf = PluginFile()  # No file_id
+    def test_get_all_host_port_lines_no_finding_id(self, temp_db):
+        """Test get_all_host_port_lines handles unsaved Finding gracefully."""
+        pf = Finding()  # No finding_id
 
         lines = pf.get_all_host_port_lines(temp_db)
 
@@ -861,14 +861,14 @@ class TestModelRelationships:
     @pytest.mark.integration
     def test_delete_scan_cascades_to_files(self, temp_db):
         """Test deleting scan removes plugin files."""
-        # Create chain: scan -> plugin -> plugin_file
+        # Create chain: scan -> plugin -> finding
         scan = Scan(scan_name="test_scan", export_root="/tmp")
         scan_id = scan.save(temp_db)
 
         plugin = Plugin(plugin_id=12345, plugin_name="Test", severity_int=2)
         plugin.save(temp_db)
 
-        pf = PluginFile(
+        pf = Finding(
             scan_id=scan_id,
             plugin_id=12345,
         )
@@ -879,7 +879,7 @@ class TestModelRelationships:
         temp_db.commit()
 
         # Plugin file should be gone
-        cursor = temp_db.execute("SELECT COUNT(*) as count FROM plugin_files")
+        cursor = temp_db.execute("SELECT COUNT(*) as count FROM findings")
         assert cursor.fetchone()["count"] == 0
 
     @pytest.mark.integration

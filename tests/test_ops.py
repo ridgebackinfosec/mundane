@@ -176,7 +176,7 @@ class TestLogToolExecution:
     @pytest.mark.skip(reason="v1.9.0: file_path column removed, cannot link executions by path")
     def test_log_execution_with_file_link(self, temp_db, temp_dir):
         """Test logging execution linked to a plugin file."""
-        from mundane_pkg.models import Scan, Plugin, PluginFile
+        from mundane_pkg.models import Scan, Plugin, Finding
 
         # Create dependencies
         scan = Scan(scan_name="test_scan", export_root="/tmp/test")
@@ -188,7 +188,7 @@ class TestLogToolExecution:
         file_path = temp_dir / "test_plugin.txt"
         file_path.write_text("192.168.1.1:80\n")
 
-        pf = PluginFile(
+        pf = Finding(
             scan_id=scan_id,
             plugin_id=12345
         )
@@ -213,11 +213,11 @@ class TestLogToolExecution:
 
         # Verify link
         cursor = temp_db.execute(
-            "SELECT file_id FROM tool_executions WHERE execution_id = ?",
+            "SELECT finding_id FROM tool_executions WHERE execution_id = ?",
             (execution_id,)
         )
         row = cursor.fetchone()
-        assert row["file_id"] is not None
+        assert row["finding_id"] is not None
 
 
 class TestLogArtifact:

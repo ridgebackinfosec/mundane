@@ -97,7 +97,7 @@ def parse_file_hosts_ports_detailed(
 
     .. deprecated:: 1.8.19
         This function is part of the legacy file-based architecture.
-        Database-only mode queries plugin_file_hosts table instead.
+        Database-only mode queries finding_affected_hosts table instead.
         This function is kept as a fallback for file-based operations
         but should not be used for new code.
 
@@ -255,7 +255,7 @@ def parse_for_overview(
 
     .. deprecated:: 1.8.19
         This function is part of the legacy file-based architecture.
-        Database-only mode uses PluginFile.get_hosts_and_ports() instead.
+        Database-only mode uses Finding.get_hosts_and_ports() instead.
         This function is not currently used and may be removed in a future version.
 
     Args:
@@ -436,19 +436,19 @@ def group_files_by_workflow(files: list[tuple[Any, Any]], workflow_mapper: "Work
     Group files by their workflow name.
 
     Args:
-        files: List of (PluginFile, Plugin) tuples from database query
+        files: List of (Finding, Plugin) tuples from database query
         workflow_mapper: WorkflowMapper instance
 
     Returns:
-        Dict mapping workflow_name -> list of (PluginFile, Plugin) tuples
+        Dict mapping workflow_name -> list of (Finding, Plugin) tuples
         Files without workflows are excluded.
 
     Example:
         >>> # With database tuples:
-        >>> files = [(PluginFile(...), Plugin(...)), ...]
+        >>> files = [(Finding(...), Plugin(...)), ...]
         >>> groups = group_files_by_workflow(files, mapper)
         >>> groups
-        {"SMB Signing Not Required": [(PluginFile(...), Plugin(...)), ...], ...}
+        {"SMB Signing Not Required": [(Finding(...), Plugin(...)), ...], ...}
     """
     from collections import defaultdict
 

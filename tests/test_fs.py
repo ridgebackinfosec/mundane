@@ -245,7 +245,7 @@ class TestRenameReviewComplete:
 
     def test_rename_review_complete_with_db_update(self, temp_dir, temp_db):
         """Test that database is updated on rename."""
-        from mundane_pkg.models import Scan, Plugin, PluginFile
+        from mundane_pkg.models import Scan, Plugin, Finding
 
         # Create database entries
         scan = Scan(scan_name="test_scan", export_root=str(temp_dir))
@@ -257,8 +257,8 @@ class TestRenameReviewComplete:
         test_file = temp_dir / "test.txt"
         test_file.write_text("content")
 
-        # Create PluginFile entry with resolved path
-        pf = PluginFile(
+        # Create Finding entry with resolved path
+        pf = Finding(
             scan_id=scan_id,
             plugin_id=12345,
             file_path=str(test_file.resolve())
@@ -306,7 +306,7 @@ class TestUndoReviewComplete:
 
     def test_undo_review_complete_with_db_update(self, temp_dir, temp_db):
         """Test that database is updated on undo."""
-        from mundane_pkg.models import Scan, Plugin, PluginFile
+        from mundane_pkg.models import Scan, Plugin, Finding
 
         # Create database entries
         scan = Scan(scan_name="test_scan", export_root=str(temp_dir))
@@ -318,7 +318,7 @@ class TestUndoReviewComplete:
         test_file = temp_dir / f"{REVIEW_PREFIX}test.txt"
         test_file.write_text("content")
 
-        pf = PluginFile(
+        pf = Finding(
             scan_id=scan_id,
             plugin_id=12345,
             file_path=str(test_file.resolve()),

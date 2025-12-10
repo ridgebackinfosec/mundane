@@ -286,7 +286,7 @@ class TestNessusImport:
         assert result.plugins_exported > 0
 
         # Check database records were created
-        from mundane_pkg.models import Scan, PluginFile
+        from mundane_pkg.models import Scan, Finding
         scan = Scan.get_by_name(result.scan_name, temp_db)
         assert scan is not None
         assert scan.scan_name == result.scan_name
@@ -300,14 +300,14 @@ class TestNessusImport:
             sev_dir = f"{sev_int}_{sev_label}"
 
             # Query plugin files for this severity
-            sev_files = PluginFile.get_by_scan_with_plugin(
+            sev_files = Finding.get_by_scan_with_plugin(
                 scan.scan_id, temp_db, severity_dirs=[sev_dir]
             )
             assert len(sev_files) > 0
 
     @pytest.mark.skip(reason="File-based export deprecated; database-only mode now")
     @pytest.mark.integration
-    def test_export_creates_plugin_files(self, minimal_nessus_fixture, temp_dir):
+    def test_export_creates_findings(self, minimal_nessus_fixture, temp_dir):
         """Test that plugin files are created."""
         result = import_nessus_file(
             minimal_nessus_fixture,
@@ -532,12 +532,12 @@ class TestNessusImportDatabaseIntegration:
         assert plugin_count == result.plugins_exported
 
         # Verify plugin files were inserted
-        cursor = temp_db.execute("SELECT COUNT(*) as count FROM plugin_files")
+        cursor = temp_db.execute("SELECT COUNT(*) as count FROM findings")
         file_count = cursor.fetchone()["count"]
         assert file_count == result.plugins_exported
 
         # Verify hosts were inserted
-        cursor = temp_db.execute("SELECT COUNT(*) as count FROM plugin_file_hosts")
+        cursor = temp_db.execute("SELECT COUNT(*) as count FROM finding_affected_hosts")
         host_count = cursor.fetchone()["count"]
         assert host_count > 0
 

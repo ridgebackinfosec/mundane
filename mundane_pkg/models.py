@@ -179,10 +179,10 @@ class Scan:
                     SUM(CASE WHEN p.severity_int = 2 THEN 1 ELSE 0 END) as medium_count,
                     SUM(CASE WHEN p.severity_int = 1 THEN 1 ELSE 0 END) as low_count,
                     SUM(CASE WHEN p.severity_int = 0 THEN 1 ELSE 0 END) as info_count,
-                    SUM(CASE WHEN pf.review_state = 'completed' THEN 1 ELSE 0 END) as reviewed_count
+                    SUM(CASE WHEN f.review_state = 'completed' THEN 1 ELSE 0 END) as reviewed_count
                 FROM scans s
-                LEFT JOIN findings f ON s.scan_id = pf.scan_id
-                LEFT JOIN plugins p ON pf.plugin_id = p.plugin_id
+                LEFT JOIN findings f ON s.scan_id = f.scan_id
+                LEFT JOIN plugins p ON f.plugin_id = p.plugin_id
                 GROUP BY s.scan_id, s.scan_name, s.created_at, s.last_reviewed_at
                 ORDER BY s.last_reviewed_at DESC NULLS LAST, s.created_at DESC
                 """
@@ -584,7 +584,7 @@ class Finding:
                 c,
                 """SELECT COUNT(*) FROM findings pf
                    JOIN plugins p ON pf.plugin_id = p.plugin_id
-                   WHERE pf.scan_id = ? AND p.severity_int = ? AND f.review_state = 'completed'""",
+                   WHERE pf.scan_id = ? AND p.severity_int = ? AND pf.review_state = 'completed'""",
                 (scan_id, severity_int)
             )
             reviewed_count = reviewed_row[0] if reviewed_row else 0
@@ -1360,12 +1360,12 @@ class Host:
                     h.first_seen,
                     h.last_seen,
                     COUNT(DISTINCT fah.finding_id) as finding_count,
-                    COUNT(DISTINCT pf.scan_id) as scan_count,
+                    COUNT(DISTINCT f.scan_id) as scan_count,
                     MAX(p.severity_int) as max_severity
                 FROM hosts h
                 LEFT JOIN finding_affected_hosts fah ON h.host_id = fah.host_id
                 LEFT JOIN findings f ON fah.finding_id = f.finding_id
-                LEFT JOIN plugins p ON pf.plugin_id = p.plugin_id
+                LEFT JOIN plugins p ON f.plugin_id = p.plugin_id
                 GROUP BY h.host_id
                 ORDER BY finding_count DESC
             """)

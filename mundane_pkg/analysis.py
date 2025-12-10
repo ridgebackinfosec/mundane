@@ -114,10 +114,10 @@ def compare_filtered(files: Union[list[Path], list['Finding'], list[tuple['Findi
                     finding_ids
                 )
 
-            # Group results by file_id
+            # Group results by finding_id
             hosts_by_file = defaultdict(list)
             for row in rows:
-                hosts_by_file[row['file_id']].append(row)
+                hosts_by_file[row['finding_id']].append(row)
 
             # Process each Finding
             for pf in findings:
@@ -311,10 +311,10 @@ def analyze_inclusions(files: Union[list[Path], list['Finding'], list[tuple['Fin
                     finding_ids
                 )
 
-            # Group results by file_id
+            # Group results by finding_id
             hosts_by_file = defaultdict(list)
             for row in rows:
-                hosts_by_file[row['file_id']].append(row)
+                hosts_by_file[row['finding_id']].append(row)
 
             # Process each Finding
             for pf in findings:

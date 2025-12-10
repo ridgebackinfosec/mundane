@@ -161,7 +161,7 @@ CREATE TABLE IF NOT EXISTS findings (
 
     -- REMOVED in v2.x: host_count, port_count, file_path, severity_dir,
     --                  file_created_at, file_modified_at, last_parsed_at
-    -- Use v_plugin_file_stats view to get host/port counts
+    -- Use v_finding_stats view to get host/port counts
 
     FOREIGN KEY (scan_id) REFERENCES scans(scan_id) ON DELETE CASCADE,
     FOREIGN KEY (plugin_id) REFERENCES plugins(plugin_id),

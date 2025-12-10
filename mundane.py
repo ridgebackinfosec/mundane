@@ -2339,21 +2339,21 @@ def browse_file_list(
     scan_dir = Path(scan.export_root) / scan.scan_name
 
     def get_counts_for(finding: "Finding") -> Tuple[int, str]:
-        """Get host/port counts from database via v_plugin_file_stats view.
+        """Get host/port counts from database via v_finding_stats view.
 
         Args:
             finding: Finding database object
 
         Returns:
-            Tuple of (host_count, ports_string) - computed from v_plugin_file_stats view
+            Tuple of (host_count, ports_string) - computed from v_finding_stats view
         """
-        # Query v_plugin_file_stats view for computed counts (schema v5+)
+        # Query v_finding_stats view for computed counts (schema v2.1.12+)
         from mundane_pkg.database import query_one, get_connection
         with get_connection() as conn:
             row = query_one(
                 conn,
-                "SELECT host_count, port_count FROM v_plugin_file_stats WHERE file_id = ?",
-                (finding.file_id,)
+                "SELECT host_count, port_count FROM v_finding_stats WHERE finding_id = ?",
+                (finding.finding_id,)
             )
             if row:
                 return (row["host_count"] or 0, "")

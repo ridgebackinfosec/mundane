@@ -172,7 +172,7 @@ class Scan:
                     (SELECT COUNT(DISTINCT fah.host_id)
                      FROM finding_affected_hosts fah
                      JOIN findings f2 ON fah.finding_id = f2.finding_id
-                     WHERE pf2.scan_id = s.scan_id) as unique_hosts,
+                     WHERE f2.scan_id = s.scan_id) as unique_hosts,
                     COUNT(DISTINCT f.finding_id) as total_findings,
                     SUM(CASE WHEN p.severity_int = 4 THEN 1 ELSE 0 END) as critical_count,
                     SUM(CASE WHEN p.severity_int = 3 THEN 1 ELSE 0 END) as high_count,

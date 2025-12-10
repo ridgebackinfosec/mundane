@@ -563,11 +563,11 @@ def show_scan_summary(
             rows = query_all(
                 conn,
                 """
-                SELECT DISTINCT h.host_address, pfh.port_number, h.host_type, pfh.file_id
-                FROM plugin_file_hosts pfh
-                JOIN plugin_files pf ON pfh.file_id = pf.file_id
-                JOIN hosts h ON pfh.host_id = h.host_id
-                WHERE pf.scan_id = ?
+                SELECT DISTINCT h.host_address, fah.port_number, h.host_type, fah.finding_id
+                FROM finding_affected_hosts fah
+                JOIN findings f ON fah.finding_id = f.finding_id
+                JOIN hosts h ON fah.host_id = h.host_id
+                WHERE f.scan_id = ?
                 """,
                 (scan_id,)
             )
@@ -576,10 +576,10 @@ def show_scan_summary(
             empty_files = query_all(
                 conn,
                 """
-                SELECT pf.file_id
-                FROM plugin_files pf
-                LEFT JOIN plugin_file_hosts pfh ON pf.file_id = pfh.file_id
-                WHERE pf.scan_id = ? AND pfh.file_id IS NULL
+                SELECT f.finding_id
+                FROM findings f
+                LEFT JOIN finding_affected_hosts fah ON f.finding_id = fah.finding_id
+                WHERE f.scan_id = ? AND fah.finding_id IS NULL
                 """,
                 (scan_id,)
             )
@@ -2611,9 +2611,9 @@ def show_session_statistics(
                     conn,
                     """
                     SELECT p.severity_label, COUNT(*) as count
-                    FROM plugin_files pf
-                    JOIN v_plugins_with_severity p ON pf.plugin_id = p.plugin_id
-                    WHERE pf.scan_id = ? AND pf.review_state = 'completed'
+                    FROM findings f
+                    JOIN v_plugins_with_severity p ON f.plugin_id = p.plugin_id
+                    WHERE f.scan_id = ? AND f.review_state = 'completed'
                     GROUP BY p.severity_label
                     """,
                     (scan_id,)

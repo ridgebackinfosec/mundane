@@ -351,7 +351,7 @@ Host:port combinations per finding - **normalized structure in v2.x**.
 **Constraints**:
 - `UNIQUE(finding_id, host_id, port_number)`
 
-**Relationships**: Belongs to one `plugin_file`, one `host`, and optionally one `port`
+**Relationships**: Belongs to one `finding`, one `host`, and optionally one `port`
 
 ---
 
@@ -454,7 +454,7 @@ Custom workflow tracking - one row per workflow execution.
 **Foreign Keys**:
 - `finding_id` → `findings.finding_id` (CASCADE DELETE)
 
-**Relationships**: Belongs to one `plugin_file`
+**Relationships**: Belongs to one `finding`
 
 ---
 
@@ -608,7 +608,7 @@ SELECT
     f.review_state
 FROM hosts h
 JOIN finding_affected_hosts fah ON h.host_id = fah.host_id
-JOIN findings pf ON fah.finding_id = f.finding_id
+JOIN findings f ON fah.finding_id = f.finding_id
 JOIN plugins p ON f.plugin_id = p.plugin_id
 JOIN severity_levels sl ON p.severity_int = sl.severity_int
 JOIN scans s ON f.scan_id = s.scan_id
@@ -649,7 +649,7 @@ SELECT
     SUM(CASE WHEN f.review_state = 'pending' THEN 1 ELSE 0 END) as pending,
     ROUND(100.0 * SUM(CASE WHEN f.review_state = 'completed' THEN 1 ELSE 0 END) / COUNT(*), 1) as completion_pct
 FROM scans s
-JOIN findings pf ON f.scan_id = s.scan_id
+JOIN findings f ON f.scan_id = s.scan_id
 GROUP BY s.scan_name
 ORDER BY completion_pct DESC;
 ```
@@ -669,7 +669,7 @@ SELECT
     COUNT(DISTINCT h.host_address) as unique_hosts
 FROM plugins p
 JOIN severity_levels sl ON p.severity_int = sl.severity_int
-JOIN findings pf ON f.plugin_id = p.plugin_id
+JOIN findings f ON f.plugin_id = p.plugin_id
 JOIN finding_affected_hosts fah ON fah.finding_id = f.finding_id
 JOIN hosts h ON fah.host_id = h.host_id
 WHERE p.severity_int = 4  -- Critical
@@ -753,16 +753,16 @@ SELECT
 FROM hosts h
 LEFT JOIN (
     SELECT fah.host_id, COUNT(DISTINCT f.plugin_id) as plugin_count
-    FROM finding_affected_hosts pfh
-    JOIN findings pf ON fah.finding_id = f.finding_id
+    FROM finding_affected_hosts fah
+    JOIN findings f ON fah.finding_id = f.finding_id
     JOIN scans s ON f.scan_id = s.scan_id
     WHERE s.scan_name = 'Scan1'
     GROUP BY fah.host_id
 ) s1_findings ON h.host_id = s1_findings.host_id
 LEFT JOIN (
     SELECT fah.host_id, COUNT(DISTINCT f.plugin_id) as plugin_count
-    FROM finding_affected_hosts pfh
-    JOIN findings pf ON fah.finding_id = f.finding_id
+    FROM finding_affected_hosts fah
+    JOIN findings f ON fah.finding_id = f.finding_id
     JOIN scans s ON f.scan_id = s.scan_id
     WHERE s.scan_name = 'Scan2'
     GROUP BY fah.host_id
@@ -785,14 +785,14 @@ SELECT
     MAX(p.severity_int) as max_severity
 FROM hosts h
 JOIN finding_affected_hosts fah ON h.host_id = fah.host_id
-JOIN findings pf ON fah.finding_id = f.finding_id
+JOIN findings f ON fah.finding_id = f.finding_id
 JOIN plugins p ON f.plugin_id = p.plugin_id
 WHERE f.scan_id = (SELECT scan_id FROM scans ORDER BY created_at DESC LIMIT 1)
   AND h.host_id NOT IN (
-      SELECT DISTINCT pfh2.host_id
-      FROM finding_affected_hosts pfh2
-      JOIN findings pf2 ON pfh2.finding_id = pf2.finding_id
-      WHERE pf2.scan_id != (SELECT scan_id FROM scans ORDER BY created_at DESC LIMIT 1)
+      SELECT DISTINCT fah2.host_id
+      FROM finding_affected_hosts fah2
+      JOIN findings f2 ON fah2.finding_id = f2.finding_id
+      WHERE f2.scan_id != (SELECT scan_id FROM scans ORDER BY created_at DESC LIMIT 1)
   )
 GROUP BY h.host_id, h.host_address, h.host_type
 ORDER BY max_severity DESC, finding_count DESC;
@@ -863,7 +863,7 @@ artifact_types
 
 **Cascade Rules**:
 - Deleting a scan removes all findings, sessions, and dependent records
-- Deleting a plugin_file removes all finding_affected_hosts and workflow_executions
+- Deleting a finding removes all finding_affected_hosts and workflow_executions
 - Deleting a session or tool_execution sets foreign keys to NULL (preserves artifacts)
 - Cannot delete severity_levels, hosts, ports, or artifact_types if referenced
 

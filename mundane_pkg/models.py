@@ -194,8 +194,8 @@ class Scan:
         """Delete a scan and all associated data by name.
 
         Due to CASCADE DELETE constraints, this will automatically delete:
-        - All plugin_files entries
-        - All plugin_file_hosts entries
+        - All findings entries
+        - All finding_affected_hosts entries
         - All sessions
         - All tool_executions (and their artifacts)
 
@@ -668,8 +668,8 @@ class Finding:
     def get_hosts_and_ports(self, conn: Optional[sqlite3.Connection] = None) -> tuple[list[str], str]:
         """Retrieve hosts and formatted port string from database.
 
-        Queries the plugin_file_hosts table to get all host:port combinations
-        for this plugin file. Returns data in the same format as parse_hosts_ports()
+        Queries the finding_affected_hosts table to get all host:port combinations
+        for this finding. Returns data in the same format as parse_hosts_ports()
         for backward compatibility.
 
         Args:
@@ -733,7 +733,7 @@ class Finding:
     def get_all_host_port_lines(self, conn: Optional[sqlite3.Connection] = None) -> list[str]:
         """Retrieve all host:port combinations as formatted lines.
 
-        Queries the plugin_file_hosts table and returns each entry as a
+        Queries the finding_affected_hosts table and returns each entry as a
         "host:port" string, matching the format of plugin file contents.
 
         Args:
@@ -798,7 +798,7 @@ class Finding:
     ) -> list[tuple[str, Optional[int], Optional[str]]]:
         """Retrieve all plugin outputs grouped by host:port.
 
-        Queries the plugin_file_hosts table and returns plugin output for each
+        Queries the finding_affected_hosts table and returns plugin output for each
         host:port combination. Used by the Finding Details UI action.
 
         Args:

@@ -13,7 +13,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.11", "3.12"]
+        python-version: ["3.11", "3.12", "3.13"]
 
     steps:
     - uses: actions/checkout@v4
@@ -32,6 +32,7 @@ jobs:
     - name: Run tests with pytest
       run: |
         pytest --cov=mundane_pkg --cov-report=xml --cov-report=term-missing --cov-report=html -v
+      continue-on-error: ${{ matrix.python-version == '3.13' }}
 
     - name: Archive coverage HTML report
       if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
@@ -73,5 +74,54 @@ jobs:
 
     - name: Type check with mypy
       run: |
-        mypy mundane_pkg/ --ignore-missing-imports
+        mypy mundane.py mundane_pkg/ --ignore-missing-imports
       continue-on-error: true
+
+  test-package:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+        cache: 'pip'
+
+    - name: Install build dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install build
+
+    - name: Build package
+      run: |
+        python -m build
+
+    - name: Inspect package contents
+      run: |
+        echo "=== Wheel contents ==="
+        unzip -l dist/*.whl | grep mundane_pkg
+        echo ""
+        echo "=== Verifying mundane_pkg is included ==="
+        unzip -l dist/*.whl | grep "mundane_pkg/__init__.py" || (echo "ERROR: mundane_pkg not found in wheel!" && exit 1)
+
+    - name: Install from wheel
+      run: |
+        pip install dist/*.whl
+
+    - name: Test imports
+      run: |
+        python -c "import mundane_pkg"
+        python -c "from mundane_pkg import __version__; print(f'Version: {__version__}')"
+        python -c "from mundane_pkg.database import initialize_database; print('Database module imported successfully')"
+
+    - name: Smoke test CLI
+      run: |
+        mundane --version
+        mundane --help
+
+    - name: Upload built packages
+      uses: actions/upload-artifact@v4
+      with:
+        name: python-packages
+        path: dist/

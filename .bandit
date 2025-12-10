@@ -1,0 +1,21 @@
+[bandit]
+# Bandit configuration for Mundane project
+# https://bandit.readthedocs.io/en/latest/config.html
+
+# Exclude test files from security scanning
+exclude_dirs = [
+    '/tests/',
+    '/.venv/',
+    '/build/',
+    '/dist/',
+    '/.pytest_cache/'
+]
+
+# Adjust confidence/severity thresholds if needed
+# confidence = LOW
+# severity = LOW
+
+# Skip specific tests if they cause false positives
+# Example: skip = B404,B603
+# B404 = import of subprocess module
+# B603 = subprocess without shell equals true

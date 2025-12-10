@@ -13,7 +13,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.11", "3.12"]
+        python-version: ["3.11", "3.12", "3.13"]
 
     steps:
     - uses: actions/checkout@v4
@@ -31,7 +31,92 @@ jobs:
 
     - name: Run tests with pytest
       run: |
-        pytest --cov=mundane_pkg --cov-report=xml --cov-report=term-missing --cov-report=html -v
+        pytest --cov=mundane_pkg --cov-report=xml --cov-report=term-missing --cov-report=html --monitor -v
+      continue-on-error: ${{ matrix.python-version == '3.13' }}
+
+    - name: Extract current test performance metrics
+      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+      run: |
+        python -c "
+        import sqlite3
+        import json
+        conn = sqlite3.connect('.pytest-monitor')
+        cursor = conn.cursor()
+        cursor.execute('SELECT AVG(item_total_time) as avg_time, COUNT(*) as test_count FROM TEST_METRICS')
+        result = cursor.fetchone()
+        metrics = {'avg_time': result[0], 'test_count': result[1]}
+        with open('current_metrics.json', 'w') as f:
+            json.dump(metrics, f)
+        print(f'Current run: {metrics[\"test_count\"]} tests, avg time: {metrics[\"avg_time\"]:.4f}s')
+        conn.close()
+        "
+
+    - name: Download previous performance metrics
+      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+      uses: actions/download-artifact@v4
+      with:
+        name: performance-baseline
+        path: baseline/
+      continue-on-error: true
+
+    - name: Check for performance regression
+      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+      run: |
+        python -c "
+        import json
+        import os
+        import sys
+
+        with open('current_metrics.json', 'r') as f:
+            current = json.load(f)
+
+        baseline_file = 'baseline/performance_metrics.json'
+        if os.path.exists(baseline_file):
+            with open(baseline_file, 'r') as f:
+                baseline = json.load(f)
+
+            current_avg = current['avg_time']
+            baseline_avg = baseline['avg_time']
+
+            if baseline_avg > 0:
+                pct_change = ((current_avg - baseline_avg) / baseline_avg) * 100
+
+                print(f'Performance comparison:')
+                print(f'  Baseline: {baseline_avg:.4f}s avg')
+                print(f'  Current:  {current_avg:.4f}s avg')
+                print(f'  Change:   {pct_change:+.2f}%')
+
+                if pct_change > 20:
+                    print(f'ERROR: Performance regression detected! Tests are {pct_change:.1f}% slower.')
+                    sys.exit(1)
+                elif pct_change < -10:
+                    print(f'Great! Tests are {-pct_change:.1f}% faster!')
+                else:
+                    print(f'Performance is stable.')
+            else:
+                print('Baseline avg is zero, skipping comparison.')
+        else:
+            print('No baseline found, this will become the new baseline.')
+        "
+
+    - name: Save performance metrics as baseline
+      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+      run: |
+        cp current_metrics.json performance_metrics.json
+
+    - name: Upload performance baseline
+      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+      uses: actions/upload-artifact@v4
+      with:
+        name: performance-baseline
+        path: performance_metrics.json
+
+    - name: Upload performance database
+      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+      uses: actions/upload-artifact@v4
+      with:
+        name: pytest-monitor-db-${{ github.run_number }}
+        path: .pytest-monitor
 
     - name: Archive coverage HTML report
       if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
@@ -73,5 +158,54 @@ jobs:
 
     - name: Type check with mypy
       run: |
-        mypy mundane_pkg/ --ignore-missing-imports
+        mypy mundane.py mundane_pkg/ --ignore-missing-imports
       continue-on-error: true
+
+  test-package:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+        cache: 'pip'
+
+    - name: Install build dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install build
+
+    - name: Build package
+      run: |
+        python -m build
+
+    - name: Inspect package contents
+      run: |
+        echo "=== Wheel contents ==="
+        unzip -l dist/*.whl | grep mundane_pkg
+        echo ""
+        echo "=== Checking for migrations subpackage ==="
+        unzip -l dist/*.whl | grep "mundane_pkg/migrations" || (echo "ERROR: migrations subpackage not found in wheel!" && exit 1)
+
+    - name: Install from wheel
+      run: |
+        pip install dist/*.whl
+
+    - name: Test imports
+      run: |
+        python -c "import mundane_pkg"
+        python -c "from mundane_pkg import __version__"
+        python -c "from mundane_pkg.migrations import get_all_migrations; print(f'Found {len(get_all_migrations())} migrations')"
+
+    - name: Smoke test CLI
+      run: |
+        mundane --version
+        mundane --help
+
+    - name: Upload built packages
+      uses: actions/upload-artifact@v4
+      with:
+        name: python-packages
+        path: dist/

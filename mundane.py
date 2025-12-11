@@ -3286,12 +3286,21 @@ def import_scan(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        result = import_nessus_file(
-            nessus_file=nessus,
-            output_dir=out_dir,
-            scan_name=scan_name,
-            include_ports=True
-        )
+        # Wrap import with progress spinner
+        with Progress(
+            SpinnerColumn(style="cyan"),
+            TextColumn("[progress.description]{task.description}"),
+            TimeElapsedColumn(),
+            console=_console_global,
+            transient=True,
+        ) as progress:
+            progress.add_task(f"Importing {nessus.name}...", total=None)
+            result = import_nessus_file(
+                nessus_file=nessus,
+                output_dir=out_dir,
+                scan_name=scan_name,
+                include_ports=True
+            )
 
         ok(f"Import complete: {result.plugins_exported} findings")
 

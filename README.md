@@ -121,6 +121,7 @@ Extract CVEs, search Metasploit modules, and compare findings across hosts.
 - **CVE extraction** - CVEs imported from .nessus file (press `[E]`)
 - **Metasploit search** - Find relevant modules by CVE/description
 - **Workflow mappings** - Plugin-specific verification/exploitation steps (press `[W]`)
+- **NetExec correlation** - Correlate findings with validated credentials and admin access from NetExec databases (press `[C]`)
 - **Host comparison** - Compare findings across hosts to find identical combinations and superset relationships
 
 <p align="center">

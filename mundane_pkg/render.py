@@ -631,3 +631,138 @@ def severity_style(label: str) -> str:
 
     # Default fallback
     return SEVERITY_COLORS["default"][0]
+
+
+def render_netexec_correlation_panel(correlation_data: dict) -> Optional[Panel]:
+    """Render NetExec correlation summary as Rich Panel.
+
+    Args:
+        correlation_data: Dict with keys: hosts_with_data, total_hosts,
+                         protocols_tested, credentials_count,
+                         admin_access_count, vulnerabilities
+
+    Returns:
+        Panel object ready to be printed, or None if no correlation data exists
+    """
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.text import Text
+
+    if correlation_data.get("hosts_with_data", 0) == 0:
+        return None
+
+    table = Table(show_header=False, box=None, padding=(0, 1))
+    table.add_column("Metric", style="cyan", no_wrap=True)
+    table.add_column("Value", justify="right")
+
+    # Coverage
+    hosts_with_data = correlation_data["hosts_with_data"]
+    total_hosts = correlation_data["total_hosts"]
+    coverage_pct = (hosts_with_data / total_hosts * 100) if total_hosts > 0 else 0
+
+    coverage_text = Text()
+    coverage_text.append(f"{hosts_with_data}/{total_hosts} ", style="yellow")
+    coverage_text.append(f"({coverage_pct:.0f}%)", style="dim")
+    table.add_row("🕸️  Hosts with NetExec Data", coverage_text)
+
+    # Protocols
+    protocols = correlation_data.get("protocols_tested", [])
+    if protocols:
+        protocols_str = ", ".join(protocols)
+        table.add_row("Protocols Tested", Text(protocols_str, style="cyan"))
+
+    # Credentials
+    creds_count = correlation_data.get("credentials_count", 0)
+    if creds_count > 0:
+        table.add_row("Validated Credentials", Text(str(creds_count), style="green"))
+
+    # Admin access (RED highlight)
+    admin_count = correlation_data.get("admin_access_count", 0)
+    if admin_count > 0:
+        table.add_row("Admin Access Confirmed", Text(str(admin_count), style="bold red"))
+
+    # Vulnerabilities (ORANGE highlight)
+    vulnerabilities = correlation_data.get("vulnerabilities", {})
+    if vulnerabilities:
+        vuln_text = Text()
+        vuln_list = [f"{k.replace('_', ' ').title()} ({v})" for k, v in vulnerabilities.items()]
+        vuln_text.append(", ".join(vuln_list), style="orange3")
+        table.add_row("Vulnerabilities Confirmed", vuln_text)
+
+    # Action hint
+    hint = Text()
+    hint.append("Press ", style="dim")
+    hint.append("[C]", style="cyan")
+    hint.append(" for detailed credential breakdown", style="dim")
+    table.add_row("", hint)
+
+    panel = Panel(
+        table,
+        title="[bold cyan]NetExec Correlation[/]",
+        border_style="cyan",
+        padding=(0, 1)
+    )
+
+    return panel
+
+
+def render_credential_details(cred_data: list[dict], protocol: str) -> Table:
+    """Render detailed credential table for drill-down view.
+
+    Args:
+        cred_data: List of credential dicts with host success details
+        protocol: Protocol name (for title)
+
+    Returns:
+        Table object (not wrapped in panel, intended for pager)
+    """
+    from rich.table import Table
+    from rich.text import Text
+
+    table = Table(
+        title=f"[bold cyan]NetExec Credentials - {protocol.upper()}[/]",
+        show_header=True,
+        box=box.ROUNDED
+    )
+
+    table.add_column("Credential", style="yellow", no_wrap=False, overflow="fold")
+    table.add_column("Successful Hosts", style="green")
+    table.add_column("Admin Hosts", style="bold red")
+    table.add_column("Efficacy", justify="right")
+
+    for cred in cred_data:
+        # Format credential
+        domain = cred.get("domain", "")
+        username = cred.get("username", "")
+        password = cred.get("password", "")
+
+        if domain:
+            cred_str = f"{domain}\\{username}:{password}"
+        else:
+            cred_str = f"{username}:{password}"
+
+        # Successful hosts (truncate after 3)
+        success_hosts = cred.get("hosts_successful", [])
+        if len(success_hosts) <= 3:
+            hosts_str = ", ".join(success_hosts)
+        else:
+            hosts_str = f"{', '.join(success_hosts[:3])} (+{len(success_hosts)-3} more)"
+
+        # Admin count
+        admin_hosts = cred.get("hosts_admin", [])
+        admin_count = len(admin_hosts)
+        admin_str = f"{admin_count}" if admin_count > 0 else "-"
+
+        # Efficacy
+        efficacy_pct = cred.get("efficacy_percent", 0)
+        efficacy_text = Text(f"{efficacy_pct:.0f}%")
+        if efficacy_pct >= 75:
+            efficacy_text.stylize("green")
+        elif efficacy_pct >= 50:
+            efficacy_text.stylize("yellow")
+        else:
+            efficacy_text.stylize("red")
+
+        table.add_row(cred_str, hosts_str, admin_str, efficacy_text)
+
+    return table

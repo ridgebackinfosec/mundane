@@ -58,6 +58,9 @@ class MundaneConfig:
     nmap_default_profile: Optional[str] = None
     """Default NSE profile name to pre-select."""
 
+    netexec_workspace_path: Optional[str] = None
+    """Path to NetExec workspace (overrides NETEXEC_WORKSPACE env var)."""
+
 
 def get_config_path() -> Path:
     """Get the path to the user's config file.
@@ -102,6 +105,7 @@ def load_config() -> MundaneConfig:
             default_tool=data.get("default_tool"),
             default_netexec_protocol=data.get("default_netexec_protocol"),
             nmap_default_profile=data.get("nmap_default_profile"),
+            netexec_workspace_path=data.get("netexec_workspace_path"),
         )
 
         log_info(f"Loaded config from {config_path}")
@@ -141,6 +145,7 @@ def save_config(config: MundaneConfig) -> bool:
                 "default_tool": config.default_tool,
                 "default_netexec_protocol": config.default_netexec_protocol,
                 "nmap_default_profile": config.nmap_default_profile,
+                "netexec_workspace_path": config.netexec_workspace_path,
             }.items()
             if v is not None
         }
@@ -191,6 +196,9 @@ def create_example_config() -> bool:
 # default_tool: "nmap"                # Pre-select tool: nmap, netexec, custom
 # default_netexec_protocol: "smb"    # Default netexec protocol
 # nmap_default_profile: "SMB"        # Default NSE profile name
+
+# NetExec Integration
+# netexec_workspace_path: "~/.nxc/workspaces/default"  # NetExec workspace location
 """
 
     try:

@@ -215,6 +215,174 @@ Before releasing a new version:
 - [ ] Import all subpackages succeeds
 - [ ] Migrations directory exists in installed package (if applicable)
 
+## NetExec Integration
+
+### Overview
+
+Mundane integrates with NetExec's SQLite databases to correlate Nessus vulnerability findings with validated credentials, admin access confirmations, and exploitation results. This helps pentesters bridge the gap between vulnerability scan findings and actual credential testing.
+
+**Design**: Direct query approach (no caching, no sync commands, no Mundane database schema changes)
+**Performance**: Target <500ms query time per finding
+**Graceful degradation**: Works without NetExec, no errors if workspace missing
+
+### Configuration
+
+**Workspace Path Resolution (Priority Order)**:
+1. **config.yaml**: `netexec_workspace_path` setting (highest priority)
+2. **Environment variable**: `NETEXEC_WORKSPACE`
+3. **Default**: `~/.nxc/workspaces/default` (lowest priority)
+
+**Set via CLI**:
+```bash
+mundane config-set netexec_workspace_path ~/.nxc/workspaces/default
+```
+
+**Set via environment variable**:
+```bash
+export NETEXEC_WORKSPACE=~/.nxc/workspaces/default
+```
+
+**Check current config**:
+```bash
+mundane config-show
+```
+
+### Protocol Coverage
+
+All 10 NetExec protocols are queried automatically:
+- **SMB** (richest data: vulnerability flags, admin relations, shares)
+- **SSH** (credentials, admin access, keys)
+- **LDAP** (users, signing requirements)
+- **MSSQL** (users, admin relations)
+- **FTP** (credentials, directory listings)
+- **RDP** (credentials with PKI support)
+- **NFS** (credentials, shares)
+- **VNC** (credentials)
+- **WINRM** (users, admin relations)
+- **WMI** (credentials)
+
+### User Workflow
+
+1. **Import Nessus scan** (if not already done):
+   ```bash
+   mundane import nessus scan.nessus
+   ```
+
+2. **Run NetExec scans** (separate from Mundane):
+   ```bash
+   netexec smb 192.168.1.0/24 -u administrator -p 'Password123'
+   netexec ssh 192.168.1.0/24 -u root -p 'toor'
+   ```
+
+3. **Review findings in Mundane**:
+   ```bash
+   mundane review
+   ```
+
+4. **NetExec correlation appears automatically**:
+   - Spider web emoji (🕸️) in finding list indicates correlation available
+   - NetExec panel displays in finding details view
+   - Shows: coverage, protocols tested, credentials, admin access, vulnerability flags
+
+5. **Press `[C]` for credential drill-down**:
+   - Select protocol (if multiple)
+   - View detailed credential breakdown per host
+   - See efficacy percentage and admin access indicators
+
+### Key Features
+
+- **Zero configuration**: Works out-of-the-box if NetExec workspace exists at default location
+- **Live data**: No sync commands required - always reflects NetExec's current state
+- **Graceful degradation**: No errors if NetExec unavailable, features simply don't appear
+- **Performance**: Queries optimized for <500ms response time
+- **Rich TUI**: Color-coded displays (red for admin access, orange for vulnerabilities)
+
+### Architecture Details
+
+**Module**: `mundane_pkg/netexec_query.py`
+
+**Key Functions**:
+- `get_netexec_workspace_path()`: Resolve workspace with priority fallback
+- `check_netexec_available()`: Verify workspace exists with usable databases
+- `query_finding_correlation(hosts)`: Get correlation summary for host list
+- `query_credential_details(hosts, protocol)`: Get detailed credential breakdown
+
+**Database Access**:
+- Direct SQLite queries (read-only mode)
+- No connection pooling (open on-demand, close after query)
+- Timeout: 5 seconds per query
+- Error handling: Skip missing/corrupt DBs, continue with others
+
+**Host Matching**:
+- SSH/FTP: Match against `hosts.host` field (IP or hostname)
+- Others: Match against `hosts.ip` field (IP address)
+- NetExec uses inconsistent field names - query handles both
+
+### Troubleshooting
+
+**NetExec correlation not appearing**:
+1. Check NetExec workspace exists:
+   ```bash
+   ls ~/.nxc/workspaces/default
+   ```
+
+2. Check protocol databases exist:
+   ```bash
+   ls ~/.nxc/workspaces/default/*.db
+   ```
+
+3. Verify config setting:
+   ```bash
+   mundane config-show
+   ```
+
+4. Check logs for errors:
+   ```bash
+   tail -f ~/.mundane/mundane.log
+   ```
+
+**Performance issues**:
+- Query timeout set to 5 seconds per protocol database
+- Large databases may slow down finding display
+- Consider using a custom workspace with filtered data
+
+**Database errors**:
+- NetExec schema changes may cause query failures
+- Check NetExec version compatibility (tested with v1.4.0)
+- Graceful degradation ensures Mundane continues working
+
+### Testing
+
+**Run NetExec integration tests**:
+```bash
+pytest tests/test_netexec_query.py -v
+```
+
+**Populate test fixtures**:
+```bash
+python tests/fixtures/netexec/populate_fixtures.py
+```
+
+**Test coverage goals**:
+- `netexec_query.py`: 90%+ coverage
+- All 10 protocols: Successfully query test fixtures
+- Integration tests: Verify correlation displays correctly
+
+### Limitations
+
+- **Read-only**: Cannot modify NetExec databases
+- **No data storage**: Correlation data not cached in Mundane database
+- **Protocol-specific**: Limited to protocols NetExec supports
+- **Schema dependency**: Relies on NetExec v1.4.0 schema (may break with major updates)
+
+### Future Enhancements
+
+- Batch queries for finding lists (performance optimization)
+- Protocol-specific views (SMB shares, SSH keys, etc.)
+- Credential export functionality
+- NetExec schema version detection
+- Async queries for large workspaces
+
 ## Build & Development Commands
 
 ### Setup Development Environment

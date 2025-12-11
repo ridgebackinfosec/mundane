@@ -876,6 +876,18 @@ def handle_file_view(
         plugin_id = _plugin_id_from_filename(chosen)
         has_workflow = plugin_id and workflow_mapper.has_workflow(plugin_id)
 
+    # Check if NetExec data is available
+    has_netexec = False
+    correlation = None
+    if hosts and len(hosts) > 0:
+        try:
+            from mundane_pkg.netexec_query import check_netexec_available, query_finding_correlation
+            if check_netexec_available():
+                correlation = query_finding_correlation(hosts)
+                has_netexec = correlation.get("hosts_with_data", 0) > 0
+        except Exception:
+            pass  # Graceful degradation if NetExec query fails
+
     # Loop to allow multiple actions on the same file
     while True:
         # Build action menu with all available options
@@ -888,7 +900,11 @@ def handle_file_view(
         action_text.append("[V] ", style="cyan")
         action_text.append("View host(s) / ", style=None)
         action_text.append("[E] ", style="cyan")
-        action_text.append("CVE info / ", style=None)
+        action_text.append("CVE info", style=None)
+        if has_netexec:
+            action_text.append(" / ", style=None)
+            action_text.append("[C] ", style="cyan")
+            action_text.append("Credential Details", style=None)
         if has_workflow:
             action_text.append(" / ", style=None)
             action_text.append("[W] ", style="cyan")
@@ -979,6 +995,60 @@ def handle_file_view(
                     warn("No CVEs associated with this finding.")
             except Exception as exc:
                 warn(f"Failed to retrieve CVE information: {exc}")
+
+            continue
+
+        # Handle Credential Details action (NetExec)
+        if action_choice in ("c", "cred", "credentials"):
+            if not has_netexec or not correlation:
+                warn("NetExec correlation data not available for this finding.")
+                continue
+
+            # Protocol selection (if multiple)
+            protocols = correlation.get("protocols_tested", [])
+            if not protocols:
+                warn("No NetExec protocols tested for these hosts.")
+                continue
+
+            if len(protocols) == 1:
+                selected_protocol = protocols[0].lower()
+            else:
+                # Display protocol menu
+                header("Select Protocol")
+                for i, proto in enumerate(protocols, 1):
+                    info(f"  [{i}] {proto}")
+
+                try:
+                    proto_choice = Prompt.ask("Protocol", default="1").strip()
+                    proto_idx = int(proto_choice) - 1
+                    if 0 <= proto_idx < len(protocols):
+                        selected_protocol = protocols[proto_idx].lower()
+                    else:
+                        warn("Invalid protocol selection.")
+                        continue
+                except (ValueError, KeyboardInterrupt):
+                    continue
+
+            # Query detailed credentials
+            try:
+                from mundane_pkg.netexec_query import query_credential_details
+                from mundane_pkg.render import render_credential_details
+
+                cred_data = query_credential_details(hosts, selected_protocol)
+                if not cred_data:
+                    info(f"No credential data found for {selected_protocol.upper()}")
+                    continue
+
+                # Render table
+                cred_table = render_credential_details(cred_data, selected_protocol)
+                _console.print()
+                _console.print(cred_table)
+
+                # Wait for user
+                Prompt.ask("\nPress Enter to continue", default="")
+
+            except Exception as exc:
+                warn(f"Failed to retrieve credential details: {exc}")
 
             continue
 
@@ -1670,6 +1740,22 @@ def _display_finding_preview(
 
     _console_global.print()  # Blank line before panel
     _console_global.print(panel)
+
+    # NetExec correlation panel (if data available)
+    if finding is not None and hosts:
+        try:
+            from mundane_pkg.netexec_query import query_finding_correlation, check_netexec_available
+            from mundane_pkg.render import render_netexec_correlation_panel
+
+            if check_netexec_available():
+                correlation_data = query_finding_correlation(hosts)
+                netexec_panel = render_netexec_correlation_panel(correlation_data)
+                if netexec_panel:
+                    _console_global.print()  # Spacing
+                    _console_global.print(netexec_panel)
+        except Exception as e:
+            from mundane_pkg.logging_setup import log_error
+            log_error(f"Failed to query NetExec correlation: {e}")
 
 
 def process_single_file(
@@ -2734,8 +2820,8 @@ def main(args: types.SimpleNamespace) -> None:
         err(f"Export root not found: {export_root}")
         raise Exit(1)
 
-    if export_root:
-        ok(f"Using export root: {export_root.resolve()}")
+    # if export_root:
+    #     ok(f"Using export root: {export_root.resolve()}")
     if args.no_tools:
         info("(no-tools mode: tool prompts disabled for this session)")
 

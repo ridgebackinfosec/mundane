@@ -25,6 +25,12 @@ mundane review
 
 **That's it!** See [Common Commands](#commands) for more.
 
+<p align="center">
+  <img src="docs/images/severity-selection.png" alt="Severity selection screen showing color-coded review progress" width="50%">
+  <br>
+  <em>Start your review with an overview of findings by severity level</em>
+</p>
+
 ---
 
 ## Installation
@@ -84,28 +90,78 @@ mundane config set <key> <value>  # Set a value
 
 ## Features
 
-**TUI Navigation:**
-- Rich tables with paged views (`[N]ext`, `[P]rev`, `[B]ack`)
+### 🔍 Interactive TUI for browsing/reviewing vulnerability findings
+
+Rich tables with paged views, keyboard-driven navigation, and real-time filtering.
+
+<p align="center">
+  <img src="docs/images/finding-browser.png" alt="Finding browser with pagination and keyboard shortcuts" width="800">
+  <br>
+  <em>Browse findings with paged tables and comprehensive keyboard shortcuts</em>
+</p>
+
+**Key capabilities:**
 - Browse by severity, preview plugin details, clipboard copy
 - Grouped view (`host:port,port`) or raw file view
+- Multi-select operations, reversible review states
 
-**Intelligence & Research:**
+---
+
+### 📊 Intelligence & Research
+
+Extract CVEs, search Metasploit modules, and compare findings across hosts.
+
+<p align="center">
+  <img src="docs/images/plugin-detail.png" alt="Plugin detail panel with Metasploit indicator" width="800">
+  <br>
+  <em>View plugin details with Metasploit module availability and metadata</em>
+</p>
+
+**Features:**
 - **CVE extraction** - CVEs imported from .nessus file (press `[E]`)
 - **Metasploit search** - Find relevant modules by CVE/description
 - **Workflow mappings** - Plugin-specific verification/exploitation steps (press `[W]`)
-- **Host comparison** - Compare findings across hosts to find superset and identical overlaps
+- **Host comparison** - Compare findings across hosts to find identical combinations and superset relationships
 
-**Tool Orchestration:**
+<p align="center">
+  <img src="docs/images/host-comparison.png" alt="Host comparison showing identical host:port combinations" width="70%">
+  <br>
+  <em>Compare findings to identify identical host:port combinations across plugins</em>
+</p>
+
+<p align="center">
+  <img src="docs/images/superset-analysis.png" alt="Superset analysis showing coverage relationships" width="800">
+  <br>
+  <em>Analyze superset relationships to find which findings cover others</em>
+</p>
+
+---
+
+### ⚡ One-command tool launches
+
+Launch nmap NSE scripts, NetExec, Metasploit, or custom commands with placeholder substitution.
+
+<p align="center">
+  <img src="docs/images/tool-orchestration.png" alt="Tool selection and command generation" width="70%">
+  <br>
+  <em>Select tools and review generated commands before execution</em>
+</p>
+
+**Features:**
 - Launch **nmap** (NSE profiles, UDP), **NetExec**, or custom commands
 - Placeholder substitution for flexible templating
 - Execution logging & artifact tracking
+
+---
+
+### 💾 SQLite-backed persistence
 
 **Session Management:**
 - Auto-save/resume interrupted reviews
 - Reversible review-complete (undo with `[U]`)
 - Session statistics (duration, per-severity breakdown)
 
-**Database:** SQLite-backed persistence at `~/.mundane/mundane.db` tracks scans, findings, sessions, tool executions, and artifacts. See [docs/DATABASE.md](docs/DATABASE.md) for schema details.
+**Database:** SQLite-backed persistence at `~/.mundane/mundane.db` tracks scans, findings, sessions, tool executions, and artifacts. Cross-scan tracking enables host history queries. See [docs/DATABASE.md](docs/DATABASE.md) for schema details.
 
 ---
 
@@ -146,6 +202,12 @@ workflows:
 ```
 
 **Custom command placeholders:** `{TCP_IPS}`, `{UDP_IPS}`, `{TCP_HOST_PORTS}`, `{PORTS}`, `{WORKDIR}`, `{RESULTS_DIR}`, `{OABASE}`
+
+<p align="center">
+  <img src="docs/images/workflow-display.png" alt="Custom workflow verification steps" width="70%">
+  <br>
+  <em>View plugin-specific verification workflows with commands and references</em>
+</p>
 
 ---
 

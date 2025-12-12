@@ -277,8 +277,8 @@ def _query_ssh_db(db_path: Path, hosts: list[str]) -> dict:
             cred_query = f"""
                 SELECT DISTINCT c.username, c.password
                 FROM credentials c
-                JOIN loggedin_relations lr ON c.id = lr.cred_id
-                WHERE lr.host_id IN ({host_id_placeholders})
+                JOIN loggedin_relations lr ON c.id = lr.credid
+                WHERE lr.hostid IN ({host_id_placeholders})
             """
 
             cred_rows = conn.execute(cred_query, host_ids).fetchall()
@@ -288,9 +288,9 @@ def _query_ssh_db(db_path: Path, hosts: list[str]) -> dict:
 
             # Query admin relations
             admin_query = f"""
-                SELECT DISTINCT ar.host_id
+                SELECT DISTINCT ar.hostid as host_id
                 FROM admin_relations ar
-                WHERE ar.host_id IN ({host_id_placeholders})
+                WHERE ar.hostid IN ({host_id_placeholders})
             """
 
             admin_rows = conn.execute(admin_query, host_ids).fetchall()
@@ -367,8 +367,8 @@ def _query_generic_db(db_path: Path, hosts: list[str], protocol: str, use_host_f
                         SELECT DISTINCT u.username, u.password, u.domain
                         FROM users u
                         WHERE u.id IN (
-                            SELECT DISTINCT user_id FROM admin_relations
-                            WHERE host_id IN ({host_id_placeholders})
+                            SELECT DISTINCT userid FROM admin_relations
+                            WHERE hostid IN ({host_id_placeholders})
                         )
                     """
                     cred_rows = conn.execute(cred_query, host_ids).fetchall()
@@ -386,8 +386,8 @@ def _query_generic_db(db_path: Path, hosts: list[str], protocol: str, use_host_f
                         cred_query = f"""
                             SELECT DISTINCT c.username, c.password
                             FROM credentials c
-                            JOIN loggedin_relations lr ON c.id = lr.cred_id
-                            WHERE lr.host_id IN ({host_id_placeholders})
+                            JOIN loggedin_relations lr ON c.id = lr.credid
+                            WHERE lr.hostid IN ({host_id_placeholders})
                         """
                         cred_rows = conn.execute(cred_query, host_ids).fetchall()
                         for row in cred_rows:
@@ -400,9 +400,9 @@ def _query_generic_db(db_path: Path, hosts: list[str], protocol: str, use_host_f
             # Try to query admin relations
             try:
                 admin_query = f"""
-                    SELECT DISTINCT host_id
+                    SELECT DISTINCT hostid as host_id
                     FROM admin_relations
-                    WHERE host_id IN ({host_id_placeholders})
+                    WHERE hostid IN ({host_id_placeholders})
                 """
                 admin_rows = conn.execute(admin_query, host_ids).fetchall()
                 for row in admin_rows:
@@ -614,16 +614,40 @@ def query_credential_details(hosts: list[str], protocol: str) -> list[dict]:
 
         # Try users table first
         try:
-            users_query = f"""
-                SELECT DISTINCT
-                    u.username,
-                    u.password,
-                    u.domain,
-                    ar.host_id
-                FROM users u
-                LEFT JOIN admin_relations ar ON u.id = ar.user_id
-                WHERE ar.host_id IN ({host_id_placeholders})
-            """
+            # Check if loggedin_relations table exists
+            loggedin_table_check = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='loggedin_relations'"
+            ).fetchone()
+
+            if loggedin_table_check:
+                # Query both loggedin_relations AND admin_relations
+                users_query = f"""
+                    SELECT DISTINCT
+                        u.id as user_id,
+                        u.username,
+                        u.password,
+                        u.domain,
+                        lr.hostid as login_host_id,
+                        ar.hostid as admin_host_id
+                    FROM users u
+                    LEFT JOIN loggedin_relations lr ON u.id = lr.userid AND lr.hostid IN ({host_id_placeholders})
+                    LEFT JOIN admin_relations ar ON u.id = ar.userid AND ar.hostid = lr.hostid
+                    WHERE lr.hostid IS NOT NULL
+                """
+            else:
+                # Fallback to admin_relations only (for protocols without loggedin_relations)
+                users_query = f"""
+                    SELECT DISTINCT
+                        u.id as user_id,
+                        u.username,
+                        u.password,
+                        u.domain,
+                        ar.hostid as login_host_id,
+                        ar.hostid as admin_host_id
+                    FROM users u
+                    JOIN admin_relations ar ON u.id = ar.userid
+                    WHERE ar.hostid IN ({host_id_placeholders})
+                """
 
             rows = conn.execute(users_query, host_ids).fetchall()
 
@@ -639,9 +663,14 @@ def query_credential_details(hosts: list[str], protocol: str) -> list[dict]:
                 if cred_key not in cred_map:
                     cred_map[cred_key] = {"hosts_successful": set(), "hosts_admin": set()}
 
-                if row["host_id"] and row["host_id"] in host_id_map:
-                    host_ip = host_id_map[row["host_id"]]
+                # Add to successful hosts if login_host_id exists
+                if row["login_host_id"] and row["login_host_id"] in host_id_map:
+                    host_ip = host_id_map[row["login_host_id"]]
                     cred_map[cred_key]["hosts_successful"].add(host_ip)
+
+                # Add to admin hosts if admin_host_id exists
+                if row["admin_host_id"] and row["admin_host_id"] in host_id_map:
+                    host_ip = host_id_map[row["admin_host_id"]]
                     cred_map[cred_key]["hosts_admin"].add(host_ip)
 
             for (domain, username, password), data in cred_map.items():
@@ -672,12 +701,12 @@ def query_credential_details(hosts: list[str], protocol: str) -> list[dict]:
                     SELECT DISTINCT
                         c.username,
                         c.password,
-                        lr.host_id,
-                        ar.host_id as admin_host_id
+                        lr.hostid as host_id,
+                        ar.hostid as admin_host_id
                     FROM credentials c
-                    JOIN loggedin_relations lr ON c.id = lr.cred_id
-                    LEFT JOIN admin_relations ar ON c.id = ar.cred_id AND ar.host_id = lr.host_id
-                    WHERE lr.host_id IN ({host_id_placeholders})
+                    JOIN loggedin_relations lr ON c.id = lr.credid
+                    LEFT JOIN admin_relations ar ON c.id = ar.credid AND ar.hostid = lr.hostid
+                    WHERE lr.hostid IN ({host_id_placeholders})
                 """
 
                 rows = conn.execute(cred_query, host_ids).fetchall()

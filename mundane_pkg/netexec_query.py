@@ -647,7 +647,9 @@ def query_credential_details(hosts: list[str], protocol: str) -> list[dict]:
             for (domain, username, password), data in cred_map.items():
                 hosts_successful = list(data["hosts_successful"])
                 hosts_admin = list(data["hosts_admin"])
-                efficacy = (len(hosts_successful) / len(hosts)) * 100 if hosts else 0
+                successful_count = len(hosts_successful)
+                total_hosts_tested = len(hosts)
+                efficacy = (successful_count / total_hosts_tested * 100) if total_hosts_tested else 0
 
                 credentials.append({
                     "username": username,
@@ -658,6 +660,9 @@ def query_credential_details(hosts: list[str], protocol: str) -> list[dict]:
                     "hosts_admin": hosts_admin,
                     "hosts_failed": [],
                     "efficacy_percent": efficacy,
+                    "efficacy_successful": successful_count,
+                    "efficacy_total": total_hosts_tested,
+                    "hosts_with_hostnames": host_to_hostname,
                 })
 
         except sqlite3.Error:

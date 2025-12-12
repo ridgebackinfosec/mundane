@@ -1057,6 +1057,28 @@ def handle_file_view(
                     # Clear screen for clean display
                     _console.clear()
 
+                    # Display context header (only on first page)
+                    if page == 0:
+                        from rich.text import Text
+
+                        # Calculate unique hosts tested (successful logins)
+                        hosts_tested_set = set()
+                        for cred in cred_data:
+                            hosts_tested_set.update(cred.get("hosts_successful", []))
+                        hosts_tested = len(hosts_tested_set)
+                        hosts_not_tested = len(hosts) - hosts_tested
+
+                        context_text = Text()
+                        context_text.append("Showing NetExec credential data for ", style="dim")
+                        context_text.append(f"{hosts_tested} hosts", style="bold cyan")
+                        context_text.append(" affected by this finding", style="dim")
+                        if hosts_not_tested > 0:
+                            context_text.append(f" ({hosts_not_tested} hosts not yet tested with NetExec)", style="dim yellow")
+                        context_text.append(".", style="dim")
+
+                        _console.print()
+                        _console.print(context_text)
+
                     # Render credentials for current page
                     cred_table = render_credential_details(page_creds, selected_protocol)
                     _console.print()

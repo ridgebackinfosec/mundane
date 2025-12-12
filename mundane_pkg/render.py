@@ -803,74 +803,91 @@ def format_host_display(ip: str, port: Optional[int], hostname_map: dict) -> str
     return f"{host_str} ({hostname})" if hostname else host_str
 
 
-def render_credential_details(cred_data: list[dict], protocol: str) -> Table:
-    """Render detailed credential table for drill-down view.
+def render_credential_details(cred_data: list[dict], protocol: str) -> Panel:
+    """Render detailed credentials in grouped format for drill-down view.
 
     Args:
         cred_data: List of credential dicts with host success details
         protocol: Protocol name (for title)
 
     Returns:
-        Table object (not wrapped in panel, intended for pager)
+        Panel object containing formatted credentials with per-host details
     """
-    from rich.table import Table
     from rich.text import Text
+    from rich.panel import Panel
 
-    table = Table(
-        title=f"[bold cyan]NetExec Credentials - {protocol.upper()}[/]",
-        show_header=True,
-        box=box.ROUNDED
-    )
-
-    table.add_column("Credential", style="yellow", no_wrap=False, overflow="fold")
-    table.add_column("Successful Hosts", style="green")
-    table.add_column("Admin Hosts", style="bold red")
-    table.add_column("Efficacy", justify="right")
+    lines = []  # List of Text objects
 
     for cred in cred_data:
-        # Format credential
+        # 1. Credential header (yellow, bold)
         domain = cred.get("domain", "")
         username = cred.get("username", "")
         password = cred.get("password", "")
 
         if domain:
-            cred_str = f"{domain}\\{username}:{password}"
+            header = Text(f"{domain}\\{username} : {password}", style="bold yellow")
         else:
-            cred_str = f"{username}:{password}"
+            header = Text(f"{username} : {password}", style="bold yellow")
 
-        # Successful hosts (truncate after 3, include hostname if available)
+        lines.append(header)
+
+        # 2. Successful hosts (green checkmark, indented)
         success_hosts = cred.get("hosts_successful", [])
+        admin_hosts = set(cred.get("hosts_admin", []))
         hostname_map = cred.get("hosts_with_hostnames", {})
 
-        # Format hosts with hostnames
-        formatted_hosts = []
-        for host in success_hosts[:3]:  # Only format first 3
-            formatted_host = format_host_display(host, None, hostname_map)
-            formatted_hosts.append(formatted_host)
+        for host in success_hosts:
+            # Format with hostname if available
+            display_str = format_host_display(host, None, hostname_map)
 
-        if len(success_hosts) <= 3:
-            hosts_str = ", ".join(formatted_hosts)
-        else:
-            hosts_str = f"{', '.join(formatted_hosts)} (+{len(success_hosts)-3} more)"
+            # Add (ADMIN) marker if admin access
+            if host in admin_hosts:
+                host_line = Text("   ✓ ", style="green")
+                host_line.append(display_str, style="green")
+                host_line.append(" (ADMIN)", style="bold red")
+            else:
+                host_line = Text(f"   ✓ {display_str}", style="green")
 
-        # Admin count
-        admin_hosts = cred.get("hosts_admin", [])
-        admin_count = len(admin_hosts)
-        admin_str = f"{admin_count}" if admin_count > 0 else "-"
+            lines.append(host_line)
 
-        # Efficacy (enhanced format: "X/Y hosts (Z%)")
+        # 3. Efficacy summary line (indented, style based on percentage)
         efficacy_pct = cred.get("efficacy_percent", 0)
-        efficacy_successful = cred.get("efficacy_successful", len(success_hosts))
-        efficacy_total = cred.get("efficacy_total", efficacy_successful)
+        successful_count = cred.get("efficacy_successful", len(success_hosts))
+        total_count = cred.get("efficacy_total", successful_count)
+        admin_count = len(admin_hosts & set(success_hosts))  # Only admin among successful
 
-        efficacy_text = Text(f"{efficacy_successful}/{efficacy_total} hosts ({efficacy_pct:.0f}%)")
+        # Build summary text
+        summary = Text("   Efficacy: ", style="dim")
+
+        # Efficacy ratio with color
+        efficacy_str = f"{successful_count}/{total_count} hosts ({efficacy_pct:.0f}%)"
         if efficacy_pct >= 75:
-            efficacy_text.stylize("green")
+            summary.append(efficacy_str, style="green")
         elif efficacy_pct >= 50:
-            efficacy_text.stylize("yellow")
+            summary.append(efficacy_str, style="yellow")
         else:
-            efficacy_text.stylize("red")
+            summary.append(efficacy_str, style="red")
 
-        table.add_row(cred_str, hosts_str, admin_str, efficacy_text)
+        # Admin count (if any)
+        if admin_count > 0:
+            admin_str = f" | Admin: {admin_count}/{successful_count} successful ({admin_count/successful_count*100:.0f}%)"
+            summary.append(admin_str, style="bold red")
 
-    return table
+        lines.append(summary)
+        lines.append(Text(""))  # Blank line between credentials
+
+    # Combine all lines into single Text object
+    combined = Text()
+    for line in lines:
+        combined.append(line)
+        combined.append("\n")
+
+    # Wrap in Panel
+    panel = Panel(
+        combined,
+        title=f"[bold cyan]NetExec Credentials - {protocol.upper()}[/]",
+        border_style="cyan",
+        padding=(1, 2)
+    )
+
+    return panel

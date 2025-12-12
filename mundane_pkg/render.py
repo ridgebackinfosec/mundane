@@ -681,13 +681,36 @@ def render_netexec_correlation_panel(correlation_data: dict) -> Optional[Panel]:
     if admin_count > 0:
         table.add_row("Admin Access Confirmed", Text(str(admin_count), style="bold red"))
 
-    # Vulnerabilities (ORANGE highlight)
+    # Vulnerabilities (ORANGE highlight with detailed bullet points)
     vulnerabilities = correlation_data.get("vulnerabilities", {})
     if vulnerabilities:
-        vuln_text = Text()
-        vuln_list = [f"{k.replace('_', ' ').title()} ({v})" for k, v in vulnerabilities.items()]
-        vuln_text.append(", ".join(vuln_list), style="orange3")
-        table.add_row("Vulnerabilities Confirmed", vuln_text)
+        # Build vulnerability section header
+        table.add_row("Vulnerability Confirmations", Text("", style="orange3"))
+
+        # Process each vulnerability with details
+        for vuln_key, vuln_value in vulnerabilities.items():
+            vuln_text = Text()
+            vuln_text.append("  • ", style="orange3")
+
+            if vuln_key == "smbv1" and isinstance(vuln_value, dict):
+                # Enhanced SMBv1 display with signing details
+                count = vuln_value.get("count", 0)
+                signing_disabled = vuln_value.get("signing_disabled", 0)
+                vuln_text.append(f"SMBv1 enabled: {count} hosts", style="orange3")
+                if signing_disabled > 0:
+                    vuln_text.append(f" (signing disabled: {signing_disabled})", style="orange3")
+            else:
+                # Simple count display for other vulnerabilities
+                if isinstance(vuln_value, dict):
+                    count = vuln_value.get("count", 0)
+                else:
+                    count = vuln_value
+
+                if count > 0:
+                    vuln_name = vuln_key.replace("_", " ").title()
+                    vuln_text.append(f"{vuln_name}: {count} hosts", style="orange3")
+
+            table.add_row("", vuln_text)
 
     # Action hint
     hint = Text()
@@ -704,6 +727,80 @@ def render_netexec_correlation_panel(correlation_data: dict) -> Optional[Panel]:
     )
 
     return panel
+
+
+def render_netexec_summary_panel(cred_data: list[dict], protocol: str) -> Panel:
+    """Render NetExec summary statistics panel.
+
+    Args:
+        cred_data: List of credential dicts
+        protocol: Protocol name
+
+    Returns:
+        Panel with summary statistics
+    """
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.text import Text
+
+    # Compute statistics from credential data
+    total_credentials = len(cred_data)
+    total_logins = sum(len(c.get("hosts_successful", [])) for c in cred_data)
+    admin_login_count = sum(len(c.get("hosts_admin", [])) for c in cred_data)
+
+    # Get unique hosts with admin access
+    unique_admin_hosts = set()
+    for cred in cred_data:
+        unique_admin_hosts.update(cred.get("hosts_admin", []))
+
+    table = Table(show_header=False, box=None, padding=(0, 1))
+    table.add_column("Metric", style="cyan", no_wrap=True)
+    table.add_column("Value", justify="left")
+
+    # Total credentials
+    table.add_row("Total credentials tested", Text(str(total_credentials), style="green"))
+
+    # Successful logins
+    unique_hosts_count = len(set().union(*[set(c.get("hosts_successful", [])) for c in cred_data]))
+    table.add_row(
+        "Successful logins",
+        Text(f"{total_logins} (across {unique_hosts_count} hosts)", style="green")
+    )
+
+    # Admin access
+    if admin_login_count > 0:
+        table.add_row(
+            "Admin access",
+            Text(
+                f"{admin_login_count} confirmations ({len(unique_admin_hosts)} unique hosts)",
+                style="bold red"
+            )
+        )
+
+    panel = Panel(
+        table,
+        title=f"[bold cyan]Overall {protocol.upper()} Statistics[/]",
+        border_style="cyan",
+        padding=(0, 1)
+    )
+
+    return panel
+
+
+def format_host_display(ip: str, port: Optional[int], hostname_map: dict) -> str:
+    """Format host with optional hostname suffix.
+
+    Args:
+        ip: Host IP address
+        port: Port number (optional)
+        hostname_map: Dict mapping IP → hostname
+
+    Returns:
+        "192.168.1.100:445 (DC01)" if hostname exists, else "192.168.1.100:445"
+    """
+    hostname = hostname_map.get(ip)
+    host_str = f"{ip}:{port}" if port else ip
+    return f"{host_str} ({hostname})" if hostname else host_str
 
 
 def render_credential_details(cred_data: list[dict], protocol: str) -> Table:
@@ -741,21 +838,32 @@ def render_credential_details(cred_data: list[dict], protocol: str) -> Table:
         else:
             cred_str = f"{username}:{password}"
 
-        # Successful hosts (truncate after 3)
+        # Successful hosts (truncate after 3, include hostname if available)
         success_hosts = cred.get("hosts_successful", [])
+        hostname_map = cred.get("hosts_with_hostnames", {})
+
+        # Format hosts with hostnames
+        formatted_hosts = []
+        for host in success_hosts[:3]:  # Only format first 3
+            formatted_host = format_host_display(host, None, hostname_map)
+            formatted_hosts.append(formatted_host)
+
         if len(success_hosts) <= 3:
-            hosts_str = ", ".join(success_hosts)
+            hosts_str = ", ".join(formatted_hosts)
         else:
-            hosts_str = f"{', '.join(success_hosts[:3])} (+{len(success_hosts)-3} more)"
+            hosts_str = f"{', '.join(formatted_hosts)} (+{len(success_hosts)-3} more)"
 
         # Admin count
         admin_hosts = cred.get("hosts_admin", [])
         admin_count = len(admin_hosts)
         admin_str = f"{admin_count}" if admin_count > 0 else "-"
 
-        # Efficacy
+        # Efficacy (enhanced format: "X/Y hosts (Z%)")
         efficacy_pct = cred.get("efficacy_percent", 0)
-        efficacy_text = Text(f"{efficacy_pct:.0f}%")
+        efficacy_successful = cred.get("efficacy_successful", len(success_hosts))
+        efficacy_total = cred.get("efficacy_total", efficacy_successful)
+
+        efficacy_text = Text(f"{efficacy_successful}/{efficacy_total} hosts ({efficacy_pct:.0f}%)")
         if efficacy_pct >= 75:
             efficacy_text.stylize("green")
         elif efficacy_pct >= 50:

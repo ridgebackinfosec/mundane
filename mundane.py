@@ -1039,13 +1039,56 @@ def handle_file_view(
                     info(f"No credential data found for {selected_protocol.upper()}")
                     continue
 
-                # Render table
-                cred_table = render_credential_details(cred_data, selected_protocol)
-                _console.print()
-                _console.print(cred_table)
+                # Dynamic pagination based on terminal height
+                import shutil
 
-                # Wait for user
-                Prompt.ask("\nPress Enter to continue", default="")
+                terminal_height = shutil.get_terminal_size().lines
+                # Reserve space for header, footer, menu (estimate ~10 lines overhead per credential group)
+                credentials_per_page = max(1, (terminal_height - 15) // 10)
+
+                page = 0
+                total_pages = (len(cred_data) + credentials_per_page - 1) // credentials_per_page
+
+                while True:
+                    start_idx = page * credentials_per_page
+                    end_idx = start_idx + credentials_per_page
+                    page_creds = cred_data[start_idx:end_idx]
+
+                    # Clear screen for clean display
+                    _console.clear()
+
+                    # Render credentials for current page
+                    cred_table = render_credential_details(page_creds, selected_protocol)
+                    _console.print()
+                    _console.print(cred_table)
+
+                    # Show summary statistics on last page (or single page)
+                    if page == total_pages - 1:
+                        from mundane_pkg.render import render_netexec_summary_panel
+                        summary_panel = render_netexec_summary_panel(cred_data, selected_protocol)
+                        _console.print()
+                        _console.print(summary_panel)
+
+                    # Show navigation menu
+                    nav_options = []
+                    if page < total_pages - 1:
+                        nav_options.append("[N] Next")
+                    if page > 0:
+                        nav_options.append("[P] Previous")
+                    nav_options.append("[B] Back")
+
+                    menu = f"Page {page+1}/{total_pages} | " + " | ".join(nav_options)
+                    choice = Prompt.ask(f"\n{menu}", default="B").strip().upper()
+
+                    if choice == "N" and page < total_pages - 1:
+                        page += 1
+                    elif choice == "P" and page > 0:
+                        page -= 1
+                    elif choice == "B" or choice == "":
+                        break
+                    else:
+                        # Invalid choice, stay on same page
+                        pass
 
             except Exception as exc:
                 warn(f"Failed to retrieve credential details: {exc}")

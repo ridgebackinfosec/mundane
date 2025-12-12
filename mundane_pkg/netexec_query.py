@@ -116,6 +116,7 @@ def _query_smb_db(db_path: Path, hosts: list[str]) -> dict:
             "credentials": set(),
             "admin_hosts": set(),
             "vulnerabilities": {},
+            "host_to_hostname": {},
         }
 
     try:
@@ -141,7 +142,11 @@ def _query_smb_db(db_path: Path, hosts: list[str]) -> dict:
         rows = conn.execute(query, hosts).fetchall()
 
         matched_hosts = set()
-        vulnerabilities = {"zerologon": 0, "smbv1": 0, "signing_disabled": 0, "petitpotam": 0}
+        vulnerabilities = {
+            "zerologon": 0,
+            "smbv1": {"count": 0, "signing_disabled": 0},
+            "petitpotam": 0
+        }
 
         for row in rows:
             if row["ip"]:
@@ -149,9 +154,10 @@ def _query_smb_db(db_path: Path, hosts: list[str]) -> dict:
             if row["zerologon"]:
                 vulnerabilities["zerologon"] += 1
             if row["smbv1"]:
-                vulnerabilities["smbv1"] += 1
-            if not row["signing"]:
-                vulnerabilities["signing_disabled"] += 1
+                vulnerabilities["smbv1"]["count"] += 1
+                # Track SMBv1 hosts with signing disabled
+                if not row["signing"]:
+                    vulnerabilities["smbv1"]["signing_disabled"] += 1
             if row["petitpotam"]:
                 vulnerabilities["petitpotam"] += 1
 
@@ -196,6 +202,12 @@ def _query_smb_db(db_path: Path, hosts: list[str]) -> dict:
                                 admin_hosts.add(ip)
                                 break
 
+        # Build hostname mapping
+        host_to_hostname = {}
+        for row in rows:
+            if row["ip"] and row["hostname"]:
+                host_to_hostname[row["ip"]] = row["hostname"]
+
         conn.close()
 
         return {
@@ -203,6 +215,7 @@ def _query_smb_db(db_path: Path, hosts: list[str]) -> dict:
             "credentials": credentials,
             "admin_hosts": admin_hosts,
             "vulnerabilities": vulnerabilities,
+            "host_to_hostname": host_to_hostname,  # NEW: hostname resolution
         }
 
     except sqlite3.Error as e:
@@ -212,6 +225,7 @@ def _query_smb_db(db_path: Path, hosts: list[str]) -> dict:
             "credentials": set(),
             "admin_hosts": set(),
             "vulnerabilities": {},
+            "host_to_hostname": {},
         }
     except Exception as e:
         log_error(f"Unexpected error querying SMB database: {e}")
@@ -220,6 +234,7 @@ def _query_smb_db(db_path: Path, hosts: list[str]) -> dict:
             "credentials": set(),
             "admin_hosts": set(),
             "vulnerabilities": {},
+            "host_to_hostname": {},
         }
 
 
@@ -579,10 +594,14 @@ def query_credential_details(hosts: list[str], protocol: str) -> list[dict]:
         use_host_field = protocol_lower in ["ssh", "ftp"]
         host_field = "host" if use_host_field else "ip"
 
-        # Get host IDs
-        host_query = f"SELECT id, {host_field} FROM hosts WHERE {host_field} IN ({placeholders})"
+        # Get host IDs and hostnames
+        host_query = f"SELECT id, {host_field}, hostname FROM hosts WHERE {host_field} IN ({placeholders})"
         host_rows = conn.execute(host_query, hosts).fetchall()
         host_id_map = {row["id"]: row[host_field] for row in host_rows}
+        host_to_hostname = {}  # NEW: hostname mapping
+        for row in host_rows:
+            if row[host_field] and row.get("hostname"):
+                host_to_hostname[row[host_field]] = row["hostname"]
 
         if not host_id_map:
             conn.close()
@@ -677,7 +696,9 @@ def query_credential_details(hosts: list[str], protocol: str) -> list[dict]:
                 for (domain, username, password), data in cred_map.items():
                     hosts_successful = list(data["hosts_successful"])
                     hosts_admin = list(data["hosts_admin"])
-                    efficacy = (len(hosts_successful) / len(hosts)) * 100 if hosts else 0
+                    successful_count = len(hosts_successful)
+                    total_hosts_tested = len(hosts)
+                    efficacy = (successful_count / total_hosts_tested * 100) if total_hosts_tested else 0
 
                     credentials.append({
                         "username": username,
@@ -688,6 +709,9 @@ def query_credential_details(hosts: list[str], protocol: str) -> list[dict]:
                         "hosts_admin": hosts_admin,
                         "hosts_failed": [],
                         "efficacy_percent": efficacy,
+                        "efficacy_successful": successful_count,  # NEW: for "X/Y hosts" format
+                        "efficacy_total": total_hosts_tested,     # NEW: for "X/Y hosts" format
+                        "hosts_with_hostnames": host_to_hostname,  # NEW: hostname mapping
                     })
 
             except sqlite3.Error as e:
@@ -699,3 +723,165 @@ def query_credential_details(hosts: list[str], protocol: str) -> list[dict]:
     except Exception as e:
         log_error(f"Failed to query credential details for {protocol}: {e}")
         return []
+
+
+# ========== Batch Query Optimization (Phase 0) ==========
+
+# In-memory cache for batch correlation queries (5-minute TTL)
+_batch_correlation_cache: dict[str, tuple[bool, float]] = {}
+_CACHE_TTL_SECONDS = 300  # 5 minutes
+
+
+def _get_cache_key(finding_id: int, hosts: tuple[str, ...]) -> str:
+    """Generate cache key for finding correlation."""
+    hosts_str = ",".join(sorted(hosts))
+    return f"{finding_id}:{hosts_str}"
+
+
+@log_timing
+def query_batch_correlation_status(findings: list[tuple]) -> dict[int, bool]:
+    """Query NetExec for multiple findings efficiently (batch operation).
+
+    This function optimizes performance by:
+    1. Extracting all unique hosts from all findings (de-duplication)
+    2. Querying NetExec once per protocol with all hosts (batch query)
+    3. Mapping results back to finding IDs
+    4. Caching results for 5 minutes
+
+    Performance target: <100ms per finding for batch of 50
+
+    Args:
+        findings: List of (Finding, Plugin) tuples from finding list
+
+    Returns:
+        Dict mapping finding_id → has_netexec_data (bool)
+
+    Example:
+        findings = [(finding1, plugin1), (finding2, plugin2), ...]
+        result = query_batch_correlation_status(findings)
+        # result = {1: True, 2: False, 3: True, ...}
+    """
+    import time
+
+    if not findings:
+        return {}
+
+    workspace_path = get_netexec_workspace_path()
+    if not workspace_path or not workspace_path.exists():
+        log_debug("NetExec workspace not found - batch correlation unavailable")
+        return {finding.finding_id: False for finding, _ in findings}
+
+    result = {}
+    current_time = time.time()
+
+    # Step 1: Check cache and collect uncached findings
+    uncached_findings = []
+    for finding, plugin in findings:
+        # Extract hosts from finding (this assumes Finding has hosts attribute)
+        # We'll need to get hosts from the database query in the actual implementation
+        cache_key = f"finding:{finding.finding_id}"
+
+        if cache_key in _batch_correlation_cache:
+            has_data, timestamp = _batch_correlation_cache[cache_key]
+            if current_time - timestamp < _CACHE_TTL_SECONDS:
+                result[finding.finding_id] = has_data
+                continue
+
+        uncached_findings.append((finding, plugin))
+
+    if not uncached_findings:
+        log_debug(f"All {len(findings)} findings served from cache")
+        return result
+
+    # Step 2: Extract all unique hosts from uncached findings
+    all_hosts = set()
+    finding_to_hosts = {}
+
+    for finding, _ in uncached_findings:
+        try:
+            # Get hosts for this finding from Mundane database
+            hosts, _ = finding.get_hosts_and_ports()  # Returns (list[str], str)
+            if hosts:
+                finding_to_hosts[finding.finding_id] = set(hosts)
+                all_hosts.update(hosts)
+        except Exception as e:
+            log_error(f"Failed to get hosts for finding {finding.finding_id}: {e}")
+            finding_to_hosts[finding.finding_id] = set()
+
+    if not all_hosts:
+        # No hosts to query
+        for finding, _ in uncached_findings:
+            result[finding.finding_id] = False
+            # Cache negative result
+            cache_key = f"finding:{finding.finding_id}"
+            _batch_correlation_cache[cache_key] = (False, current_time)
+        return result
+
+    # Step 3: Query NetExec once with all hosts (batch query)
+    all_matched_hosts = set()
+
+    # Query all protocols with all hosts in a single pass
+    protocols = [
+        ("smb", "smb.db", False),      # SMB uses 'ip' field
+        ("ssh", "ssh.db", True),       # SSH uses 'host' field
+        ("ftp", "ftp.db", True),       # FTP uses 'host' field
+        ("ldap", "ldap.db", False),
+        ("mssql", "mssql.db", False),
+        ("rdp", "rdp.db", False),
+        ("nfs", "nfs.db", False),
+        ("vnc", "vnc.db", False),
+        ("winrm", "winrm.db", False),
+        ("wmi", "wmi.db", False),
+    ]
+
+    hosts_list = list(all_hosts)
+
+    for proto_name, db_file, use_host_field in protocols:
+        db_path = workspace_path / db_file
+        if not db_path.exists():
+            continue
+
+        try:
+            import sqlite3
+            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=5.0)
+
+            placeholders = ",".join("?" * len(hosts_list))
+            field_name = "host" if use_host_field else "ip"
+            query = f"SELECT DISTINCT {field_name} FROM hosts WHERE {field_name} IN ({placeholders})"
+
+            rows = conn.execute(query, hosts_list).fetchall()
+            for row in rows:
+                if row[0]:
+                    all_matched_hosts.add(row[0])
+
+            conn.close()
+
+        except Exception as e:
+            log_error(f"Failed to query {proto_name} database in batch: {e}")
+            continue
+
+    # Step 4: Map results back to finding IDs
+    for finding, _ in uncached_findings:
+        # Check if any of this finding's hosts were matched
+        finding_hosts = finding_to_hosts.get(finding.finding_id, set())
+        has_data = bool(finding_hosts & all_matched_hosts)
+
+        result[finding.finding_id] = has_data
+
+        # Update cache
+        cache_key = f"finding:{finding.finding_id}"
+        _batch_correlation_cache[cache_key] = (has_data, current_time)
+
+    log_info(
+        f"Batch correlation query: {len(uncached_findings)} findings, "
+        f"{len(all_hosts)} unique hosts, {len(all_matched_hosts)} matched"
+    )
+
+    return result
+
+
+def clear_batch_correlation_cache():
+    """Clear the batch correlation cache (for testing or manual reset)."""
+    global _batch_correlation_cache
+    _batch_correlation_cache.clear()
+    log_debug("Batch correlation cache cleared")

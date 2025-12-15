@@ -3130,12 +3130,16 @@ def main_callback(
     # Load configuration (auto-creates with defaults if missing)
     from mundane_pkg import load_config, initialize_colors
     from mundane_pkg.logging_setup import init_logger
+    from mundane_pkg.database import initialize_database
 
     config = load_config()
 
     # Initialize systems with config
     init_logger(config)
     initialize_colors(config)
+
+    # Initialize database AFTER logger is ready (prevents logging bleed during import)
+    initialize_database()
 
     # Store config in context for access by commands
     _config_context.set(config)
@@ -3503,7 +3507,7 @@ def config_reset() -> None:
 @config_app.command(name="show", help="Display current configuration with all settings and paths")
 def config_show() -> None:
     """Display current configuration (merged from file and defaults)."""
-    from mundane_pkg import load_config, get_config_path
+    from mundane_pkg import load_config, get_config_path, MundaneConfig
     from rich.table import Table
 
     config_path = get_config_path()
@@ -3513,47 +3517,63 @@ def config_show() -> None:
     info(f"Config file: {config_path}")
     _console_global.print()
 
-    # Create table
+    # Create table with Description column
     table = Table(title="Configuration Values", show_header=True, header_style="bold cyan")
     table.add_column("Setting", style="cyan", no_wrap=True)
     table.add_column("Value", style="yellow")
+    table.add_column("Description", style="dim white")
     table.add_column("Status", style="green")
+
+    # Get defaults for comparison
+    defaults = MundaneConfig()
 
     # Helper to add row with description
     def add_row(key: str, value, is_default: bool, description: str = ""):
         status = "Default" if is_default else "Configured"
         value_str = str(value) if value is not None else "None"
-        if description:
-            value_str = f"{value_str}  # {description}"
-        table.add_row(key, value_str, status)
+        table.add_row(key, value_str, description, status)
 
     # Paths
-    add_row("results_root", config.results_root or str(get_results_root()), config.results_root is None, "Directory for tool output")
+    add_row("results_root", config.results_root or str(get_results_root()),
+            config.results_root == defaults.results_root, "Directory for tool output")
 
     # Display preferences
-    add_row("default_page_size", config.default_page_size or "auto", config.default_page_size is None, "Items per page in lists")
-    add_row("top_ports_count", config.top_ports_count or 10, config.top_ports_count is None, "Top ports to show")
+    add_row("default_page_size", config.default_page_size or "auto",
+            config.default_page_size == defaults.default_page_size, "Items per page in lists")
+    add_row("top_ports_count", config.top_ports_count or 10,
+            config.top_ports_count == defaults.top_ports_count, "Top ports to show")
 
     # Behavior
-    add_row("default_workflow_path", config.default_workflow_path or "None", config.default_workflow_path is None, "Custom workflows YAML")
-    add_row("auto_save_session", config.auto_save_session, config.auto_save_session == True, "Auto-save review progress")
-    add_row("confirm_bulk_operations", config.confirm_bulk_operations, config.confirm_bulk_operations == True, "Confirm bulk actions")
+    add_row("default_workflow_path", config.default_workflow_path or "None",
+            config.default_workflow_path == defaults.default_workflow_path, "Custom workflows YAML")
+    add_row("auto_save_session", config.auto_save_session,
+            config.auto_save_session == defaults.auto_save_session, "Auto-save review progress")
+    add_row("confirm_bulk_operations", config.confirm_bulk_operations,
+            config.confirm_bulk_operations == defaults.confirm_bulk_operations, "Confirm bulk actions")
 
     # Network
-    add_row("http_timeout", config.http_timeout or 15, config.http_timeout is None, "HTTP timeout (seconds)")
+    add_row("http_timeout", config.http_timeout or 15,
+            config.http_timeout == defaults.http_timeout, "HTTP timeout (seconds)")
 
     # Tool defaults
-    add_row("default_tool", config.default_tool or "None", config.default_tool is None, "Pre-select: nmap/netexec/custom")
-    add_row("default_netexec_protocol", config.default_netexec_protocol or "None", config.default_netexec_protocol is None, "Default: smb/ssh/ftp/etc")
-    add_row("nmap_default_profile", config.nmap_default_profile or "None", config.nmap_default_profile is None, "NSE profile name")
+    add_row("default_tool", config.default_tool or "None",
+            config.default_tool == defaults.default_tool, "Pre-select: nmap/netexec/custom")
+    add_row("default_netexec_protocol", config.default_netexec_protocol or "None",
+            config.default_netexec_protocol == defaults.default_netexec_protocol, "Default: smb/ssh/ftp/etc")
+    add_row("nmap_default_profile", config.nmap_default_profile or "None",
+            config.nmap_default_profile == defaults.nmap_default_profile, "NSE profile name")
 
     # Logging
-    add_row("log_path", config.log_path or str(Path.home() / ".mundane" / "mundane.log"), config.log_path is None, "Log file location")
-    add_row("debug_logging", config.debug_logging, config.debug_logging == False, "Enable DEBUG logs")
+    add_row("log_path", config.log_path or str(Path.home() / ".mundane" / "mundane.log"),
+            config.log_path == defaults.log_path, "Log file location")
+    add_row("debug_logging", config.debug_logging,
+            config.debug_logging == defaults.debug_logging, "Enable DEBUG logs")
 
     # Display
-    add_row("no_color", config.no_color, config.no_color == False, "Disable ANSI colors")
-    add_row("term_override", config.term_override or "None", config.term_override is None, "Force terminal type")
+    add_row("no_color", config.no_color,
+            config.no_color == defaults.no_color, "Disable ANSI colors")
+    add_row("term_override", config.term_override or "None",
+            config.term_override == defaults.term_override, "Force terminal type")
 
     _console.print(table)
     _console_global.print()

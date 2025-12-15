@@ -557,16 +557,6 @@ def check_database_health(database_path: Optional[Path] = None) -> bool:
 
 # ========== Auto-initialization ==========
 
-# Initialize database on module import (handles both new and existing databases)
-if DATABASE_PATH.exists():
-    # Existing database - run health check, then initialize
-    # Health check is informational only - initialization is idempotent and will repair issues
-    if not check_database_health():
-        log_error(f"Database at {DATABASE_PATH} failed health check - attempting repair...")
-
-    # Always run initialization (idempotent - safe to run multiple times)
-    initialize_database()
-else:
-    # New database - create and initialize
-    log_info(f"Creating new database at {DATABASE_PATH}")
-    initialize_database()
+# Note: Database initialization removed from module import to prevent premature logging.
+# Database is now initialized explicitly in mundane.py:main_callback() after logger setup.
+# Call initialize_database() from your main entry point after init_logger().

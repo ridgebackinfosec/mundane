@@ -143,12 +143,19 @@ def sample_nessus_xml(temp_dir: Path) -> Path:
 
 @pytest.fixture(autouse=True)
 def reset_environment(monkeypatch):
-    """Reset environment variables before each test.
+    """Reset environment variables and config caches before each test.
 
-    This ensures tests don't interfere with each other through env vars.
+    This ensures tests don't interfere with each other through env vars or cached config.
     """
-    # Clear database-related env vars
+    # Clear database-related env vars (legacy - no longer used in v2.3.0+)
     monkeypatch.delenv("MUNDANE_RESULTS_ROOT", raising=False)
     monkeypatch.delenv("NPH_RESULTS_ROOT", raising=False)
     monkeypatch.delenv("MUNDANE_USE_DB", raising=False)
     monkeypatch.delenv("MUNDANE_DB_ONLY", raising=False)
+    monkeypatch.delenv("MUNDANE_LOG", raising=False)
+    monkeypatch.delenv("MUNDANE_DEBUG", raising=False)
+    monkeypatch.delenv("NO_COLOR", raising=False)
+
+    # Reset cached config values
+    from mundane_pkg.constants import reset_results_root_cache
+    reset_results_root_cache()

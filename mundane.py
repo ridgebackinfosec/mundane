@@ -1160,7 +1160,8 @@ def _build_nmap_workflow(ctx: "ToolContext") -> Optional["CommandResult"]:
         return None
 
     try:
-        nse_scripts, needs_udp = choose_nse_profile()
+        config = get_current_config()
+        nse_scripts, needs_udp = choose_nse_profile(config)
     except KeyboardInterrupt:
         return None
 
@@ -1216,7 +1217,8 @@ def _build_netexec_workflow(ctx: "ToolContext") -> Optional["CommandResult"]:
     """
     from mundane_pkg.tool_context import CommandResult
 
-    protocol = choose_netexec_protocol()
+    config = get_current_config()
+    protocol = choose_netexec_protocol(config)
     if not protocol:
         return None
 
@@ -1364,7 +1366,8 @@ def run_tool_workflow(
         plugin_url = None
 
     while True:
-        tool_choice = choose_tool()
+        config = get_current_config()
+        tool_choice = choose_tool(config)
         if tool_choice is None:
             break
 

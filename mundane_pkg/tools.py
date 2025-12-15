@@ -14,7 +14,10 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .config import MundaneConfig
 
 import pyperclip
 from rich.console import Console
@@ -77,20 +80,36 @@ MSF_PATTERN = re.compile(r"Metasploit[:\-\s]*\(?([^)]+)\)?", re.IGNORECASE)
 
 # ========== NSE Profile Selection ==========
 
-def choose_nse_profile() -> tuple[list[str], bool]:
+def choose_nse_profile(config: Optional["MundaneConfig"] = None) -> tuple[list[str], bool]:
     """
     Prompt user to select an NSE (Nmap Scripting Engine) profile.
-    
+
+    Args:
+        config: Optional configuration object. If None, loads config.
+
     Returns:
         Tuple of (script_list, needs_udp) where script_list contains
         the selected NSE scripts and needs_udp indicates if UDP scanning
         is required.
     """
+    # Load config if not provided
+    if config is None:
+        from .config import load_config
+        config = load_config()
+
     header("NSE Profiles")
     for index, (name, description, scripts, _) in enumerate(NSE_PROFILES, 1):
-        print(f"[{index}] {name} - {description}")
+        # Highlight config default if it matches
+        if config.nmap_default_profile and name.lower() == config.nmap_default_profile.lower():
+            print(f"[{index}] {name} - {description} (default)")
+        else:
+            print(f"[{index}] {name} - {description}")
         info(f"    Scripts: {', '.join(scripts)}")
     print_action_menu([("N", "None (no NSE profile)"), ("B", "Back")])
+
+    # Show default hint if configured
+    if config.nmap_default_profile:
+        print(f"(Press Enter for '{config.nmap_default_profile}')")
 
     while True:
         try:
@@ -101,6 +120,18 @@ def choose_nse_profile() -> tuple[list[str], bool]:
 
         if answer in ("b", "back", "q"):
             return [], False
+
+        # Handle default selection (Enter key) if config has default
+        if answer == "" and config.nmap_default_profile:
+            # Find matching profile by name
+            for index, (name, description, scripts, needs_udp) in enumerate(NSE_PROFILES):
+                if name.lower() == config.nmap_default_profile.lower():
+                    ok(
+                        f"Selected profile: {name} — "
+                        f"including: {', '.join(scripts)}"
+                    )
+                    return scripts[:], needs_udp
+            # If no match found, fall through to "none"
 
         if answer in ("n", "none", ""):
             return [], False
@@ -207,18 +238,26 @@ def build_netexec_cmd(
 
 # ========== Tool Selection ==========
 
-def choose_tool() -> Optional[str]:
+def choose_tool(config: Optional["MundaneConfig"] = None) -> Optional[str]:
     """
     Prompt user to select a security tool.
 
     This function is now data-driven from the tool registry. Tools are
     automatically displayed based on their registration in TOOL_REGISTRY.
 
+    Args:
+        config: Optional configuration object. If None, loads config.
+
     Returns:
         Tool id ('nmap', 'netexec', 'metasploit', 'custom') or
         None if user cancels
     """
     from .tool_registry import get_available_tools, get_tool_by_menu_index
+
+    # Load config if not provided
+    if config is None:
+        from .config import load_config
+        config = load_config()
 
     # Get all registered tools sorted by menu_order
     available_tools = get_available_tools(check_requirements=False)
@@ -240,8 +279,19 @@ def choose_tool() -> Optional[str]:
 
     print_action_menu([("B", "Back")])
 
-    # Default to first tool (nmap by convention)
-    default_tool = available_tools[0] if available_tools else None
+    # Use config default if available and valid, otherwise first tool
+    default_tool = None
+    if config.default_tool:
+        # Find tool by id in available_tools
+        for tool in available_tools:
+            if tool.id == config.default_tool:
+                default_tool = tool
+                break
+
+    # Fall back to first tool if no valid config default
+    if not default_tool and available_tools:
+        default_tool = available_tools[0]
+
     if default_tool:
         print(f"(Press Enter for '{default_tool.name}')")
 
@@ -270,29 +320,40 @@ def choose_tool() -> Optional[str]:
         warn("Invalid choice.")
 
 
-def choose_netexec_protocol() -> Optional[str]:
+def choose_netexec_protocol(config: Optional["MundaneConfig"] = None) -> Optional[str]:
     """
     Prompt user to select a netexec protocol.
-    
+
+    Args:
+        config: Optional configuration object. If None, loads config.
+
     Returns:
-        Protocol name or None if user cancels. Defaults to 'smb'
-        if user presses Enter.
+        Protocol name or None if user cancels. Defaults to config.default_netexec_protocol
+        or 'smb' if user presses Enter.
     """
+    # Load config if not provided
+    if config is None:
+        from .config import load_config
+        config = load_config()
+
+    # Use config default or fall back to 'smb'
+    default_proto = config.default_netexec_protocol or "smb"
+
     header("NetExec: choose protocol")
     for index, protocol in enumerate(NETEXEC_PROTOCOLS, 1):
         print(f"[{index}] {protocol}")
     print_action_menu([("B", "Back")])
-    print("(Press Enter for 'smb')")
-    
+    print(f"(Press Enter for '{default_proto}')")
+
     while True:
         try:
-            answer = Prompt.ask("Choose protocol", default="smb").strip().lower()
+            answer = Prompt.ask("Choose protocol", default=default_proto).strip().lower()
         except KeyboardInterrupt:
             warn("\nInterrupted — returning to file menu.")
             return None
-        
+
         if answer == "":
-            return "smb"
+            return default_proto
         
         if answer in ("b", "back", "q"):
             return None

@@ -185,19 +185,20 @@ def create_example_config() -> bool:
     Returns:
         True if successful, False otherwise
     """
-    # Create default config with all values set
+    # Create default config - only set boolean defaults explicitly
+    # Optional fields (None) will show as "Default" in config show
     default_config = MundaneConfig(
-        results_root=str(Path.home() / ".mundane" / "artifacts"),
+        results_root=None,  # Uses ~/.mundane/artifacts by default
         default_page_size=None,  # auto
-        top_ports_count=10,
+        top_ports_count=None,  # Uses DEFAULT_TOP_PORTS (10)
         default_workflow_path=None,
         auto_save_session=True,
         confirm_bulk_operations=True,
-        http_timeout=15,
+        http_timeout=None,  # Uses HTTP_TIMEOUT constant (15)
         default_tool=None,
         default_netexec_protocol=None,
         nmap_default_profile=None,
-        log_path=str(Path.home() / ".mundane" / "mundane.log"),
+        log_path=None,  # Uses ~/.mundane/mundane.log by default
         debug_logging=False,
         no_color=False,
         term_override=None,

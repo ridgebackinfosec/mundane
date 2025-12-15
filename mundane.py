@@ -3507,7 +3507,7 @@ def config_reset() -> None:
 @config_app.command(name="show", help="Display current configuration with all settings and paths")
 def config_show() -> None:
     """Display current configuration (merged from file and defaults)."""
-    from mundane_pkg import load_config, get_config_path, MundaneConfig
+    from mundane_pkg import load_config, get_config_path, MundaneConfig, DEFAULT_TOP_PORTS, HTTP_TIMEOUT
     from rich.table import Table
 
     config_path = get_config_path()
@@ -3540,11 +3540,11 @@ def config_show() -> None:
     # Display preferences
     add_row("default_page_size", config.default_page_size or "auto",
             config.default_page_size == defaults.default_page_size, "Items per page in lists")
-    add_row("top_ports_count", config.top_ports_count or 10,
+    add_row("top_ports_count", config.top_ports_count or DEFAULT_TOP_PORTS,
             config.top_ports_count == defaults.top_ports_count, "Top ports to show")
 
     # Behavior
-    add_row("default_workflow_path", config.default_workflow_path or "None",
+    add_row("default_workflow_path", config.default_workflow_path or "(not set)",
             config.default_workflow_path == defaults.default_workflow_path, "Custom workflows YAML")
     add_row("auto_save_session", config.auto_save_session,
             config.auto_save_session == defaults.auto_save_session, "Auto-save review progress")
@@ -3552,15 +3552,15 @@ def config_show() -> None:
             config.confirm_bulk_operations == defaults.confirm_bulk_operations, "Confirm bulk actions")
 
     # Network
-    add_row("http_timeout", config.http_timeout or 15,
+    add_row("http_timeout", config.http_timeout or HTTP_TIMEOUT,
             config.http_timeout == defaults.http_timeout, "HTTP timeout (seconds)")
 
     # Tool defaults
-    add_row("default_tool", config.default_tool or "None",
+    add_row("default_tool", config.default_tool or "(not set)",
             config.default_tool == defaults.default_tool, "Pre-select: nmap/netexec/custom")
-    add_row("default_netexec_protocol", config.default_netexec_protocol or "None",
+    add_row("default_netexec_protocol", config.default_netexec_protocol or "smb",
             config.default_netexec_protocol == defaults.default_netexec_protocol, "Default: smb/ssh/ftp/etc")
-    add_row("nmap_default_profile", config.nmap_default_profile or "None",
+    add_row("nmap_default_profile", config.nmap_default_profile or "(not set)",
             config.nmap_default_profile == defaults.nmap_default_profile, "NSE profile name")
 
     # Logging
@@ -3572,7 +3572,7 @@ def config_show() -> None:
     # Display
     add_row("no_color", config.no_color,
             config.no_color == defaults.no_color, "Disable ANSI colors")
-    add_row("term_override", config.term_override or "None",
+    add_row("term_override", config.term_override or "(not set)",
             config.term_override == defaults.term_override, "Force terminal type")
 
     _console.print(table)

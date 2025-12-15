@@ -13,8 +13,6 @@ from typing import Optional
 
 import yaml
 
-from .logging_setup import log_error, log_info
-
 
 @dataclass
 class MundaneConfig:
@@ -95,7 +93,7 @@ def load_config() -> MundaneConfig:
 
     # Auto-create if doesn't exist
     if not config_path.exists():
-        log_info(f"No config file found, creating with defaults at {config_path}")
+        # Note: Don't log here since logger isn't initialized yet
         create_example_config()
         # Continue to load the newly created file
 
@@ -104,7 +102,7 @@ def load_config() -> MundaneConfig:
             data = yaml.safe_load(f)
 
         if not data:
-            log_info(f"Config file {config_path} is empty, using defaults")
+            # Note: Don't log here since logger isn't initialized yet
             return MundaneConfig()
 
         # Extract config values, using None for missing keys
@@ -125,12 +123,12 @@ def load_config() -> MundaneConfig:
             term_override=data.get("term_override"),
         )
 
-        log_info(f"Loaded config from {config_path}")
+        # Note: Don't log here since logger isn't initialized yet
         return config
 
     except Exception as e:
-        log_error(f"Failed to load config from {config_path}: {e}")
-        log_info("Using default configuration")
+        # Note: Don't log here since logger isn't initialized yet
+        # Silently fall back to defaults if config load fails
         return MundaneConfig()
 
 
@@ -173,11 +171,11 @@ def save_config(config: MundaneConfig) -> bool:
         with open(config_path, "w", encoding="utf-8") as f:
             yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
-        log_info(f"Saved config to {config_path}")
+        # Config saved successfully
         return True
 
     except Exception as e:
-        log_error(f"Failed to save config to {config_path}: {e}")
+        # Failed to save config
         return False
 
 

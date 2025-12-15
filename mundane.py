@@ -3519,38 +3519,41 @@ def config_show() -> None:
     table.add_column("Value", style="yellow")
     table.add_column("Status", style="green")
 
-    # Helper to add row
-    def add_row(key: str, value, is_default: bool):
+    # Helper to add row with description
+    def add_row(key: str, value, is_default: bool, description: str = ""):
         status = "Default" if is_default else "Configured"
-        table.add_row(key, str(value) if value is not None else "None", status)
+        value_str = str(value) if value is not None else "None"
+        if description:
+            value_str = f"{value_str}  # {description}"
+        table.add_row(key, value_str, status)
 
     # Paths
-    add_row("results_root", config.results_root or str(get_results_root()), config.results_root is None)
+    add_row("results_root", config.results_root or str(get_results_root()), config.results_root is None, "Directory for tool output")
 
     # Display preferences
-    add_row("default_page_size", config.default_page_size or "auto (terminal height)", config.default_page_size is None)
-    add_row("top_ports_count", config.top_ports_count or 10, config.top_ports_count is None)
+    add_row("default_page_size", config.default_page_size or "auto", config.default_page_size is None, "Items per page in lists")
+    add_row("top_ports_count", config.top_ports_count or 10, config.top_ports_count is None, "Top ports to show")
 
     # Behavior
-    add_row("default_workflow_path", config.default_workflow_path or "None", config.default_workflow_path is None)
-    add_row("auto_save_session", config.auto_save_session, False)
-    add_row("confirm_bulk_operations", config.confirm_bulk_operations, False)
+    add_row("default_workflow_path", config.default_workflow_path or "None", config.default_workflow_path is None, "Custom workflows YAML")
+    add_row("auto_save_session", config.auto_save_session, config.auto_save_session == True, "Auto-save review progress")
+    add_row("confirm_bulk_operations", config.confirm_bulk_operations, config.confirm_bulk_operations == True, "Confirm bulk actions")
 
     # Network
-    add_row("http_timeout", config.http_timeout or 15, config.http_timeout is None)
+    add_row("http_timeout", config.http_timeout or 15, config.http_timeout is None, "HTTP timeout (seconds)")
 
     # Tool defaults
-    add_row("default_tool", config.default_tool or "None", config.default_tool is None)
-    add_row("default_netexec_protocol", config.default_netexec_protocol or "None", config.default_netexec_protocol is None)
-    add_row("nmap_default_profile", config.nmap_default_profile or "None", config.nmap_default_profile is None)
+    add_row("default_tool", config.default_tool or "None", config.default_tool is None, "Pre-select: nmap/netexec/custom")
+    add_row("default_netexec_protocol", config.default_netexec_protocol or "None", config.default_netexec_protocol is None, "Default: smb/ssh/ftp/etc")
+    add_row("nmap_default_profile", config.nmap_default_profile or "None", config.nmap_default_profile is None, "NSE profile name")
 
     # Logging
-    add_row("log_path", config.log_path or str(Path.home() / ".mundane" / "mundane.log"), config.log_path is None)
-    add_row("debug_logging", config.debug_logging, False)
+    add_row("log_path", config.log_path or str(Path.home() / ".mundane" / "mundane.log"), config.log_path is None, "Log file location")
+    add_row("debug_logging", config.debug_logging, config.debug_logging == False, "Enable DEBUG logs")
 
     # Display
-    add_row("no_color", config.no_color, False)
-    add_row("term_override", config.term_override or "None", config.term_override is None)
+    add_row("no_color", config.no_color, config.no_color == False, "Disable ANSI colors")
+    add_row("term_override", config.term_override or "None", config.term_override is None, "Force terminal type")
 
     _console.print(table)
     _console_global.print()

@@ -21,7 +21,7 @@ from rich.progress import (
 )
 
 from .ansi import err, header, ok, warn
-from .constants import RESULTS_ROOT, REVIEW_PREFIX
+from .constants import get_results_root, REVIEW_PREFIX
 
 
 _console_global = Console()
@@ -195,7 +195,7 @@ def build_results_paths(
     """
     stem = Path(plugin_filename).stem
     severity_label = pretty_severity_label(sev_dir.name)
-    output_dir = RESULTS_ROOT / scan_dir.name / severity_label / stem
+    output_dir = get_results_root() / scan_dir.name / severity_label / stem
     output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     output_base = output_dir / f"run-{timestamp}"

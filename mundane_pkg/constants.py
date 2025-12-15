@@ -8,37 +8,44 @@ testing tools integration.
 import os
 import re
 from pathlib import Path
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .config import MundaneConfig
 
 
 # ========== Application paths and prefixes ==========
-def _get_results_root() -> Path:
-    """Get results root directory with backward compatibility for env vars.
+_results_root_cache: Optional[Path] = None
 
-    Checks MUNDANE_RESULTS_ROOT first (new), then NPH_RESULTS_ROOT (deprecated),
-    then falls back to default '~/.mundane/artifacts'.
+
+def get_results_root(config: Optional["MundaneConfig"] = None) -> Path:
+    """Get results root directory from config (lazy-loaded with caching).
+
+    Args:
+        config: Optional config to use. If None, loads config.
 
     Returns:
         Path to results root directory
     """
-    # New variable takes precedence
-    if "MUNDANE_RESULTS_ROOT" in os.environ:
-        return Path(os.environ["MUNDANE_RESULTS_ROOT"])
+    global _results_root_cache
 
-    # Fallback to legacy variable with warning
-    if "NPH_RESULTS_ROOT" in os.environ:
-        import warnings
-        warnings.warn(
-            "NPH_RESULTS_ROOT is deprecated. Please use MUNDANE_RESULTS_ROOT instead.",
-            DeprecationWarning,
-            stacklevel=2
-        )
-        return Path(os.environ["NPH_RESULTS_ROOT"])
+    if _results_root_cache is None:
+        if config is None:
+            from .config import load_config
+            config = load_config()
 
-    # Default: ~/.mundane/artifacts
-    return Path.home() / ".mundane" / "artifacts"
+        if config.results_root:
+            _results_root_cache = Path(config.results_root).expanduser()
+        else:
+            _results_root_cache = Path.home() / ".mundane" / "artifacts"
 
-RESULTS_ROOT: Path = _get_results_root()
-"""Root directory for tool artifacts and results output."""
+    return _results_root_cache
+
+
+def reset_results_root_cache() -> None:
+    """Reset cached results root (for testing)."""
+    global _results_root_cache
+    _results_root_cache = None
 
 SCANS_ROOT: Path = Path.home() / ".mundane" / "scans"
 """Root directory for scan exports (plugin host lists)."""

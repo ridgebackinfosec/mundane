@@ -17,8 +17,6 @@ if str(_here) not in sys.path:
 from mundane_pkg import (
     # version
     __version__,
-    # logging
-    setup_logging,
     # ops
     require_cmd,
     resolve_cmd,
@@ -31,14 +29,13 @@ from mundane_pkg import (
     extract_plugin_id_from_filename,
     group_files_by_workflow,
     # constants
-    RESULTS_ROOT,
+    get_results_root,
     PLUGIN_DETAILS_BASE,
     NSE_PROFILES,
     MAX_FILE_BYTES,
     DEFAULT_TOP_PORTS,
     SAMPLE_THRESHOLD,
     VISIBLE_GROUPS,
-    HTTP_TIMEOUT,
     # ansi / labels
     C,
     header,
@@ -131,6 +128,19 @@ _console_global = Console()
 
 # Install pretty tracebacks, but suppress for Typer/Click exit exceptions
 rich_tb_install(show_locals=False, suppress=["typer", "click"])
+
+# === Configuration context ===
+import contextvars
+
+_config_context = contextvars.ContextVar('config', default=None)
+
+def get_current_config():
+    """Get config from context or load fresh."""
+    from mundane_pkg import MundaneConfig, load_config
+    config = _config_context.get()
+    if config is None:
+        config = load_config()
+    return config
 
 
 # === Enums for type-safe choices ===
@@ -1337,7 +1347,7 @@ def run_tool_workflow(
         )
 
     out_dir_static = (
-        RESULTS_ROOT
+        get_results_root()
         / scan_dir.name
         / pretty_severity_label(sev_dir.name)
         / Path(chosen.name).stem
@@ -2677,15 +2687,13 @@ def main(args: types.SimpleNamespace) -> None:
         operations now use the database for improved performance and feature support
         including workflow mapping, Metasploit module detection, and session tracking.
     """
-    # Initialize logging
-    setup_logging()
-
-    # Validate RESULTS_ROOT is writable before proceeding
+    # Validate results root is writable before proceeding
     from mundane_pkg import validate_results_root
-    is_valid, error_msg = validate_results_root(RESULTS_ROOT)
+    results_root = get_results_root()
+    is_valid, error_msg = validate_results_root(results_root)
     if not is_valid:
         err(f"Results directory validation failed: {error_msg}")
-        warn(f"Please check the NPH_RESULTS_ROOT environment variable or ensure {RESULTS_ROOT} is writable")
+        warn(f"Please ensure {results_root} is writable or update results_root in config")
         raise Exit(1)
 
     # Track session start time
@@ -3119,7 +3127,18 @@ def main_callback(
     )
 ):
     """mundane CLI - faster review & tooling runner for vulnerability scans."""
-    pass
+    # Load configuration (auto-creates with defaults if missing)
+    from mundane_pkg import load_config, initialize_colors
+    from mundane_pkg.logging_setup import init_logger
+
+    config = load_config()
+
+    # Initialize systems with config
+    init_logger(config)
+    initialize_colors(config)
+
+    # Store config in context for access by commands
+    _config_context.set(config)
 
 
 @app.command(help="Interactive review of findings.")
@@ -3459,22 +3478,25 @@ def delete_scan(
 # === Config Sub-App Commands ===
 # Grouped under 'mundane config'
 
-@config_app.command(name="init", help="Initialize example configuration file at ~/.mundane/config.yaml")
-def config_init() -> None:
-    """Create an example config file at ~/.mundane/config.yaml with all options documented."""
+@config_app.command(name="reset", help="Reset configuration file to defaults")
+def config_reset() -> None:
+    """Reset config file at ~/.mundane/config.yaml to defaults."""
     from mundane_pkg import create_example_config, get_config_path
+    import shutil
 
     config_path = get_config_path()
+
+    # Backup existing if present
     if config_path.exists():
-        err(f"Config file already exists at {config_path}")
-        info("To recreate, delete the existing file first or edit it manually")
-        raise typer.Exit(1)
+        backup_path = config_path.with_suffix(".yaml.backup")
+        shutil.copy(config_path, backup_path)
+        info(f"Backed up existing config to {backup_path}")
 
     if create_example_config():
-        ok(f"Created example config at {config_path}")
+        ok(f"Reset config to defaults at {config_path}")
         info("Edit this file to customize your preferences")
     else:
-        err("Failed to create example config")
+        err("Failed to reset config file")
         raise typer.Exit(1)
 
 
@@ -3488,73 +3510,53 @@ def config_show() -> None:
     config = load_config()
 
     header("Current Configuration")
-    if config_path.exists():
-        info(f"Config file: {config_path}")
-    else:
-        info(f"No config file found (using defaults)")
-        info(f"Create one with: mundane config init")
-
+    info(f"Config file: {config_path}")
     _console_global.print()
 
     # Create table
     table = Table(title="Configuration Values", show_header=True, header_style="bold cyan")
-    table.add_column("Setting", style="cyan")
+    table.add_column("Setting", style="cyan", no_wrap=True)
     table.add_column("Value", style="yellow")
-    table.add_column("Source", style="green")
+    table.add_column("Status", style="green")
 
-    # Add rows for each setting
-    import os
+    # Helper to add row
+    def add_row(key: str, value, is_default: bool):
+        status = "Default" if is_default else "Configured"
+        table.add_row(key, str(value) if value is not None else "None", status)
 
-    # results_root
-    env_val = os.environ.get("NPH_RESULTS_ROOT")
-    if env_val:
-        table.add_row("results_root", env_val, "Environment variable")
-    elif config.results_root:
-        table.add_row("results_root", str(config.results_root), "Config file")
-    else:
-        table.add_row("results_root", str(RESULTS_ROOT), "Default")
+    # Paths
+    add_row("results_root", config.results_root or str(get_results_root()), config.results_root is None)
 
-    # default_page_size
-    if config.default_page_size:
-        table.add_row("default_page_size", str(config.default_page_size), "Config file")
-    else:
-        table.add_row("default_page_size", "auto (terminal height)", "Default")
+    # Display preferences
+    add_row("default_page_size", config.default_page_size or "auto (terminal height)", config.default_page_size is None)
+    add_row("top_ports_count", config.top_ports_count or 10, config.top_ports_count is None)
 
-    # top_ports_count
-    if config.top_ports_count:
-        table.add_row("top_ports_count", str(config.top_ports_count), "Config file")
-    else:
-        table.add_row("top_ports_count", str(DEFAULT_TOP_PORTS), "Default")
+    # Behavior
+    add_row("default_workflow_path", config.default_workflow_path or "None", config.default_workflow_path is None)
+    add_row("auto_save_session", config.auto_save_session, False)
+    add_row("confirm_bulk_operations", config.confirm_bulk_operations, False)
 
-    # default_workflow_path
-    if config.default_workflow_path:
-        table.add_row("default_workflow_path", config.default_workflow_path, "Config file")
-
-    # auto_save_session
-    table.add_row("auto_save_session", str(config.auto_save_session), "Config file" if config_path.exists() else "Default")
-
-    # confirm_bulk_operations
-    table.add_row("confirm_bulk_operations", str(config.confirm_bulk_operations), "Config file" if config_path.exists() else "Default")
-
-    # http_timeout
-    if config.http_timeout:
-        table.add_row("http_timeout", str(config.http_timeout), "Config file")
-    else:
-        table.add_row("http_timeout", str(HTTP_TIMEOUT), "Default")
+    # Network
+    add_row("http_timeout", config.http_timeout or 15, config.http_timeout is None)
 
     # Tool defaults
-    if config.default_tool:
-        table.add_row("default_tool", config.default_tool, "Config file")
+    add_row("default_tool", config.default_tool or "None", config.default_tool is None)
+    add_row("default_netexec_protocol", config.default_netexec_protocol or "None", config.default_netexec_protocol is None)
+    add_row("nmap_default_profile", config.nmap_default_profile or "None", config.nmap_default_profile is None)
 
-    if config.default_netexec_protocol:
-        table.add_row("default_netexec_protocol", config.default_netexec_protocol, "Config file")
+    # Logging
+    add_row("log_path", config.log_path or str(Path.home() / ".mundane" / "mundane.log"), config.log_path is None)
+    add_row("debug_logging", config.debug_logging, False)
 
-    if config.nmap_default_profile:
-        table.add_row("nmap_default_profile", config.nmap_default_profile, "Config file")
+    # Display
+    add_row("no_color", config.no_color, False)
+    add_row("term_override", config.term_override or "None", config.term_override is None)
 
     _console.print(table)
     _console_global.print()
     info(f"Edit config: {config_path}")
+    info("Change values: mundane config set <key> <value>")
+    info("Reset to defaults: mundane config reset")
 
 
 @config_app.command(name="get", help="Retrieve value of a specific configuration key")

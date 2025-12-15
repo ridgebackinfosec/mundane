@@ -33,8 +33,8 @@ class MundaneConfig:
     """Default number of top ports to display in summaries."""
 
     # Behavior preferences
-    default_workflow_path: Optional[str] = None
-    """Path to default custom workflow YAML file."""
+    custom_workflows_path: Optional[str] = None
+    """Path to custom workflows YAML."""
 
     auto_save_session: bool = True
     """Whether to automatically save session state (default: True)."""
@@ -110,7 +110,7 @@ def load_config() -> MundaneConfig:
             results_root=data.get("results_root"),
             default_page_size=data.get("default_page_size"),
             top_ports_count=data.get("top_ports_count"),
-            default_workflow_path=data.get("default_workflow_path"),
+            custom_workflows_path=data.get("custom_workflows_path"),
             auto_save_session=data.get("auto_save_session", True),
             confirm_bulk_operations=data.get("confirm_bulk_operations", True),
             http_timeout=data.get("http_timeout"),
@@ -153,7 +153,7 @@ def save_config(config: MundaneConfig) -> bool:
                 "results_root": config.results_root,
                 "default_page_size": config.default_page_size,
                 "top_ports_count": config.top_ports_count,
-                "default_workflow_path": config.default_workflow_path,
+                "custom_workflows_path": config.custom_workflows_path,
                 "auto_save_session": config.auto_save_session,
                 "confirm_bulk_operations": config.confirm_bulk_operations,
                 "http_timeout": config.http_timeout,
@@ -191,7 +191,7 @@ def create_example_config() -> bool:
         results_root=None,  # Uses ~/.mundane/artifacts by default
         default_page_size=None,  # auto
         top_ports_count=None,  # Uses DEFAULT_TOP_PORTS (10)
-        default_workflow_path=None,
+        custom_workflows_path=None,
         auto_save_session=True,
         confirm_bulk_operations=True,
         http_timeout=None,  # Uses HTTP_TIMEOUT constant (15)

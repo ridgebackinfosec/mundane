@@ -3544,8 +3544,8 @@ def config_show() -> None:
             config.top_ports_count == defaults.top_ports_count, "Top ports to show")
 
     # Behavior
-    add_row("default_workflow_path", config.default_workflow_path or "(not set)",
-            config.default_workflow_path == defaults.default_workflow_path, "Custom workflows YAML")
+    add_row("custom_workflows_path", config.custom_workflows_path or "(not set)",
+            config.custom_workflows_path == defaults.custom_workflows_path, "Path to custom workflows YAML")
     add_row("auto_save_session", config.auto_save_session,
             config.auto_save_session == defaults.auto_save_session, "Auto-save review progress")
     add_row("confirm_bulk_operations", config.confirm_bulk_operations,

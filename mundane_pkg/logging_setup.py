@@ -1,9 +1,9 @@
 """Logging configuration and utilities with loguru fallback.
 
 This module sets up file-based logging with configurable paths and levels
-via environment variables:
-  - MUNDANE_LOG: Path to log file (default: ~/mundane.log)
-  - MUNDANE_DEBUG: Enable DEBUG level (else INFO)
+via config.yaml:
+  - log_path: Path to log file (default: ~/.mundane/mundane.log)
+  - debug_logging: Enable DEBUG level (default: False)
 
 Prefers loguru if available, falls back to stdlib logging otherwise.
 """
@@ -13,7 +13,10 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, TypeVar, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .config import MundaneConfig
 
 
 # ========== Logger backend selection ==========
@@ -45,22 +48,30 @@ def env_truthy(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
-def init_logger() -> None:
-    """Initialize the logging system based on environment configuration.
+def init_logger(config: Optional["MundaneConfig"] = None) -> None:
+    """Initialize the logging system from configuration.
+
+    Args:
+        config: Configuration object. If None, uses inline defaults.
 
     Configures file logging with:
-    - Log path from MUNDANE_LOG env var (default: ~/.mundane/mundane.log)
-    - Log level from MUNDANE_DEBUG env var (DEBUG if set, else INFO)
+    - Log path from config (default: ~/.mundane/mundane.log)
+    - Log level from config (DEBUG if debug_logging=True, else INFO)
     - Rotation at 1 MB with 3 file retention (loguru only)
 
     Uses loguru if available, falls back to stdlib logging otherwise.
     Silently catches and ignores configuration errors.
     """
     global LOGURU_AVAILABLE
-    log_path = os.environ.get("MUNDANE_LOG") or str(
-        Path.home() / ".mundane" / "mundane.log"
-    )
-    debug = env_truthy("MUNDANE_DEBUG", False)
+
+    # Get config values with defaults
+    if config:
+        log_path = config.log_path or str(Path.home() / ".mundane" / "mundane.log")
+        debug = config.debug_logging
+    else:
+        log_path = str(Path.home() / ".mundane" / "mundane.log")
+        debug = False
+
     level = "DEBUG" if debug else "INFO"
 
     try:
@@ -99,8 +110,8 @@ def init_logger() -> None:
         pass
 
 
-# Initialize logger on module import
-init_logger()
+# Note: Logger is NOT initialized on module import anymore
+# Call init_logger(config) explicitly from main entry point
 
 
 # ========== Logging convenience functions ==========
@@ -214,9 +225,10 @@ def log_timing(fn: F) -> F:
 
 
 # ========== Public API ==========
-def setup_logging() -> None:
-    """Public wrapper to reinitialize logging.
+def setup_logging(config: Optional["MundaneConfig"] = None) -> None:
+    """Public wrapper to initialize logging from config.
 
-    Can be called to reconfigure logging after environment changes.
+    Args:
+        config: Configuration object. If None, uses inline defaults.
     """
-    init_logger()
+    init_logger(config)

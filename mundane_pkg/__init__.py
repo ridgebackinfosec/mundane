@@ -1,10 +1,10 @@
 
 """Internal package for the mundane CLI (split from monolithic script)."""
 from ._version import __version__
-from .ansi import C, header, ok, warn, err, info, fmt_action, fmt_reviewed, cyan_label, colorize_severity_label, breadcrumb
+from .ansi import C, header, ok, warn, err, info, fmt_action, fmt_reviewed, cyan_label, colorize_severity_label, breadcrumb, initialize_colors, get_no_color
 from .banner import display_banner
 from .constants import (
-    RESULTS_ROOT, SCANS_ROOT, REVIEW_PREFIX,
+    get_results_root, reset_results_root_cache, SCANS_ROOT, REVIEW_PREFIX,
     PLUGIN_DETAILS_BASE, NETEXEC_PROTOCOLS,
     NSE_PROFILES, HNAME_RE,
     MAX_FILE_BYTES, DEFAULT_TOP_PORTS,

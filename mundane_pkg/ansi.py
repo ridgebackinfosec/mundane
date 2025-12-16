@@ -1,36 +1,77 @@
 """ANSI color code formatting and console output utilities.
 
 This module provides ANSI color codes and helper functions for colorized
-console output. It respects the NO_COLOR environment variable for accessibility.
+console output. Color configuration is managed via config.yaml.
 """
 
 import os
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .config import MundaneConfig
 
 from .constants import SEVERITY_COLORS
 
 
 # ========== Color configuration ==========
-NO_COLOR: bool = (os.environ.get("NO_COLOR") is not None) or (
-    os.environ.get("TERM") == "dumb"
-)
-"""Disable colors if NO_COLOR env var is set or terminal is 'dumb'."""
-
-
 class C:
-    """ANSI color code constants.
+    """ANSI color code constants (initialized by initialize_colors).
 
     Provides escape codes for terminal colors and formatting.
-    All codes evaluate to empty strings when NO_COLOR is enabled.
+    All codes evaluate to empty strings by default (no colors).
+    Call initialize_colors(config) to enable colors based on configuration.
     """
 
-    RESET: str = "" if NO_COLOR else "\u001b[0m"
-    BOLD: str = "" if NO_COLOR else "\u001b[1m"
-    BLUE: str = "" if NO_COLOR else "\u001b[34m"
-    GREEN: str = "" if NO_COLOR else "\u001b[32m"
-    YELLOW: str = "" if NO_COLOR else "\u001b[33m"
-    RED: str = "" if NO_COLOR else "\u001b[31m"
-    CYAN: str = "" if NO_COLOR else "\u001b[36m"
-    MAGENTA: str = "" if NO_COLOR else "\u001b[35m"
+    RESET: str = ""
+    BOLD: str = ""
+    BLUE: str = ""
+    GREEN: str = ""
+    YELLOW: str = ""
+    RED: str = ""
+    CYAN: str = ""
+    MAGENTA: str = ""
+
+
+def initialize_colors(config: Optional["MundaneConfig"] = None) -> None:
+    """Initialize color constants from configuration.
+
+    Args:
+        config: Configuration object. If None, loads config.
+    """
+    if config is None:
+        from .config import load_config
+        config = load_config()
+
+    # Disable colors if configured
+    if config.no_color or config.term_override == "dumb":
+        # Colors already empty strings (defaults)
+        return
+
+    # Enable colors
+    C.RESET = "\u001b[0m"
+    C.BOLD = "\u001b[1m"
+    C.BLUE = "\u001b[34m"
+    C.GREEN = "\u001b[32m"
+    C.YELLOW = "\u001b[33m"
+    C.RED = "\u001b[31m"
+    C.CYAN = "\u001b[36m"
+    C.MAGENTA = "\u001b[35m"
+
+
+def get_no_color(config: Optional["MundaneConfig"] = None) -> bool:
+    """Check if colors should be disabled.
+
+    Args:
+        config: Configuration object. If None, loads config.
+
+    Returns:
+        True if colors should be disabled
+    """
+    if config is None:
+        from .config import load_config
+        config = load_config()
+
+    return config.no_color or config.term_override == "dumb"
 
 
 def header(msg: str) -> None:

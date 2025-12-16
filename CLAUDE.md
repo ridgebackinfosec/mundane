@@ -393,16 +393,23 @@ Version is defined in `pyproject.toml:project.version` (single source of truth).
 
 ### Constants & Configuration
 
-**Environment variables** (checked in `constants.py`):
-- `MUNDANE_RESULTS_ROOT`: Artifact storage (default: `~/.mundane/artifacts`)
-- `MUNDANE_USE_DB`: Enable database (default: `1`, always enabled)
-- `MUNDANE_DB_ONLY`: Database-only mode (default: `1`, always enabled)
-- `MUNDANE_LOG`: Log file path (default: `~/.mundane/mundane.log`)
-- `MUNDANE_DEBUG`: Enable DEBUG logging (`1`, `true`, `on`)
-- `MUNDANE_PROMPT`: Enable confirmation prompts (default: on)
-- `MUNDANE_SUDO_PREFLIGHT`: Run sudo checks (default: on)
+**Configuration** (`~/.mundane/config.yaml`): All user preferences managed via config file. Auto-created with defaults on first run. All configuration values are set through this file only.
 
-**Config file** (`~/.mundane/config.yaml`): Optional user preferences (paths, page sizes, defaults). CLI commands: `config-init`, `config-show`, `config-get`, `config-set`.
+**CLI commands**:
+- `mundane config show` - Display all configuration settings with current values
+- `mundane config set <key> <value>` - Change a configuration value
+- `mundane config get <key>` - Get current value of a setting
+- `mundane config reset` - Reset configuration to defaults (creates backup)
+
+**Note**: As of v2.3.0, environment variables are no longer checked for configuration. Use `config.yaml` for all settings including:
+- `results_root` - Artifact storage path (default: `~/.mundane/artifacts`)
+- `log_path` - Log file location (default: `~/.mundane/mundane.log`)
+- `debug_logging` - Enable DEBUG level logging (default: `false`)
+- `no_color` - Disable ANSI color output (default: `false`)
+- `default_tool` - Pre-select tool in menu (e.g., `nmap`, `netexec`)
+- `default_netexec_protocol` - Default protocol for NetExec (e.g., `smb`, `ssh`)
+- `nmap_default_profile` - Default NSE profile name
+- `custom_workflows_path` - Path to custom workflows YAML file
 
 **NSE profiles** (`constants.py:NSE_PROFILES`): Pre-configured nmap script sets (SMB, SSL, HTTP, etc.)
 
@@ -567,8 +574,8 @@ sqlite3 ~/.mundane/mundane.db "SELECT COUNT(*) FROM artifact_types;"   # Expecte
 ### Debugging Database Issues
 
 ```bash
-# Enable DEBUG logging
-export MUNDANE_DEBUG=1
+# Enable DEBUG logging via config
+mundane config set debug_logging true
 mundane review
 tail -f ~/.mundane/mundane.log
 

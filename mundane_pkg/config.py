@@ -13,8 +13,6 @@ from typing import Optional
 
 import yaml
 
-from .logging_setup import log_error, log_info
-
 
 @dataclass
 class MundaneConfig:
@@ -35,8 +33,8 @@ class MundaneConfig:
     """Default number of top ports to display in summaries."""
 
     # Behavior preferences
-    default_workflow_path: Optional[str] = None
-    """Path to default custom workflow YAML file."""
+    custom_workflows_path: Optional[str] = None
+    """Path to custom workflows YAML."""
 
     auto_save_session: bool = True
     """Whether to automatically save session state (default: True)."""
@@ -58,6 +56,20 @@ class MundaneConfig:
     nmap_default_profile: Optional[str] = None
     """Default NSE profile name to pre-select."""
 
+    # Logging preferences
+    log_path: Optional[str] = None
+    """Path to log file (default: ~/.mundane/mundane.log)."""
+
+    debug_logging: bool = False
+    """Enable DEBUG level logging (default: False)."""
+
+    # Display preferences
+    no_color: bool = False
+    """Disable ANSI color output (default: False)."""
+
+    term_override: Optional[str] = None
+    """Override TERM detection (e.g., 'dumb' to disable colors)."""
+
 
 def get_config_path() -> Path:
     """Get the path to the user's config file.
@@ -72,22 +84,25 @@ def get_config_path() -> Path:
 def load_config() -> MundaneConfig:
     """Load user configuration from ~/.mundane/config.yaml.
 
+    Auto-creates config file with defaults if it doesn't exist.
+
     Returns:
         MundaneConfig object with user preferences, or default config if file doesn't exist.
     """
     config_path = get_config_path()
 
-    # If config file doesn't exist, return defaults
+    # Auto-create if doesn't exist
     if not config_path.exists():
-        log_info(f"No config file found at {config_path}, using defaults")
-        return MundaneConfig()
+        # Note: Don't log here since logger isn't initialized yet
+        create_example_config()
+        # Continue to load the newly created file
 
     try:
         with open(config_path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
 
         if not data:
-            log_info(f"Config file {config_path} is empty, using defaults")
+            # Note: Don't log here since logger isn't initialized yet
             return MundaneConfig()
 
         # Extract config values, using None for missing keys
@@ -95,21 +110,25 @@ def load_config() -> MundaneConfig:
             results_root=data.get("results_root"),
             default_page_size=data.get("default_page_size"),
             top_ports_count=data.get("top_ports_count"),
-            default_workflow_path=data.get("default_workflow_path"),
+            custom_workflows_path=data.get("custom_workflows_path"),
             auto_save_session=data.get("auto_save_session", True),
             confirm_bulk_operations=data.get("confirm_bulk_operations", True),
             http_timeout=data.get("http_timeout"),
             default_tool=data.get("default_tool"),
             default_netexec_protocol=data.get("default_netexec_protocol"),
             nmap_default_profile=data.get("nmap_default_profile"),
+            log_path=data.get("log_path"),
+            debug_logging=data.get("debug_logging", False),
+            no_color=data.get("no_color", False),
+            term_override=data.get("term_override"),
         )
 
-        log_info(f"Loaded config from {config_path}")
+        # Note: Don't log here since logger isn't initialized yet
         return config
 
     except Exception as e:
-        log_error(f"Failed to load config from {config_path}: {e}")
-        log_info("Using default configuration")
+        # Note: Don't log here since logger isn't initialized yet
+        # Silently fall back to defaults if config load fails
         return MundaneConfig()
 
 
@@ -134,13 +153,17 @@ def save_config(config: MundaneConfig) -> bool:
                 "results_root": config.results_root,
                 "default_page_size": config.default_page_size,
                 "top_ports_count": config.top_ports_count,
-                "default_workflow_path": config.default_workflow_path,
+                "custom_workflows_path": config.custom_workflows_path,
                 "auto_save_session": config.auto_save_session,
                 "confirm_bulk_operations": config.confirm_bulk_operations,
                 "http_timeout": config.http_timeout,
                 "default_tool": config.default_tool,
                 "default_netexec_protocol": config.default_netexec_protocol,
                 "nmap_default_profile": config.nmap_default_profile,
+                "log_path": config.log_path,
+                "debug_logging": config.debug_logging,
+                "no_color": config.no_color,
+                "term_override": config.term_override,
             }.items()
             if v is not None
         }
@@ -148,57 +171,37 @@ def save_config(config: MundaneConfig) -> bool:
         with open(config_path, "w", encoding="utf-8") as f:
             yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
-        log_info(f"Saved config to {config_path}")
+        # Config saved successfully
         return True
 
     except Exception as e:
-        log_error(f"Failed to save config to {config_path}: {e}")
+        # Failed to save config
         return False
 
 
 def create_example_config() -> bool:
-    """Create an example config file with all available options documented.
+    """Create config file with all defaults uncommented.
 
     Returns:
         True if successful, False otherwise
     """
-    config_path = get_config_path()
+    # Create default config - only set boolean defaults explicitly
+    # Optional fields (None) will show as "Default" in config show
+    default_config = MundaneConfig(
+        results_root=None,  # Uses ~/.mundane/artifacts by default
+        default_page_size=None,  # auto
+        top_ports_count=None,  # Uses DEFAULT_TOP_PORTS (10)
+        custom_workflows_path=None,
+        auto_save_session=True,
+        confirm_bulk_operations=True,
+        http_timeout=None,  # Uses HTTP_TIMEOUT constant (15)
+        default_tool=None,
+        default_netexec_protocol=None,
+        nmap_default_profile=None,
+        log_path=None,  # Uses ~/.mundane/mundane.log by default
+        debug_logging=False,
+        no_color=False,
+        term_override=None,
+    )
 
-    if config_path.exists():
-        log_error(f"Config file already exists at {config_path}")
-        return False
-
-    example_content = """# Mundane Configuration File
-# Place this file at: ~/.mundane/config.yaml
-# All settings are optional - remove or comment out any you don't need
-
-# Paths
-# results_root: "~/mundane_scans"  # Custom path for scan artifacts
-
-# Display preferences
-# default_page_size: 20  # Number of items per page in lists
-# top_ports_count: 10    # Number of top ports to show in summaries
-
-# Behavior
-# default_workflow_path: "~/my_workflows.yaml"  # Path to custom workflows
-# auto_save_session: true           # Auto-save progress (default: true)
-# confirm_bulk_operations: true     # Confirm bulk actions (default: true)
-
-# Network
-# http_timeout: 15  # HTTP request timeout in seconds
-
-# Tool defaults
-# default_tool: "nmap"                # Pre-select tool: nmap, netexec, custom
-# default_netexec_protocol: "smb"    # Default netexec protocol
-# nmap_default_profile: "SMB"        # Default NSE profile name
-"""
-
-    try:
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(config_path, "w", encoding="utf-8") as f:
-            f.write(example_content)
-        log_info(f"Created example config at {config_path}")
-        return True
-    except Exception as e:
-        log_error(f"Failed to create example config: {e}")
-        return False
+    return save_config(default_config)

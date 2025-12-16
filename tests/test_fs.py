@@ -341,9 +341,9 @@ class TestBuildResultsPaths:
 
     def test_build_results_paths_basic(self, temp_dir, monkeypatch):
         """Test building result paths."""
-        # Mock RESULTS_ROOT
-        import mundane_pkg.fs
-        monkeypatch.setattr(mundane_pkg.fs, "RESULTS_ROOT", temp_dir / "results")
+        # Mock get_results_root() to return temp directory
+        import mundane_pkg.constants
+        monkeypatch.setattr(mundane_pkg.constants, "_results_root_cache", temp_dir / "results")
 
         scan_dir = temp_dir / "my_scan"
         sev_dir = scan_dir / "4_Critical"
@@ -360,8 +360,9 @@ class TestBuildResultsPaths:
 
     def test_build_results_paths_creates_dirs(self, temp_dir, monkeypatch):
         """Test that output directory is created."""
-        import mundane_pkg.fs
-        monkeypatch.setattr(mundane_pkg.fs, "RESULTS_ROOT", temp_dir / "results")
+        # Mock get_results_root() to return temp directory
+        import mundane_pkg.constants
+        monkeypatch.setattr(mundane_pkg.constants, "_results_root_cache", temp_dir / "results")
 
         scan_dir = temp_dir / "scan"
         sev_dir = scan_dir / "3_High"

@@ -2745,8 +2745,8 @@ def main(args: types.SimpleNamespace) -> None:
         err(f"Export root not found: {export_root}")
         raise Exit(1)
 
-    if export_root:
-        ok(f"Using export root: {export_root.resolve()}")
+    # if export_root:
+    #     ok(f"Using export root: {export_root.resolve()}")
     if args.no_tools:
         info("(no-tools mode: tool prompts disabled for this session)")
 
@@ -3218,12 +3218,12 @@ def show_nessus_tool_suggestions(nessus_file: Path) -> None:
     info("\nYour .nessus file can ALSO be used as the input for these tools:\n")
 
     # eyewitness command
-    info(fmt_action("1. eyewitness (screenshot and report tool):"))
+    info(fmt_action("1. eyewitness (screenshot and report tool | https://github.com/RedSiege/EyeWitness):"))
     eyewitness_cmd = f"eyewitness -x {nessus_file} -d ~/eyewitness_report --results 500 --user-agent \"Mozilla/5.0 (X11; Linux x86_64; rv:102.0) Gecko/20100101 Firefox/102.0\" --timeout 30"
     info(f"   {eyewitness_cmd}\n")
 
     # gowitness command
-    info(fmt_action("2. gowitness (screenshot tool):"))
+    info(fmt_action("2. gowitness (screenshot and report tool | https://github.com/sensepost/gowitness):"))
     gowitness_cmd = f"gowitness scan nessus -f {nessus_file} --chrome-user-agent \"Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0\" --write-db -t 20"
     info(f"   {gowitness_cmd}\n")
 
@@ -3232,7 +3232,7 @@ def show_nessus_tool_suggestions(nessus_file: Path) -> None:
     # msfconsole_cmd = f"msfconsole -q -x \"db_import {nessus_file} ; hosts; services; vulns; exit\""
     # info(f"   {msfconsole_cmd}\n")
 
-    info("Tip: Copy these commands to run them in your terminal.")
+    info("Tip: Copy these commands to run them in your terminal.\n")
 
 
 # === Import Sub-App Commands ===

@@ -72,19 +72,17 @@ mundane --install-completion  # Enable tab completion for your shell
 
 ## Configuration
 
-**Optional config file** (`~/.mundane/config.yaml`):
+**Configuration file** (`~/.mundane/config.yaml`):
+
+Auto-created with defaults on first run. All settings managed via config file.
+
 ```bash
-mundane config init        # Generate example config
-mundane config show        # View current settings
-mundane config set <key> <value>  # Set a value
+mundane config show        # View all settings with current values
+mundane config set <key> <value>  # Change a setting
+mundane config reset       # Reset to defaults (creates backup)
 ```
 
-**Key environment variables:**
-- `MUNDANE_RESULTS_ROOT` - Tool artifact directory (default: `~/.mundane/artifacts`)
-- `MUNDANE_LOG` - Log file path (default: `~/.mundane/mundane.log`)
-- `MUNDANE_DEBUG` - Enable debug logging (`1`, `true`, `on`)
-
-**Priority:** Environment variables > Config file > Defaults
+**Note:** As of v2.3.0, environment variables are no longer used. All configuration is via `~/.mundane/config.yaml`.
 
 ---
 
@@ -177,7 +175,7 @@ mundane scan list
 mundane scan delete <scan_name>
 
 # Configuration
-mundane config init | show | get <key> | set <key> <value>
+mundane config show | reset | get <key> | set <key> <value>
 ```
 
 ---

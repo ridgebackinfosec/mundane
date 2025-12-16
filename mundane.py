@@ -3530,53 +3530,59 @@ def config_show() -> None:
     # Get defaults for comparison
     defaults = MundaneConfig()
 
-    # Helper to add row with description
-    def add_row(key: str, value, is_default: bool, description: str = ""):
+    # Collect all rows for sorting
+    rows = []
+
+    # Paths
+    rows.append(("results_root", config.results_root or str(get_results_root()),
+                config.results_root == defaults.results_root, "Directory for tool output"))
+
+    # Display preferences
+    rows.append(("default_page_size", config.default_page_size or "auto",
+                config.default_page_size == defaults.default_page_size, "Items per page in lists"))
+    rows.append(("top_ports_count", config.top_ports_count or DEFAULT_TOP_PORTS,
+                config.top_ports_count == defaults.top_ports_count, "Top ports to show"))
+
+    # Behavior
+    rows.append(("custom_workflows_path", config.custom_workflows_path or "(not set)",
+                config.custom_workflows_path == defaults.custom_workflows_path, "Path to custom workflows YAML"))
+    rows.append(("auto_save_session", config.auto_save_session,
+                config.auto_save_session == defaults.auto_save_session, "Auto-save review progress"))
+    rows.append(("confirm_bulk_operations", config.confirm_bulk_operations,
+                config.confirm_bulk_operations == defaults.confirm_bulk_operations, "Confirm bulk actions"))
+
+    # Network
+    rows.append(("http_timeout", config.http_timeout or HTTP_TIMEOUT,
+                config.http_timeout == defaults.http_timeout, "HTTP timeout (seconds)"))
+
+    # Tool defaults
+    rows.append(("default_tool", config.default_tool or "(not set)",
+                config.default_tool == defaults.default_tool, "Pre-select: nmap/netexec/custom"))
+    rows.append(("default_netexec_protocol", config.default_netexec_protocol or "smb",
+                config.default_netexec_protocol == defaults.default_netexec_protocol, "Default: smb/ssh/ftp/etc"))
+    rows.append(("nmap_default_profile", config.nmap_default_profile or "(not set)",
+                config.nmap_default_profile == defaults.nmap_default_profile, "NSE profile name"))
+
+    # Logging
+    rows.append(("log_path", config.log_path or str(Path.home() / ".mundane" / "mundane.log"),
+                config.log_path == defaults.log_path, "Log file location"))
+    rows.append(("debug_logging", config.debug_logging,
+                config.debug_logging == defaults.debug_logging, "Enable DEBUG logs"))
+
+    # Display
+    rows.append(("no_color", config.no_color,
+                config.no_color == defaults.no_color, "Disable ANSI colors"))
+    rows.append(("term_override", config.term_override or "(not set)",
+                config.term_override == defaults.term_override, "Force terminal type"))
+
+    # Sort rows alphabetically by setting name (first element of tuple)
+    rows.sort(key=lambda row: row[0])
+
+    # Add sorted rows to table
+    for key, value, is_default, description in rows:
         status = "Default" if is_default else "Configured"
         value_str = str(value) if value is not None else "None"
         table.add_row(key, value_str, description, status)
-
-    # Paths
-    add_row("results_root", config.results_root or str(get_results_root()),
-            config.results_root == defaults.results_root, "Directory for tool output")
-
-    # Display preferences
-    add_row("default_page_size", config.default_page_size or "auto",
-            config.default_page_size == defaults.default_page_size, "Items per page in lists")
-    add_row("top_ports_count", config.top_ports_count or DEFAULT_TOP_PORTS,
-            config.top_ports_count == defaults.top_ports_count, "Top ports to show")
-
-    # Behavior
-    add_row("custom_workflows_path", config.custom_workflows_path or "(not set)",
-            config.custom_workflows_path == defaults.custom_workflows_path, "Path to custom workflows YAML")
-    add_row("auto_save_session", config.auto_save_session,
-            config.auto_save_session == defaults.auto_save_session, "Auto-save review progress")
-    add_row("confirm_bulk_operations", config.confirm_bulk_operations,
-            config.confirm_bulk_operations == defaults.confirm_bulk_operations, "Confirm bulk actions")
-
-    # Network
-    add_row("http_timeout", config.http_timeout or HTTP_TIMEOUT,
-            config.http_timeout == defaults.http_timeout, "HTTP timeout (seconds)")
-
-    # Tool defaults
-    add_row("default_tool", config.default_tool or "(not set)",
-            config.default_tool == defaults.default_tool, "Pre-select: nmap/netexec/custom")
-    add_row("default_netexec_protocol", config.default_netexec_protocol or "smb",
-            config.default_netexec_protocol == defaults.default_netexec_protocol, "Default: smb/ssh/ftp/etc")
-    add_row("nmap_default_profile", config.nmap_default_profile or "(not set)",
-            config.nmap_default_profile == defaults.nmap_default_profile, "NSE profile name")
-
-    # Logging
-    add_row("log_path", config.log_path or str(Path.home() / ".mundane" / "mundane.log"),
-            config.log_path == defaults.log_path, "Log file location")
-    add_row("debug_logging", config.debug_logging,
-            config.debug_logging == defaults.debug_logging, "Enable DEBUG logs")
-
-    # Display
-    add_row("no_color", config.no_color,
-            config.no_color == defaults.no_color, "Disable ANSI colors")
-    add_row("term_override", config.term_override or "(not set)",
-            config.term_override == defaults.term_override, "Force terminal type")
 
     _console.print(table)
     _console_global.print()

@@ -3603,7 +3603,7 @@ def config_get(
     # Map key to config attribute
     if not hasattr(config, key):
         err(f"Unknown config key: {key}")
-        info("Available keys: results_root, default_page_size, top_ports_count, default_workflow_path,")
+        info("Available keys: results_root, default_page_size, top_ports_count, custom_workflows_path,")
         info("                auto_save_session, confirm_bulk_operations, http_timeout,")
         info("                default_tool, default_netexec_protocol, nmap_default_profile")
         raise typer.Exit(1)
@@ -3628,7 +3628,7 @@ def config_set(
     # Validate key
     if not hasattr(config, key):
         err(f"Unknown config key: {key}")
-        info("Available keys: results_root, default_page_size, top_ports_count, default_workflow_path,")
+        info("Available keys: results_root, default_page_size, top_ports_count, custom_workflows_path,")
         info("                auto_save_session, confirm_bulk_operations, http_timeout,")
         info("                default_tool, default_netexec_protocol, nmap_default_profile")
         raise typer.Exit(1)

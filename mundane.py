@@ -3360,13 +3360,6 @@ def import_scan(
     _console_global.print()  # Blank line for spacing
     show_nessus_tool_suggestions(nessus)
 
-    if review:
-        args = types.SimpleNamespace(export_root=str(out_dir), no_tools=False)
-        try:
-            main(args)
-        except KeyboardInterrupt:
-            warn("\nInterrupted — returning to shell.")
-
 
 # === Scan Sub-App Commands ===
 # Grouped under 'mundane scan'

@@ -49,6 +49,11 @@ from .tools import (
     choose_nse_profile,
     run_tool_workflow,
 )
+from .tui import (
+    parse_severity_selection,
+    choose_from_list,
+    handle_file_list_actions,
+)
 from .analysis import (
     compare_filtered, analyze_inclusions,
     natural_key, count_reviewed_in_scan

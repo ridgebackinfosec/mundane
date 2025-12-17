@@ -82,7 +82,11 @@ mundane config set <key> <value>  # Change a setting
 mundane config reset       # Reset to defaults (creates backup)
 ```
 
-**Note:** As of v2.3.0, environment variables are no longer used. All configuration is via `~/.mundane/config.yaml`.
+<p align="center">
+  <img src="docs/images/default-config-values.png" alt="Finding browser with pagination and keyboard shortcuts" width="800">
+  <br>
+  <em>Browse findings with paged tables and comprehensive keyboard shortcuts</em>
+</p>
 
 ---
 

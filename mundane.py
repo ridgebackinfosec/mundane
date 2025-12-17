@@ -3687,8 +3687,8 @@ def config_get(
     if not hasattr(config, key):
         err(f"Unknown config key: {key}")
         info("Available keys: results_root, default_page_size, top_ports_count, custom_workflows_path,")
-        info("                auto_save_session, default_tool, default_netexec_protocol,")
-        info("                nmap_default_profile, log_path, debug_logging, no_color, term_override")
+        info("                default_tool, default_netexec_protocol, nmap_default_profile,")
+        info("                log_path, debug_logging, no_color, term_override")
         raise typer.Exit(1)
 
     value = getattr(config, key)
@@ -3712,8 +3712,8 @@ def config_set(
     if not hasattr(config, key):
         err(f"Unknown config key: {key}")
         info("Available keys: results_root, default_page_size, top_ports_count, custom_workflows_path,")
-        info("                auto_save_session, default_tool, default_netexec_protocol,")
-        info("                nmap_default_profile, log_path, debug_logging, no_color, term_override")
+        info("                default_tool, default_netexec_protocol, nmap_default_profile,")
+        info("                log_path, debug_logging, no_color, term_override")
         raise typer.Exit(1)
 
     # Type conversion based on key

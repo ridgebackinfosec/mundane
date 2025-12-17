@@ -36,16 +36,6 @@ class MundaneConfig:
     custom_workflows_path: Optional[str] = None
     """Path to custom workflows YAML."""
 
-    auto_save_session: bool = True
-    """Whether to automatically save session state (default: True)."""
-
-    confirm_bulk_operations: bool = True
-    """Require confirmation for bulk operations like mark all reviewed (default: True)."""
-
-    # Network preferences
-    http_timeout: Optional[int] = None
-    """Timeout in seconds for HTTP requests to plugin detail pages."""
-
     # Tool preferences
     default_tool: Optional[str] = None
     """Default tool to pre-select (e.g., 'nmap', 'netexec', 'custom')."""
@@ -111,9 +101,6 @@ def load_config() -> MundaneConfig:
             default_page_size=data.get("default_page_size"),
             top_ports_count=data.get("top_ports_count"),
             custom_workflows_path=data.get("custom_workflows_path"),
-            auto_save_session=data.get("auto_save_session", True),
-            confirm_bulk_operations=data.get("confirm_bulk_operations", True),
-            http_timeout=data.get("http_timeout"),
             default_tool=data.get("default_tool"),
             default_netexec_protocol=data.get("default_netexec_protocol"),
             nmap_default_profile=data.get("nmap_default_profile"),
@@ -154,9 +141,6 @@ def save_config(config: MundaneConfig) -> bool:
                 "default_page_size": config.default_page_size,
                 "top_ports_count": config.top_ports_count,
                 "custom_workflows_path": config.custom_workflows_path,
-                "auto_save_session": config.auto_save_session,
-                "confirm_bulk_operations": config.confirm_bulk_operations,
-                "http_timeout": config.http_timeout,
                 "default_tool": config.default_tool,
                 "default_netexec_protocol": config.default_netexec_protocol,
                 "nmap_default_profile": config.nmap_default_profile,
@@ -190,11 +174,8 @@ def create_example_config() -> bool:
     default_config = MundaneConfig(
         results_root=None,  # Uses ~/.mundane/artifacts by default
         default_page_size=None,  # auto
-        top_ports_count=None,  # Uses DEFAULT_TOP_PORTS (10)
+        top_ports_count=None,  # Uses DEFAULT_TOP_PORTS (5)
         custom_workflows_path=None,
-        auto_save_session=True,
-        confirm_bulk_operations=True,
-        http_timeout=None,  # Uses HTTP_TIMEOUT constant (15)
         default_tool=None,
         default_netexec_protocol=None,
         nmap_default_profile=None,

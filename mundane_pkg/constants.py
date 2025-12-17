@@ -114,10 +114,7 @@ VISIBLE_GROUPS: int = 5
 """Number of comparison groups to display before pagination."""
 
 
-# ========== HTTP and network timeouts ==========
-HTTP_TIMEOUT: int = 12
-"""Timeout in seconds for HTTP requests to plugin detail pages."""
-
+# ========== Process timeouts ==========
 PROCESS_TERMINATE_TIMEOUT: int = 3
 """Timeout in seconds when waiting for subprocess termination."""
 

@@ -29,7 +29,6 @@ from .ansi import C, fmt_action, header, info, ok, warn
 from .constants import (
     NETEXEC_PROTOCOLS,
     NSE_PROFILES,
-    HTTP_TIMEOUT,
     SEARCH_WINDOW_SIZE,
     MIN_TERM_LENGTH,
 )

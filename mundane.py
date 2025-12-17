@@ -109,6 +109,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union, TYPE_CHECK
 
 if TYPE_CHECKING:
     from mundane_pkg.models import Plugin, Finding
+    from mundane_pkg.config import MundaneConfig
 
 # === Third-party imports ===
 import click
@@ -2209,6 +2210,7 @@ def browse_workflow_groups(
     reviewed_total: List[str],
     completed_total: List[str],
     workflow_mapper,
+    config: Optional["MundaneConfig"] = None,
 ) -> None:
     """
     Browse workflow groups and findings within selected workflow.
@@ -2226,6 +2228,11 @@ def browse_workflow_groups(
         completed_total: List of completed filenames
         workflow_mapper: WorkflowMapper instance
     """
+    # Load config if not provided (defensive programming)
+    if config is None:
+        from mundane_pkg.config import load_config
+        config = load_config()
+
     scan_dir = Path(scan.export_root) / scan.scan_name
     if not workflow_groups:
         warn("No findings with mapped workflows found.")
@@ -2299,6 +2306,7 @@ def browse_workflow_groups(
             is_msf_mode=True,  # Show severity labels
             workflow_mapper=workflow_mapper,
             plugin_ids_filter=plugin_ids if plugin_ids else None,
+            config=config,
         )
 
         # Refresh workflow files from database to get updated review_state values
@@ -2329,6 +2337,7 @@ def browse_file_list(
     has_metasploit_filter: Optional[bool] = None,
     plugin_ids_filter: Optional[list[int]] = None,
     severity_dirs_filter: Optional[list[str]] = None,
+    config: Optional["MundaneConfig"] = None,
 ) -> None:
     """
     Browse and interact with file list (unified for severity and MSF modes).
@@ -2350,11 +2359,24 @@ def browse_file_list(
     """
     from mundane_pkg.models import Finding, Scan
 
+    # Load config if not provided (defensive programming)
+    if config is None:
+        from mundane_pkg.config import load_config
+        config = load_config()
+
     file_filter = ""
     reviewed_filter = ""
     group_filter: Optional[Tuple[int, set]] = None
     sort_mode = "plugin_id"  # Default sort by plugin ID
-    page_size = default_page_size()
+
+    # Use config value if set, otherwise calculate based on terminal
+    page_size = config.default_page_size if config.default_page_size is not None else default_page_size()
+
+    # Validate page size
+    if page_size <= 0:
+        warn(f"Invalid page size {page_size} in config, using default")
+        page_size = default_page_size()
+
     page_idx = 0
 
     # Derive scan_dir from scan object
@@ -2503,8 +2525,22 @@ def browse_file_list(
         elif action_type == "help":
             continue
         elif action_type == "mark_all":
-            # Handle bulk marking here where we have access to completed_total
+            # Always require confirmation for bulk operations
             from mundane_pkg.fs import mark_review_complete
+            from rich.prompt import Confirm
+
+            try:
+                confirm_msg = f"Mark all {len(candidates)} findings as review complete?"
+                confirmed = Confirm.ask(confirm_msg, default=False)
+            except KeyboardInterrupt:
+                warn("\nInterrupted — cancelling bulk operation.")
+                continue
+
+            if not confirmed:
+                info("Bulk operation cancelled.")
+                continue
+
+            # Proceed with bulk marking
             marked = 0
             with Progress(
                 SpinnerColumn(style="cyan"),
@@ -2695,6 +2731,9 @@ def main(args: types.SimpleNamespace) -> None:
         operations now use the database for improved performance and feature support
         including workflow mapping, Metasploit module detection, and session tracking.
     """
+    # Load configuration
+    config = get_current_config()
+
     # Validate results root is writable before proceeding
     from mundane_pkg import validate_results_root
     results_root = get_results_root()
@@ -2712,6 +2751,10 @@ def main(args: types.SimpleNamespace) -> None:
     custom_workflows = getattr(args, 'custom_workflows', None)
     custom_workflows_only = getattr(args, 'custom_workflows_only', None)
 
+    # Check config for custom workflows if CLI args not provided
+    if not custom_workflows and not custom_workflows_only and config.custom_workflows_path:
+        custom_workflows = config.custom_workflows_path
+
     if custom_workflows_only:
         # Replace mode: Use ONLY custom YAML
         with _console_global.status("[bold green]Loading custom workflows..."):
@@ -2728,10 +2771,12 @@ def main(args: types.SimpleNamespace) -> None:
 
         if custom_workflows:
             # Supplement mode: Load custom YAML in addition to defaults
+            # Determine source: CLI argument or config
+            source = "CLI argument" if getattr(args, 'custom_workflows', None) else "config"
             with _console_global.status("[bold green]Loading additional custom workflows..."):
                 additional_count = workflow_mapper.load_additional_workflows(custom_workflows)
             if additional_count > 0:
-                _console_global.print(f"Loaded {default_count} default + {additional_count} custom workflow(s) from {custom_workflows}")
+                _console_global.print(f"Loaded {default_count} default + {additional_count} custom workflow(s) from {custom_workflows} ({source})")
             else:
                 warn(f"No additional workflows loaded from {custom_workflows}")
             _console_global.print(f"Total: {workflow_mapper.count()} workflow(s) available")
@@ -2869,7 +2914,18 @@ def main(args: types.SimpleNamespace) -> None:
                 pass
 
             # Overview immediately after selecting scan
-            show_scan_summary(scan_dir, scan_id=selected_scan.scan_id)
+            # Use config value if set, otherwise use DEFAULT_TOP_PORTS
+            top_ports = config.top_ports_count if config.top_ports_count is not None else DEFAULT_TOP_PORTS
+
+            # Validate range
+            if top_ports <= 0:
+                warn(f"Invalid top_ports_count {top_ports} in config, using default {DEFAULT_TOP_PORTS}")
+                top_ports = DEFAULT_TOP_PORTS
+            elif top_ports > 100:
+                warn(f"top_ports_count {top_ports} is very large, capping at 100")
+                top_ports = 100
+
+            show_scan_summary(scan_dir, top_ports_n=top_ports, scan_id=selected_scan.scan_id)
 
             # Severity loop (inner loop)
             while True:
@@ -2997,6 +3053,7 @@ def main(args: types.SimpleNamespace) -> None:
                         is_msf_mode=True,  # Show severity labels for each file
                         workflow_mapper=workflow_mapper,
                         severity_dirs_filter=severity_dir_names,
+                        config=config,
                     )
 
                 # === Single severity selected (normal or MSF only) ===
@@ -3019,6 +3076,7 @@ def main(args: types.SimpleNamespace) -> None:
                         completed_total,
                         is_msf_mode=False,
                         workflow_mapper=workflow_mapper,
+                        config=config,
                     )
 
                 # === Metasploit Module only ===
@@ -3037,6 +3095,7 @@ def main(args: types.SimpleNamespace) -> None:
                         is_msf_mode=True,
                         workflow_mapper=workflow_mapper,
                         has_metasploit_filter=True,
+                        config=config,
                     )
 
                 # === Workflow Mapped only ===
@@ -3053,6 +3112,7 @@ def main(args: types.SimpleNamespace) -> None:
                         reviewed_total,
                         completed_total,
                         workflow_mapper,
+                        config=config,
                     )
 
             # End of severity loop - continue to scan selection loop
@@ -3512,7 +3572,7 @@ def config_reset() -> None:
 @config_app.command(name="show", help="Display current configuration with all settings and paths")
 def config_show() -> None:
     """Display current configuration (merged from file and defaults)."""
-    from mundane_pkg import load_config, get_config_path, MundaneConfig, DEFAULT_TOP_PORTS, HTTP_TIMEOUT
+    from mundane_pkg import load_config, get_config_path, MundaneConfig, DEFAULT_TOP_PORTS
     from rich.table import Table
 
     config_path = get_config_path()
@@ -3548,14 +3608,8 @@ def config_show() -> None:
     # Behavior
     rows.append(("custom_workflows_path", config.custom_workflows_path or "(not set)",
                 config.custom_workflows_path == defaults.custom_workflows_path, "Path to custom workflows YAML"))
-    rows.append(("auto_save_session", config.auto_save_session,
-                config.auto_save_session == defaults.auto_save_session, "Auto-save review progress"))
-    rows.append(("confirm_bulk_operations", config.confirm_bulk_operations,
-                config.confirm_bulk_operations == defaults.confirm_bulk_operations, "Confirm bulk actions"))
 
     # Network
-    rows.append(("http_timeout", config.http_timeout or HTTP_TIMEOUT,
-                config.http_timeout == defaults.http_timeout, "HTTP timeout (seconds)"))
 
     # Tool defaults
     rows.append(("default_tool", config.default_tool or "(not set)",
@@ -3606,8 +3660,8 @@ def config_get(
     if not hasattr(config, key):
         err(f"Unknown config key: {key}")
         info("Available keys: results_root, default_page_size, top_ports_count, custom_workflows_path,")
-        info("                auto_save_session, confirm_bulk_operations, http_timeout,")
-        info("                default_tool, default_netexec_protocol, nmap_default_profile")
+        info("                auto_save_session, default_tool, default_netexec_protocol,")
+        info("                nmap_default_profile, log_path, debug_logging, no_color, term_override")
         raise typer.Exit(1)
 
     value = getattr(config, key)
@@ -3631,15 +3685,15 @@ def config_set(
     if not hasattr(config, key):
         err(f"Unknown config key: {key}")
         info("Available keys: results_root, default_page_size, top_ports_count, custom_workflows_path,")
-        info("                auto_save_session, confirm_bulk_operations, http_timeout,")
-        info("                default_tool, default_netexec_protocol, nmap_default_profile")
+        info("                auto_save_session, default_tool, default_netexec_protocol,")
+        info("                nmap_default_profile, log_path, debug_logging, no_color, term_override")
         raise typer.Exit(1)
 
     # Type conversion based on key
     try:
-        if key in ["default_page_size", "top_ports_count", "http_timeout"]:
+        if key in ["default_page_size", "top_ports_count"]:
             typed_value = int(value)
-        elif key in ["auto_save_session", "confirm_bulk_operations", "no_color", "debug_logging"]:
+        elif key in ["no_color", "debug_logging"]:
             typed_value = value.lower() in ("true", "1", "yes", "on")
         else:
             typed_value = value

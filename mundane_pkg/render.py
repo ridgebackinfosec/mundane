@@ -636,3 +636,323 @@ def severity_style(label: str) -> str:
 
     # Default fallback
     return SEVERITY_COLORS["default"][0]
+
+
+# ===================================================================
+# Finding Display Formatters (moved from mundane.py)
+# ===================================================================
+
+
+def _file_raw_payload_text(finding: "Finding") -> str:
+    """
+    Get raw file content from database (all host:port lines).
+
+    Args:
+        finding: Finding database object
+
+    Returns:
+        File content as UTF-8 string (one host:port per line)
+    """
+    from typing import TYPE_CHECKING
+    if TYPE_CHECKING:
+        from .models import Finding
+
+    # Get all host:port lines from database
+    lines = finding.get_all_host_port_lines()
+    content = "\n".join(lines)
+    if lines:
+        content += "\n"  # Add trailing newline
+    return content
+
+
+def _file_raw_paged_text(finding: "Finding", plugin: "Plugin") -> str:
+    """
+    Prepare raw file content for paged viewing with metadata from database.
+
+    Args:
+        finding: Finding database object
+        plugin: Plugin metadata object
+
+    Returns:
+        Formatted string with file info and content
+    """
+    from typing import TYPE_CHECKING
+    if TYPE_CHECKING:
+        from .models import Finding, Plugin
+
+    display_name = f"Plugin {plugin.plugin_id}: {plugin.plugin_name}"
+
+    # Get content from database
+    content = _file_raw_payload_text(finding)
+    size_bytes = len(content.encode('utf-8'))
+
+    lines = [f"Showing: {display_name} ({size_bytes} bytes from database)"]
+    lines.append(content)
+    return "\n".join(lines)
+
+
+def page_text(text: str) -> None:
+    """
+    Send text through a pager if possible; otherwise print.
+
+    Args:
+        text: Text content to display
+    """
+    with _console_global.pager(styles=True):
+        _console_global.print(text, end="" if text.endswith("\n") else "\n")
+
+
+def _grouped_payload_text(finding: "Finding") -> str:
+    """
+    Generate grouped host:port text for copying/viewing from database.
+
+    Args:
+        finding: Finding database object
+
+    Returns:
+        Formatted string with host:port,port,... lines
+    """
+    from typing import TYPE_CHECKING
+    if TYPE_CHECKING:
+        from .models import Finding
+
+    # Get all host:port lines from database
+    lines = finding.get_all_host_port_lines()
+
+    # Group ports by host
+    from collections import defaultdict
+    host_ports = defaultdict(list)
+
+    for line in lines:
+        if ":" in line:
+            # Handle IPv6 with brackets: [host]:port
+            if line.startswith("["):
+                # IPv6 format: [2001:db8::1]:80
+                host_end = line.index("]")
+                host = line[1:host_end]  # Remove brackets
+                port = line[host_end+2:]  # Skip ']:'
+            else:
+                # IPv4 or hostname: host:port
+                host, port = line.rsplit(":", 1)
+            host_ports[host].append(port)
+        else:
+            # No port
+            host_ports[line].append(None)
+
+    # Format output: host:port1,port2,port3 or just host if no ports
+    out = []
+    for host in host_ports.keys():
+        ports = [p for p in host_ports[host] if p is not None]
+        if ports:
+            # Sort ports numerically
+            sorted_ports = sorted(set(ports), key=lambda x: int(x))
+            out.append(f"{host}:{','.join(sorted_ports)}")
+        else:
+            out.append(host)
+
+    return "\n".join(out) + ("\n" if out else "")
+
+
+def _grouped_paged_text(finding: "Finding", plugin: "Plugin") -> str:
+    """
+    Prepare grouped host:port content for paged viewing from database.
+
+    Args:
+        finding: Finding database object
+        plugin: Plugin metadata object
+
+    Returns:
+        Formatted string with header and grouped content
+    """
+    from typing import TYPE_CHECKING
+    if TYPE_CHECKING:
+        from .models import Finding, Plugin
+
+    body = _grouped_payload_text(finding)
+    display_name = f"Plugin {plugin.plugin_id}: {plugin.plugin_name}"
+    return f"Grouped view: {display_name}\n{body}"
+
+
+def _hosts_only_payload_text(finding: "Finding") -> str:
+    """
+    Extract only hosts (IPs or FQDNs) without port information from database.
+
+    Args:
+        finding: Finding database object
+
+    Returns:
+        One host per line
+    """
+    from typing import TYPE_CHECKING
+    if TYPE_CHECKING:
+        from .models import Finding
+
+    # Get unique hosts from database (already sorted: IPs first, then hostnames)
+    hosts, _ports_str = finding.get_hosts_and_ports()
+    return "\n".join(hosts) + ("\n" if hosts else "")
+
+
+def _hosts_only_paged_text(finding: "Finding", plugin: "Plugin") -> str:
+    """
+    Prepare hosts-only content for paged viewing from database.
+
+    Args:
+        finding: Finding database object
+        plugin: Plugin metadata object
+
+    Returns:
+        Formatted string with header and host list
+    """
+    from typing import TYPE_CHECKING
+    if TYPE_CHECKING:
+        from .models import Finding, Plugin
+
+    body = _hosts_only_payload_text(finding)
+    display_name = f"Plugin {plugin.plugin_id}: {plugin.plugin_name}"
+    return f"Hosts-only view: {display_name}\n{body}"
+
+
+def _build_plugin_output_details(
+    finding: "Finding",
+    plugin: "Plugin"
+) -> Optional[str]:
+    """Build formatted text for plugin output details display.
+
+    Shows plugin_output data for each affected host:port combination.
+    If multiple hosts have the same output, shows all separately (no deduplication).
+
+    Args:
+        finding: Finding database object
+        plugin: Plugin metadata object
+
+    Returns:
+        Formatted string for display via menu_pager(), or None if no outputs
+    """
+    from typing import TYPE_CHECKING
+    if TYPE_CHECKING:
+        from .models import Finding, Plugin
+
+    from .database import get_connection
+
+    # Get all plugin outputs from database
+    with get_connection() as conn:
+        outputs = finding.get_plugin_outputs_by_host(conn)
+
+    if not outputs:
+        return None
+
+    # Filter out entries with no plugin_output (None or empty)
+    outputs_with_data = [
+        (host, port, output) for (host, port, output) in outputs
+        if output is not None and output.strip()
+    ]
+
+    if not outputs_with_data:
+        return None
+
+    # Build formatted output
+    lines = []
+    lines.append(f"Finding Details: {plugin.plugin_name} (Plugin {plugin.plugin_id})")
+    lines.append("=" * 80)
+    lines.append(f"Severity: {plugin.severity_label}")
+    lines.append(f"Total hosts with output: {len(outputs_with_data)}")
+    lines.append("")
+
+    # Display each host:port's plugin output
+    for idx, (host, port, output) in enumerate(outputs_with_data, 1):
+        # Format host:port
+        if port is not None:
+            host_display = f"{host}:{port}"
+        else:
+            host_display = host
+
+        lines.append(f"[{idx}/{len(outputs_with_data)}] Host: {host_display}")
+        lines.append("-" * 80)
+        lines.append(output)
+        lines.append("")  # Blank line between entries
+
+    return "\n".join(lines)
+
+
+def _display_finding_preview(
+    plugin: "Plugin",
+    finding: "Finding",
+    sev_dir: Path,
+    chosen: Path,
+) -> None:
+    """Display finding preview panel with metadata (database-only).
+
+    Args:
+        plugin: Plugin metadata object
+        finding: Finding database object (required)
+        sev_dir: Severity directory path
+        chosen: File path (for URL extraction)
+    """
+    from typing import TYPE_CHECKING
+    if TYPE_CHECKING:
+        from .models import Finding, Plugin
+
+    import re
+
+    # Get hosts and ports from database
+    hosts, ports_str = finding.get_hosts_and_ports()
+
+    # Build Rich Panel preview
+    content = Text()
+
+    # Check for Metasploit module from plugin metadata
+    is_msf = plugin.has_metasploit
+
+    # Add centered MSF indicator below title if applicable
+    if is_msf:
+        content.append("⚡ Metasploit module available!", style=style_if_enabled("bold red"))
+        content.append("\n\n")  # Blank line after MSF indicator
+
+    # Nessus Plugin ID
+    content.append("Nessus Plugin ID: ", style=style_if_enabled("cyan"))
+    content.append(f"{plugin.plugin_id}\n", style=style_if_enabled("yellow"))
+
+    # Severity
+    content.append("Severity: ", style=style_if_enabled("cyan"))
+    sev_label = pretty_severity_label(sev_dir.name)
+    content.append(f"{sev_label}\n", style=severity_style(sev_label))
+
+    # Plugin Details (URL)
+    plugin_url = None
+    # Import _plugin_details_line from parsing module if needed
+    # For now, we'll skip this feature until Phase 5 when we move _plugin_details_line
+    # pd_line = _plugin_details_line(chosen)
+    # if pd_line:
+    #     try:
+    #         match = re.search(r"(https?://[^\s)\]\}>,;]+)", pd_line)
+    #         plugin_url = match.group(1) if match else None
+    #         if plugin_url:
+    #             content.append("Plugin Details: ", style=style_if_enabled("cyan"))
+    #             content.append(f"{plugin_url}\n", style=style_if_enabled("blue underline"))
+    #     except Exception:
+    #         pass
+
+    # Unique hosts
+    content.append("Unique hosts: ", style=style_if_enabled("cyan"))
+    content.append(f"{len(hosts)}\n", style=style_if_enabled("yellow"))
+
+    # Example host
+    if hosts:
+        content.append("Example host: ", style=style_if_enabled("cyan"))
+        content.append(f"{hosts[0]}\n", style=style_if_enabled("yellow"))
+
+    # Ports detected
+    if ports_str:
+        content.append("Ports detected: ", style=style_if_enabled("cyan"))
+        content.append(f"{ports_str}", style=style_if_enabled("yellow"))
+
+    # Create panel with plugin name as title
+    panel = Panel(
+        content,
+        title=f"[bold cyan]{plugin.plugin_name}[/]",
+        title_align="center",
+        border_style=style_if_enabled("cyan")
+    )
+
+    _console_global.print()  # Blank line before panel
+    _console_global.print(panel)

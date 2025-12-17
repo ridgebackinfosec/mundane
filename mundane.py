@@ -602,6 +602,9 @@ def show_scan_summary(
             )
             empties = len(empty_files)
 
+        # Track unique host:port combinations to avoid counting duplicates
+        unique_host_port_pairs = set()
+
         # Process query results
         for row in rows:
             host = row["host_address"]
@@ -618,7 +621,12 @@ def show_scan_summary(
                 ipv6_set.add(host)
 
             if port is not None:
-                ports_counter[str(port)] += 1
+                # Track unique (host, port) pairs instead of counting every row
+                unique_host_port_pairs.add((host, str(port)))
+
+        # Now count ports from unique host:port combinations only
+        for host, port in unique_host_port_pairs:
+            ports_counter[port] += 1
 
         progress.update(task, completed=True)
 

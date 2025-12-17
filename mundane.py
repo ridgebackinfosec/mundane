@@ -2712,9 +2712,9 @@ def main(args: types.SimpleNamespace) -> None:
         with _console_global.status("[bold green]Loading custom workflows..."):
             workflow_mapper = WorkflowMapper(yaml_path=custom_workflows_only)
         if workflow_mapper.count() > 0:
-            info(f"Loaded {workflow_mapper.count()} custom workflow(s) from {custom_workflows_only} (defaults disabled)")
+            _console_global.print(f"[green]Loaded {workflow_mapper.count()} custom workflow(s) from {custom_workflows_only} (defaults disabled)[/green]")
         else:
-            warn(f"No workflows loaded from {custom_workflows_only}")
+            _console_global.print(f"[yellow]No workflows loaded from {custom_workflows_only}[/yellow]")
     else:
         # Default or supplement mode
         with _console_global.status("[bold green]Loading workflows..."):
@@ -2726,12 +2726,12 @@ def main(args: types.SimpleNamespace) -> None:
             with _console_global.status("[bold green]Loading additional custom workflows..."):
                 additional_count = workflow_mapper.load_additional_workflows(custom_workflows)
             if additional_count > 0:
-                info(f"Loaded {default_count} default + {additional_count} custom workflow(s) from {custom_workflows}")
+                _console_global.print(f"[green]Loaded {default_count} default + {additional_count} custom workflow(s) from {custom_workflows}[/green]")
             else:
-                warn(f"No additional workflows loaded from {custom_workflows}")
-            info(f"Total: {workflow_mapper.count()} workflow(s) available")
+                _console_global.print(f"[yellow]No additional workflows loaded from {custom_workflows}[/yellow]")
+            _console_global.print(f"[green]Total: {workflow_mapper.count()} workflow(s) available[/green]")
         elif default_count > 0:
-            info(f"Loaded {default_count} default workflow(s)")
+            _console_global.print(f"[green]Loaded {default_count} default workflow(s)[/green]")
 
     use_sudo = root_or_sudo_available()
     if not use_sudo:

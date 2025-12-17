@@ -85,7 +85,7 @@ mundane config reset       # Reset to defaults (creates backup)
 <p align="center">
   <img src="docs/images/default-config-values.png" alt="Finding browser with pagination and keyboard shortcuts" width="800">
   <br>
-  <em>Browse findings with paged tables and comprehensive keyboard shortcuts</em>
+  <em>Show all configuration values using "mundane config show"</em>
 </p>
 
 ---

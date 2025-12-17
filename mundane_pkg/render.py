@@ -615,13 +615,21 @@ def severity_style(label: str) -> str:
     """Map a severity label to a color style.
 
     Uses centralized SEVERITY_COLORS mapping from constants.py.
+    Respects the no_color configuration setting by returning
+    empty string (no styling) when color output is disabled.
 
     Args:
         label: Severity level label
 
     Returns:
-        Color style name for Rich styling
+        Color style name for Rich styling (or empty string if colors disabled)
     """
+    from .ansi import get_no_color
+
+    # If colors are disabled, return empty string (no styling)
+    if get_no_color():
+        return ""
+
     normalized_label = label.strip().lower()
 
     # Look up color from centralized mapping

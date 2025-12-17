@@ -140,8 +140,9 @@ def run_command_with_progress(
         )
 
     try:
+        from .ansi import style_if_enabled
         with Progress(
-            SpinnerColumn(style="cyan"),
+            SpinnerColumn(style=style_if_enabled("cyan")),
             TextColumn("[progress.description]{task.description}"),
             TimeElapsedColumn(),
             console=_console_global,

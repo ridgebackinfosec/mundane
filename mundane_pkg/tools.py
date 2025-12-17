@@ -56,11 +56,12 @@ def print_action_menu(actions: list[tuple[str, str]]) -> None:
         actions: List of (key, description) tuples.
                 Examples: [("V", "View file"), ("B", "Back")]
     """
+    from .ansi import style_if_enabled
     action_text = Text()
     for i, (key, desc) in enumerate(actions):
         if i > 0:
             action_text.append(" / ", style=None)
-        action_text.append(f"[{key}] ", style="cyan")
+        action_text.append(f"[{key}] ", style=style_if_enabled("cyan"))
         action_text.append(desc, style=None)
 
     _console.print("[cyan]>>[/cyan] ", end="")

@@ -646,9 +646,10 @@ def show_scan_summary(
     _console_global.print()  # Blank line
 
     # Host & Port Analysis Table
-    analysis_table = Table(show_header=True, header_style="bold cyan", box=box.SIMPLE, title="Host & Port Analysis", title_style="bold blue")
-    analysis_table.add_column("Metric", style="cyan")
-    analysis_table.add_column("Value", justify="right", style="yellow")
+    from mundane_pkg.ansi import style_if_enabled
+    analysis_table = Table(show_header=True, header_style=style_if_enabled("bold cyan"), box=box.SIMPLE, title="Host & Port Analysis", title_style=style_if_enabled("bold blue"))
+    analysis_table.add_column("Metric", style=style_if_enabled("cyan"))
+    analysis_table.add_column("Value", justify="right", style=style_if_enabled("yellow"))
 
     analysis_table.add_row("Unique Hosts", str(len(unique_hosts)))
     analysis_table.add_row("  └─ IPv4", str(len(ipv4_set)))
@@ -892,25 +893,26 @@ def handle_file_view(
     while True:
         # Build action menu with all available options
         from rich.text import Text
+        from mundane_pkg.ansi import style_if_enabled
         action_text = Text()
-        action_text.append("[I] ", style="cyan")
+        action_text.append("[I] ", style=style_if_enabled("cyan"))
         action_text.append("Finding Info / ", style=None)
-        action_text.append("[D] ", style="cyan")
+        action_text.append("[D] ", style=style_if_enabled("cyan"))
         action_text.append("Finding Details", style=None)
-        action_text.append("[V] ", style="cyan")
+        action_text.append("[V] ", style=style_if_enabled("cyan"))
         action_text.append("View host(s) / ", style=None)
-        action_text.append("[E] ", style="cyan")
+        action_text.append("[E] ", style=style_if_enabled("cyan"))
         action_text.append("CVE info / ", style=None)
         if has_workflow:
             action_text.append(" / ", style=None)
-            action_text.append("[W] ", style="cyan")
+            action_text.append("[W] ", style=style_if_enabled("cyan"))
             action_text.append("Workflow", style=None)
         action_text.append(" / ", style=None)
-        action_text.append("[T] ", style="cyan")
+        action_text.append("[T] ", style=style_if_enabled("cyan"))
         action_text.append("Run tool / ", style=None)
-        action_text.append("[M] ", style="cyan")
+        action_text.append("[M] ", style=style_if_enabled("cyan"))
         action_text.append("Mark reviewed / ", style=None)
-        action_text.append("[B] ", style="cyan")
+        action_text.append("[B] ", style=style_if_enabled("cyan"))
         action_text.append("Back", style=None)
 
         _console.print("[cyan]>>[/cyan] ", end="")
@@ -1113,13 +1115,14 @@ def display_workflow(workflow: Workflow) -> None:
     _console_global.print()
 
     # Steps
+    from mundane_pkg.ansi import style_if_enabled
     for idx, step in enumerate(workflow.steps, 1):
         step_panel = Panel(
             f"[bold cyan]{step.title}[/bold cyan]\n\n"
             + "\n".join(f"  {cmd}" for cmd in step.commands)
             + (f"\n\n[yellow]Notes:[/yellow] {step.notes}" if step.notes else ""),
             title=f"Step {idx}",
-            border_style="cyan",
+            border_style=style_if_enabled("cyan"),
         )
         console.print(step_panel)
         _console_global.print()
@@ -1634,16 +1637,17 @@ def _display_finding_preview(
     is_msf = plugin.has_metasploit
 
     # Add centered MSF indicator below title if applicable
+    from mundane_pkg.ansi import style_if_enabled
     if is_msf:
-        content.append("⚡ Metasploit module available!", style="bold red")
+        content.append("⚡ Metasploit module available!", style=style_if_enabled("bold red"))
         content.append("\n\n")  # Blank line after MSF indicator
 
     # Nessus Plugin ID
-    content.append("Nessus Plugin ID: ", style="cyan")
-    content.append(f"{plugin.plugin_id}\n", style="yellow")
+    content.append("Nessus Plugin ID: ", style=style_if_enabled("cyan"))
+    content.append(f"{plugin.plugin_id}\n", style=style_if_enabled("yellow"))
 
     # Severity
-    content.append("Severity: ", style="cyan")
+    content.append("Severity: ", style=style_if_enabled("cyan"))
     sev_label = pretty_severity_label(sev_dir.name)
     content.append(f"{sev_label}\n", style=severity_style(sev_label))
 
@@ -1655,31 +1659,31 @@ def _display_finding_preview(
             match = re.search(r"(https?://[^\s)\]\}>,;]+)", pd_line)
             plugin_url = match.group(1) if match else None
             if plugin_url:
-                content.append("Plugin Details: ", style="cyan")
-                content.append(f"{plugin_url}\n", style="blue underline")
+                content.append("Plugin Details: ", style=style_if_enabled("cyan"))
+                content.append(f"{plugin_url}\n", style=style_if_enabled("blue underline"))
         except Exception:
             pass
 
     # Unique hosts
-    content.append("Unique hosts: ", style="cyan")
-    content.append(f"{len(hosts)}\n", style="yellow")
+    content.append("Unique hosts: ", style=style_if_enabled("cyan"))
+    content.append(f"{len(hosts)}\n", style=style_if_enabled("yellow"))
 
     # Example host
     if hosts:
-        content.append("Example host: ", style="cyan")
-        content.append(f"{hosts[0]}\n", style="yellow")
+        content.append("Example host: ", style=style_if_enabled("cyan"))
+        content.append(f"{hosts[0]}\n", style=style_if_enabled("yellow"))
 
     # Ports detected
     if ports_str:
-        content.append("Ports detected: ", style="cyan")
-        content.append(f"{ports_str}", style="yellow")
+        content.append("Ports detected: ", style=style_if_enabled("cyan"))
+        content.append(f"{ports_str}", style=style_if_enabled("yellow"))
 
     # Create panel with plugin name as title
     panel = Panel(
         content,
         title=f"[bold cyan]{plugin.plugin_name}[/]",
         title_align="center",
-        border_style="cyan"
+        border_style=style_if_enabled("cyan")
     )
 
     _console_global.print()  # Blank line before panel
@@ -2600,9 +2604,10 @@ def show_session_statistics(
     header("Session Statistics")
 
     # Overall stats table
-    overall_table = Table(show_header=True, header_style="bold cyan")
-    overall_table.add_column("Metric", style="cyan")
-    overall_table.add_column("Count", justify="right", style="yellow")
+    from mundane_pkg.ansi import style_if_enabled
+    overall_table = Table(show_header=True, header_style=style_if_enabled("bold cyan"))
+    overall_table.add_column("Metric", style=style_if_enabled("cyan"))
+    overall_table.add_column("Count", justify="right", style=style_if_enabled("yellow"))
 
     overall_table.add_row("Session Duration", duration_str)
     overall_table.add_row("Findings Reviewed (not marked)", str(len(reviewed_total)))
@@ -2652,9 +2657,9 @@ def show_session_statistics(
                     severity_counts[sev_label] = count
 
         if severity_counts:
-            sev_table = Table(show_header=True, header_style="bold cyan")
-            sev_table.add_column("Severity Level", style="cyan")
-            sev_table.add_column("Completed Count", justify="right", style="yellow")
+            sev_table = Table(show_header=True, header_style=style_if_enabled("bold cyan"))
+            sev_table.add_column("Severity Level", style=style_if_enabled("cyan"))
+            sev_table.add_column("Completed Count", justify="right", style=style_if_enabled("yellow"))
 
             for sev_label in sorted(severity_counts.keys()):
                 sev_col = severity_cell(sev_label)
@@ -2778,11 +2783,12 @@ def main(args: types.SimpleNamespace) -> None:
             header("Available Scans")
             from rich.table import Table
             from rich import box
+            from mundane_pkg.ansi import style_if_enabled
 
-            scan_table = Table(show_header=True, header_style="bold cyan", box=box.SIMPLE)
-            scan_table.add_column("#", style="cyan", justify="right")
-            scan_table.add_column("Scan Name", style="yellow")
-            scan_table.add_column("Last Reviewed", style="magenta")
+            scan_table = Table(show_header=True, header_style=style_if_enabled("bold cyan"), box=box.SIMPLE)
+            scan_table.add_column("#", style=style_if_enabled("cyan"), justify="right")
+            scan_table.add_column("Scan Name", style=style_if_enabled("yellow"))
+            scan_table.add_column("Last Reviewed", style=style_if_enabled("magenta"))
 
             for idx, scan in enumerate(all_scans, 1):
                 last_reviewed = "never"
@@ -3339,9 +3345,10 @@ def import_scan(
 
             _console_global.print()  # Blank line before table
             info("Severity Breakdown:")
-            sev_table = Table(show_header=True, header_style="bold cyan", box=box.SIMPLE)
-            sev_table.add_column("Severity", style="cyan")
-            sev_table.add_column("Plugins", justify="right", style="yellow")
+            from mundane_pkg.ansi import style_if_enabled
+            sev_table = Table(show_header=True, header_style=style_if_enabled("bold cyan"), box=box.SIMPLE)
+            sev_table.add_column("Severity", style=style_if_enabled("cyan"))
+            sev_table.add_column("Plugins", justify="right", style=style_if_enabled("yellow"))
 
             # Sort by severity (highest first: 4->0)
             for sev_int in sorted(result.severities.keys(), reverse=True):
@@ -3632,7 +3639,7 @@ def config_set(
     try:
         if key in ["default_page_size", "top_ports_count", "http_timeout"]:
             typed_value = int(value)
-        elif key in ["auto_save_session", "confirm_bulk_operations"]:
+        elif key in ["auto_save_session", "confirm_bulk_operations", "no_color", "debug_logging"]:
             typed_value = value.lower() in ("true", "1", "yes", "on")
         else:
             typed_value = value

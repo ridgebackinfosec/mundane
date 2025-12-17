@@ -37,7 +37,7 @@ def print_action_menu(actions: list[tuple[str, str]]) -> None:
     for i, (key, desc) in enumerate(actions):
         if i > 0:
             action_text.append(" / ", style=None)
-        action_text.append(f"[{key}] ", style="cyan")
+        action_text.append(f"[{key}] ", style=style_if_enabled("cyan"))
         action_text.append(desc, style=None)
 
     _console_global.print("[cyan]>>[/cyan] ", end="")
@@ -463,7 +463,7 @@ def show_actions_help(
         table.add_row(
             Text("Groups", style="bold"), key_text("X", "Clear group filter")
         )
-    panel = Panel(table, title="Actions", border_style="cyan")
+    panel = Panel(table, title="Actions", border_style=style_if_enabled("cyan"))
     _console_global.print(panel)
 
 
@@ -476,7 +476,7 @@ def show_reviewed_help() -> None:
         key_text("C", "Clear filter"),
     )
     table.add_row(Text("Exit", style="bold"), key_text("B", "Back"))
-    panel = Panel(table, title="Reviewed Files — Actions", border_style="cyan")
+    panel = Panel(table, title="Reviewed Files — Actions", border_style=style_if_enabled("cyan"))
     _console_global.print(panel)
 
 
@@ -492,10 +492,10 @@ def key_text(key: str, label: str, *, enabled: bool = True) -> Text:
         Formatted Text object with cyan key and dimmed/normal label
     """
     text = Text()
-    text.append(f"[{key}] ", style="cyan")
-    text.append(label, style=None if enabled else "dim")
+    text.append(f"[{key}] ", style=style_if_enabled("cyan"))
+    text.append(label, style=None if enabled else style_if_enabled("dim"))
     if not enabled:
-        text.stylize("dim")
+        text.stylize(style_if_enabled("dim"))
     return text
 
 
@@ -511,7 +511,7 @@ def join_actions_texts(items: list[Text]) -> Text:
     output = Text()
     for i, item in enumerate(items):
         if i:
-            output.append(" / ", style="dim")
+            output.append(" / ", style=style_if_enabled("dim"))
         output.append(item)
     return output
 

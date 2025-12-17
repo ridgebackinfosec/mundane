@@ -67,8 +67,9 @@ def safe_print_file(path: Path, max_bytes: int = 2_000_000) -> None:
         header(f"Showing: {path} ({size} bytes)")
         if size > max_bytes:
             warn(f"File is large; showing first {max_bytes} bytes.")
+        from .ansi import style_if_enabled
         with Progress(
-            SpinnerColumn(style="cyan"),
+            SpinnerColumn(style=style_if_enabled("cyan")),
             TextColumn("[progress.description]{task.description}"),
             TimeElapsedColumn(),
             console=_console_global,

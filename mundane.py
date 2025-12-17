@@ -662,6 +662,25 @@ def show_scan_summary(
     _console_global.print(analysis_table)
     _console_global.print()  # Blank line after table
 
+    # Top Ports Table (if any ports found)
+    if ports_counter and top_ports_n > 0:
+        top_ports_table = Table(
+            show_header=True,
+            header_style=style_if_enabled("bold cyan"),
+            box=box.SIMPLE,
+            title=f"Top {min(top_ports_n, len(ports_counter))} Ports",
+            title_style=style_if_enabled("bold blue")
+        )
+        top_ports_table.add_column("Port", justify="right", style=style_if_enabled("cyan"))
+        top_ports_table.add_column("Occurrences", justify="right", style=style_if_enabled("yellow"))
+
+        # Get top N ports by occurrence count
+        for port, count in ports_counter.most_common(top_ports_n):
+            top_ports_table.add_row(str(port), str(count))
+
+        _console_global.print(top_ports_table)
+        _console_global.print()  # Blank line after table
+
 
 # === Grouped host:ports printer ===
 
@@ -2753,7 +2772,7 @@ def main(args: types.SimpleNamespace) -> None:
 
     # Check config for custom workflows if CLI args not provided
     if not custom_workflows and not custom_workflows_only and config.custom_workflows_path:
-        custom_workflows = config.custom_workflows_path
+        custom_workflows = Path(config.custom_workflows_path)
 
     if custom_workflows_only:
         # Replace mode: Use ONLY custom YAML

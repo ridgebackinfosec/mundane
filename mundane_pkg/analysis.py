@@ -23,7 +23,7 @@ from rich.progress import (
 )
 from rich.table import Table
 
-from .ansi import header, info, warn
+from .ansi import header, info, warn, style_if_enabled
 from .fs import list_dirs, list_files
 from .logging_setup import log_timing
 from .parsing import (
@@ -77,7 +77,6 @@ def compare_filtered(files: Union[list[Path], list['Finding'], list[tuple['Findi
         use_database = False
 
     parsed = []
-    from .ansi import style_if_enabled
     with Progress(
         SpinnerColumn(style=style_if_enabled("cyan")),
         TextColumn("[progress.description]{task.description}"),

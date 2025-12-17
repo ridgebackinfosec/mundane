@@ -178,12 +178,12 @@ def colorize_severity_label(label: str) -> str:
     # Look up color from centralized mapping
     for severity_key, (_, ansi_code) in SEVERITY_COLORS.items():
         if severity_key in normalized_label:
-            color = "" if NO_COLOR else ansi_code
+            color = "" if get_no_color() else ansi_code
             return f"{C.BOLD}{color}{label}{C.RESET}"
 
     # Default fallback
     _, default_ansi = SEVERITY_COLORS["default"]
-    color = "" if NO_COLOR else default_ansi
+    color = "" if get_no_color() else default_ansi
     return f"{C.BOLD}{color}{label}{C.RESET}"
 
 

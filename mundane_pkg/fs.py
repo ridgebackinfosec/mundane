@@ -20,11 +20,11 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 
-from .ansi import err, header, ok, warn
+from .ansi import err, header, ok, warn, get_console
 from .constants import get_results_root, REVIEW_PREFIX
 
 
-_console_global = Console()
+_console_global = get_console()
 
 
 def read_text_lines(path: Path) -> list[str]:

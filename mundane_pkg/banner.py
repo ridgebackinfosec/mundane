@@ -2,11 +2,11 @@
 Promotional banner for mundane CLI tool.
 """
 
-from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
 from mundane_pkg._version import __version__
+from mundane_pkg.ansi import get_console
 
 
 def display_banner() -> None:
@@ -16,7 +16,7 @@ def display_banner() -> None:
     This banner promotes Ridgeback InfoSec, LLC and their Offensive Tooling classes.
     Can be suppressed with the -q/--quiet flag.
     """
-    console = Console()
+    console = get_console()
 
     # Create banner text with colors that work on both light and dark backgrounds
     banner_text = Text()

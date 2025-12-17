@@ -17,13 +17,13 @@ from rich.prompt import Prompt
 from rich.table import Table
 from rich.text import Text
 
-from .ansi import C, colorize_severity_label, fmt_action, info, warn
+from .ansi import C, colorize_severity_label, fmt_action, info, warn, get_console
 from .constants import SEVERITY_COLORS
 from .fs import default_page_size, list_files, pretty_severity_label
 from .logging_setup import log_timing
 
 
-_console_global = Console()
+_console_global = get_console()
 
 
 def print_action_menu(actions: list[tuple[str, str]]) -> None:

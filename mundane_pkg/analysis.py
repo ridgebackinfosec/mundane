@@ -32,9 +32,10 @@ from .parsing import (
     parse_file_hosts_ports_detailed,
 )
 from .render import render_compare_tables
+from .ansi import get_console
 
 
-_console_global = Console()
+_console_global = get_console()
 
 @log_timing
 def compare_filtered(files: Union[list[Path], list['Finding'], list[tuple['Finding', 'Plugin']]]) -> list[list[str]]:

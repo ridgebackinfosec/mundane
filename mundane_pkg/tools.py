@@ -45,8 +45,8 @@ except ImportError:
     Tag = None  # type: ignore
     METASPLOIT_DEPS_AVAILABLE = False
 
-
-_console = Console()
+from .ansi import get_console
+_console = get_console()
 
 
 def print_action_menu(actions: list[tuple[str, str]]) -> None:

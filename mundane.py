@@ -123,8 +123,9 @@ from rich.table import Table
 from rich.text import Text
 from rich.traceback import install as rich_tb_install
 
-# Create a console for the interactive flow
-_console_global = Console()
+# Create a console for the interactive flow (configured with no_color setting)
+from mundane_pkg.ansi import get_console
+_console_global = get_console()
 
 # Install pretty tracebacks, but suppress for Typer/Click exit exceptions
 rich_tb_install(show_locals=False, suppress=["typer", "click"])
@@ -1100,10 +1101,9 @@ def display_workflow(workflow: Workflow) -> None:
     Args:
         workflow: Workflow object to display
     """
-    from rich.console import Console
     from rich.panel import Panel
 
-    console = Console()
+    console = get_console()
 
     # Header
     header(f"Verification Workflow: {workflow.workflow_name}")
@@ -2586,9 +2586,8 @@ def show_session_statistics(
     """
     from datetime import datetime
     from rich.table import Table
-    from rich.console import Console
 
-    console = Console()
+    console = get_console()
 
     # Calculate session duration
     session_end_time = datetime.now()

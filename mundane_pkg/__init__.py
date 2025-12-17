@@ -33,7 +33,6 @@ from .render import (
     show_reviewed_help, menu_pager, severity_cell, severity_style,
 )
 from .fs import (
-    list_files, read_text_lines, safe_print_file,
     build_results_paths, mark_review_complete, undo_review_complete,
     default_page_size, pretty_severity_label, write_work_files
 )

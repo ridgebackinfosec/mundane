@@ -7,8 +7,6 @@ from unittest.mock import patch
 import pytest
 
 from mundane_pkg.fs import (
-    read_text_lines,
-    list_files,
     mark_review_complete,
     undo_review_complete,
     build_results_paths,
@@ -46,81 +44,6 @@ def mock_db_for_fs(monkeypatch, temp_db):
         return UnclosableConnection(temp_db)
 
     monkeypatch.setattr(mundane_pkg.database, "get_connection", mock_get_connection)
-
-
-class TestReadTextLines:
-    """Tests for read_text_lines function."""
-
-    def test_read_text_lines_basic(self, temp_dir):
-        """Test reading basic text file."""
-        test_file = temp_dir / "test.txt"
-        test_file.write_text("line1\nline2\nline3\n")
-
-        lines = read_text_lines(test_file)
-
-        assert len(lines) == 3
-        assert lines == ["line1", "line2", "line3"]
-
-    def test_read_text_lines_windows_endings(self, temp_dir):
-        """Test reading file with Windows line endings."""
-        test_file = temp_dir / "windows.txt"
-        # Write with binary mode to preserve \r\n
-        test_file.write_bytes(b"line1\r\nline2\r\nline3\r\n")
-
-        lines = read_text_lines(test_file)
-
-        # splitlines() returns empty lines for \r\n on some systems
-        # Filter out empty strings
-        non_empty_lines = [l for l in lines if l]
-        assert len(non_empty_lines) == 3
-        assert non_empty_lines == ["line1", "line2", "line3"]
-
-    def test_read_text_lines_empty_file(self, temp_dir):
-        """Test reading empty file."""
-        test_file = temp_dir / "empty.txt"
-        test_file.write_text("")
-
-        lines = read_text_lines(test_file)
-
-        # Empty file returns empty list (splitlines on empty string)
-        assert lines == []
-
-    def test_read_text_lines_with_unicode(self, temp_dir):
-        """Test reading file with unicode characters."""
-        test_file = temp_dir / "unicode.txt"
-        test_file.write_text("hello\nworld\n™\n", encoding="utf-8")
-
-        lines = read_text_lines(test_file)
-
-        assert len(lines) == 3
-        assert lines[2] == "™"
-
-
-class TestListFiles:
-    """Tests for list_files function."""
-
-    def test_list_files_basic(self, temp_dir):
-        """Test listing files."""
-        (temp_dir / "file1.txt").touch()
-        (temp_dir / "file2.txt").touch()
-        (temp_dir / "file3.txt").touch()
-        (temp_dir / "subdir").mkdir()
-
-        files = list_files(temp_dir)
-
-        assert len(files) == 3
-        assert all(f.is_file() for f in files)
-        # Verify sorted by name
-        assert [f.name for f in files] == ["file1.txt", "file2.txt", "file3.txt"]
-
-    def test_list_files_empty(self, temp_dir):
-        """Test listing directory with no files."""
-        (temp_dir / "subdir").mkdir()
-
-        files = list_files(temp_dir)
-
-        assert files == []
-
 
 @pytest.mark.skip(reason="is_review_complete removed - review state is now DB-only")
 class TestIsReviewComplete:

@@ -25,67 +25,6 @@ from .constants import get_results_root, REVIEW_PREFIX
 
 
 _console_global = get_console()
-
-
-def read_text_lines(path: Path) -> list[str]:
-    """Read a text file and return a list of lines with newlines stripped.
-
-    .. deprecated:: 1.8.19
-        This function is part of the legacy file-based architecture.
-        Database-only mode uses Finding.get_all_host_port_lines() instead.
-        This function is kept as a fallback but should not be used for new code.
-
-    Args:
-        path: Path to the file to read
-
-    Returns:
-        List of lines from the file with trailing newlines removed
-    """
-    return [
-        ln.rstrip("\r\n")
-        for ln in path.read_text(
-            encoding="utf-8", errors="ignore"
-        ).splitlines()
-    ]
-
-
-def safe_print_file(path: Path, max_bytes: int = 2_000_000) -> None:
-    """Print a file with a heading; guard against huge files.
-
-    Displays file contents with a progress indicator. For large files,
-    only prints the first max_bytes.
-
-    Args:
-        path: Path to the file to display
-        max_bytes: Maximum number of bytes to read (default: 2MB)
-    """
-    try:
-        if not path.exists():
-            warn(f"(missing) {path}")
-            return
-        size = path.stat().st_size
-        header(f"Showing: {path} ({size} bytes)")
-        if size > max_bytes:
-            warn(f"File is large; showing first {max_bytes} bytes.")
-        from .ansi import style_if_enabled
-        with Progress(
-            SpinnerColumn(style=style_if_enabled("cyan")),
-            TextColumn("[progress.description]{task.description}"),
-            TimeElapsedColumn(),
-            console=_console_global,
-            transient=True,
-        ) as progress:
-            progress.add_task("Reading file...", start=True)
-            with path.open("rb") as f:
-                data = f.read(max_bytes)
-        try:
-            print(data.decode("utf-8", errors="replace"))
-        except Exception:
-            print(data)
-    except Exception as e:
-        warn(f"Could not display file: {e}")
-
-
 def mark_review_complete(plugin_file, plugin=None) -> bool:
     """Mark a file as review complete in the database.
 
@@ -199,26 +138,6 @@ def pretty_severity_label(name: str) -> str:
     label = match.group(1) if match else name
     label = label.replace("_", " ").strip()
     return " ".join(w[:1].upper() + w[1:] for w in label.split())
-
-
-def list_files(directory: Path) -> list[Path]:
-    """List all files in a directory, sorted by name.
-
-    .. deprecated:: 1.8.19
-        This function is part of the legacy file-based architecture.
-        Database-only mode uses Finding.query_by_scan() instead.
-        This function is kept as a fallback but should not be used for new code.
-
-    Args:
-        directory: Path to the parent directory
-
-    Returns:
-        Sorted list of file paths
-    """
-    return sorted(
-        [f for f in directory.iterdir() if f.is_file()],
-        key=lambda f: f.name,
-    )
 
 
 def default_page_size() -> int:

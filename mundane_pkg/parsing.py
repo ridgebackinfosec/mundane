@@ -13,7 +13,6 @@ from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
-from .fs import read_text_lines
 from .logging_setup import log_timing
 
 if TYPE_CHECKING:

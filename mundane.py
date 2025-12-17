@@ -24,7 +24,6 @@ from mundane_pkg import (
     run_command_with_progress,
     # parsing
     normalize_combos,
-    parse_hosts_ports,
     extract_plugin_id_from_filename,
     group_files_by_workflow,
     # constants
@@ -56,10 +55,8 @@ from mundane_pkg import (
     severity_cell,
     severity_style,
     pretty_severity_label,
-    list_files,
     default_page_size,
     # fs:
-    read_text_lines,
     build_results_paths,
     write_work_files,
     # tools:
@@ -1607,15 +1604,15 @@ def run_tool_workflow(
 
 def _display_finding_preview(
     plugin: "Plugin",
-    finding: Optional["Finding"],
+    finding: "Finding",
     sev_dir: Path,
     chosen: Path,
 ) -> None:
-    """Display finding preview panel with metadata.
+    """Display finding preview panel with metadata (database-only).
 
     Args:
         plugin: Plugin metadata object
-        finding: Finding database object (None if database not available)
+        finding: Finding database object (required)
         sev_dir: Severity directory path
         chosen: File path (for URL extraction)
     """
@@ -1623,13 +1620,7 @@ def _display_finding_preview(
     from rich.panel import Panel
 
     # Get hosts and ports from database
-    if finding is not None:
-        hosts, ports_str = finding.get_hosts_and_ports()
-    else:
-        # Fallback to file reading if database not available
-        lines = read_text_lines(chosen)
-        tokens = [line for line in lines if line.strip()]
-        hosts, ports_str = parse_hosts_ports(tokens) if tokens else ([], "")
+    hosts, ports_str = finding.get_hosts_and_ports()
 
     # Build Rich Panel preview
     content = Text()
@@ -1694,7 +1685,7 @@ def _display_finding_preview(
 def process_single_file(
     chosen: Path,
     plugin: "Plugin",
-    finding: Optional["Finding"],
+    finding: "Finding",
     scan_dir: Path,
     sev_dir: Path,
     args: types.SimpleNamespace,
@@ -1706,12 +1697,12 @@ def process_single_file(
     workflow_mapper: Optional[WorkflowMapper] = None,
 ) -> None:
     """
-    Process a single plugin file: preview, view, run tools, mark complete.
+    Process a single plugin file: preview, view, run tools, mark complete (database-only).
 
     Args:
         chosen: Selected plugin file
         plugin: Plugin metadata object
-        finding: Finding database object (None if database not available)
+        finding: Finding database object (required)
         scan_dir: Scan directory
         sev_dir: Severity directory
         args: Command-line arguments
@@ -1722,14 +1713,8 @@ def process_single_file(
         show_severity: Whether to show severity label (for MSF mode)
         workflow_mapper: Optional workflow mapper for plugin workflows
     """
-    # Get hosts and ports from database instead of reading file
-    if finding is not None:
-        hosts, ports_str = finding.get_hosts_and_ports()
-    else:
-        # Fallback to file reading if database not available (backward compatibility)
-        lines = read_text_lines(chosen)
-        tokens = [line for line in lines if line.strip()]
-        hosts, ports_str = parse_hosts_ports(tokens) if tokens else ([], "")
+    # Get hosts and ports from database
+    hosts, ports_str = finding.get_hosts_and_ports()
 
     # Construct display name from plugin metadata
     display_name = f"Plugin {plugin.plugin_id}: {plugin.plugin_name}"

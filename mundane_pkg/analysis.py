@@ -24,7 +24,6 @@ from rich.progress import (
 from rich.table import Table
 
 from .ansi import header, info, warn, style_if_enabled
-from .fs import list_files
 from .logging_setup import log_timing
 from .parsing import (
     build_item_set,

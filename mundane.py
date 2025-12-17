@@ -46,6 +46,7 @@ from mundane_pkg import (
     fmt_action,
     cyan_label,
     colorize_severity_label,
+    style_if_enabled,
     # render:
     render_severity_table,
     render_file_list_table,
@@ -3376,18 +3377,20 @@ def list_scans() -> None:
         info("Tip: Use 'mundane import nessus <scan.nessus>' to import a scan")
         return
 
+    from mundane_pkg.ansi import style_if_enabled
+
     # Create summary table
-    table = Table(title="Imported Scans", show_header=True, header_style="bold cyan")
-    table.add_column("Scan Name", style="yellow", no_wrap=True)
-    table.add_column("Total Unique Hosts", justify="right", style="bright_cyan")
+    table = Table(title="Imported Scans", show_header=True, header_style=style_if_enabled("bold cyan"))
+    table.add_column("Scan Name", style=style_if_enabled("yellow"), no_wrap=True)
+    table.add_column("Total Unique Hosts", justify="right", style=style_if_enabled("bright_cyan"))
     table.add_column("Total Findings", justify="right")
-    table.add_column("Critical", justify="right", style="red")
-    table.add_column("High", justify="right", style="bright_red")
-    table.add_column("Medium", justify="right", style="yellow")
-    table.add_column("Low", justify="right", style="cyan")
-    table.add_column("Info", justify="right", style="dim")
-    table.add_column("Reviewed", justify="right", style="green")
-    table.add_column("Last Reviewed", style="dim")
+    table.add_column("Critical", justify="right", style=style_if_enabled("red"))
+    table.add_column("High", justify="right", style=style_if_enabled("bright_red"))
+    table.add_column("Medium", justify="right", style=style_if_enabled("yellow"))
+    table.add_column("Low", justify="right", style=style_if_enabled("cyan"))
+    table.add_column("Info", justify="right", style=style_if_enabled("dim"))
+    table.add_column("Reviewed", justify="right", style=style_if_enabled("green"))
+    table.add_column("Last Reviewed", style=style_if_enabled("dim"))
 
     for scan in scans:
         # Format last reviewed date
@@ -3513,11 +3516,11 @@ def config_show() -> None:
     _console_global.print()
 
     # Create table with Description column
-    table = Table(title="Configuration Values", show_header=True, header_style="bold cyan")
-    table.add_column("Setting", style="cyan", no_wrap=True)
-    table.add_column("Value", style="yellow")
-    table.add_column("Description", style="dim white")
-    table.add_column("Status", style="green")
+    table = Table(title="Configuration Values", show_header=True, header_style=style_if_enabled("bold cyan"))
+    table.add_column("Setting", style=style_if_enabled("cyan"), no_wrap=True)
+    table.add_column("Value", style=style_if_enabled("yellow"))
+    table.add_column("Description", style=style_if_enabled("dim white"))
+    table.add_column("Status", style=style_if_enabled("green"))
 
     # Get defaults for comparison
     defaults = MundaneConfig()

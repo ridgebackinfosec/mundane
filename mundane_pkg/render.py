@@ -17,7 +17,7 @@ from rich.prompt import Prompt
 from rich.table import Table
 from rich.text import Text
 
-from .ansi import C, colorize_severity_label, fmt_action, info, warn, get_console
+from .ansi import C, colorize_severity_label, fmt_action, info, warn, get_console, style_if_enabled
 from .constants import SEVERITY_COLORS
 from .fs import default_page_size, list_files, pretty_severity_label
 from .logging_setup import log_timing
@@ -571,11 +571,11 @@ def unreviewed_cell(count: int, total: int) -> Any:
         percentage = round((count / total) * 100)
     text = Text(f"{count} ({percentage}%)")
     if count == 0:
-        text.stylize("green")
+        text.stylize(style_if_enabled("green"))
     elif count <= 10:
-        text.stylize("yellow")
+        text.stylize(style_if_enabled("yellow"))
     else:
-        text.stylize("red")
+        text.stylize(style_if_enabled("red"))
     return text
 
 
@@ -593,7 +593,7 @@ def reviewed_cell(count: int, total: int) -> Any:
     if total:
         percentage = round((count / total) * 100)
     text = Text(f"{count} ({percentage}%)")
-    text.stylize("magenta")
+    text.stylize(style_if_enabled("magenta"))
     return text
 
 

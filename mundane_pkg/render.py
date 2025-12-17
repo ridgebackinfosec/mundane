@@ -19,7 +19,7 @@ from rich.text import Text
 
 from .ansi import C, colorize_severity_label, fmt_action, info, warn, get_console, style_if_enabled
 from .constants import SEVERITY_COLORS
-from .fs import default_page_size, list_files, pretty_severity_label
+from .fs import default_page_size, pretty_severity_label
 from .logging_setup import log_timing
 
 
@@ -129,9 +129,11 @@ def render_severity_table(
     severities: list[Path],
     msf_summary: Optional[tuple[int, int, int, int]] = None,
     workflow_summary: Optional[tuple[int, int, int, int]] = None,
-    scan_id: Optional[int] = None,
+    scan_id: int = None,
 ) -> None:
     """Render a table of severity levels with review progress percentages.
+
+    Database-only mode: scan_id is required for database queries.
 
     Args:
         severities: List of severity directory paths
@@ -139,7 +141,7 @@ def render_severity_table(
             for Metasploit modules row
         workflow_summary: Optional tuple of (index, unreviewed, reviewed, total)
             for Workflow Mapped row
-        scan_id: Optional scan ID for database queries (if None, falls back to filesystem)
+        scan_id: Scan ID for database queries (required)
     """
     table = Table(
         title=None, box=box.SIMPLE, show_lines=False, pad_edge=False
@@ -518,27 +520,22 @@ def join_actions_texts(items: list[Text]) -> Text:
 
 def count_severity_files(
     directory: Path,
-    scan_id: Optional[int] = None
+    scan_id: int
 ) -> tuple[int, int, int]:
     """Count unreviewed, reviewed, and total files in a severity directory.
 
+    Database-only mode: queries the database for review state tracking.
+
     Args:
         directory: Severity directory path
-        scan_id: Optional scan ID for database queries (required for review counts)
+        scan_id: Scan ID for database queries (required)
 
     Returns:
         Tuple of (unreviewed_count, reviewed_count, total_count)
     """
-    # Database is required for review state tracking
-    if scan_id is not None:
-        from .models import Finding
-        severity_dir_name = directory.name
-        return Finding.count_by_scan_severity(scan_id, severity_dir_name)
-
-    # Fallback: count files but no review state available
-    files = [f for f in list_files(directory) if f.suffix.lower() == ".txt"]
-    total = len(files)
-    return total, 0, total  # All files treated as unreviewed when no database
+    from .models import Finding
+    severity_dir_name = directory.name
+    return Finding.count_by_scan_severity(scan_id, severity_dir_name)
 
 
 def severity_cell(label: str) -> Any:

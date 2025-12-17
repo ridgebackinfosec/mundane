@@ -7,9 +7,6 @@ from unittest.mock import patch
 import pytest
 
 from mundane_pkg.fs import (
-    read_text_lines,
-    list_dirs,
-    list_files,
     mark_review_complete,
     undo_review_complete,
     build_results_paths,
@@ -47,119 +44,6 @@ def mock_db_for_fs(monkeypatch, temp_db):
         return UnclosableConnection(temp_db)
 
     monkeypatch.setattr(mundane_pkg.database, "get_connection", mock_get_connection)
-
-
-class TestReadTextLines:
-    """Tests for read_text_lines function."""
-
-    def test_read_text_lines_basic(self, temp_dir):
-        """Test reading basic text file."""
-        test_file = temp_dir / "test.txt"
-        test_file.write_text("line1\nline2\nline3\n")
-
-        lines = read_text_lines(test_file)
-
-        assert len(lines) == 3
-        assert lines == ["line1", "line2", "line3"]
-
-    def test_read_text_lines_windows_endings(self, temp_dir):
-        """Test reading file with Windows line endings."""
-        test_file = temp_dir / "windows.txt"
-        # Write with binary mode to preserve \r\n
-        test_file.write_bytes(b"line1\r\nline2\r\nline3\r\n")
-
-        lines = read_text_lines(test_file)
-
-        # splitlines() returns empty lines for \r\n on some systems
-        # Filter out empty strings
-        non_empty_lines = [l for l in lines if l]
-        assert len(non_empty_lines) == 3
-        assert non_empty_lines == ["line1", "line2", "line3"]
-
-    def test_read_text_lines_empty_file(self, temp_dir):
-        """Test reading empty file."""
-        test_file = temp_dir / "empty.txt"
-        test_file.write_text("")
-
-        lines = read_text_lines(test_file)
-
-        # Empty file returns empty list (splitlines on empty string)
-        assert lines == []
-
-    def test_read_text_lines_with_unicode(self, temp_dir):
-        """Test reading file with unicode characters."""
-        test_file = temp_dir / "unicode.txt"
-        test_file.write_text("hello\nworld\n™\n", encoding="utf-8")
-
-        lines = read_text_lines(test_file)
-
-        assert len(lines) == 3
-        assert lines[2] == "™"
-
-
-class TestListDirs:
-    """Tests for list_dirs function."""
-
-    def test_list_dirs_basic(self, temp_dir):
-        """Test listing directories."""
-        (temp_dir / "dir1").mkdir()
-        (temp_dir / "dir2").mkdir()
-        (temp_dir / "dir3").mkdir()
-        (temp_dir / "file.txt").touch()
-
-        dirs = list_dirs(temp_dir)
-
-        assert len(dirs) == 3
-        assert all(d.is_dir() for d in dirs)
-        # Verify sorted by name
-        assert [d.name for d in dirs] == ["dir1", "dir2", "dir3"]
-
-    def test_list_dirs_empty(self, temp_dir):
-        """Test listing empty directory."""
-        dirs = list_dirs(temp_dir)
-
-        assert dirs == []
-
-    def test_list_dirs_mixed_content(self, temp_dir):
-        """Test listing with files and directories."""
-        (temp_dir / "zzz_dir").mkdir()
-        (temp_dir / "aaa_dir").mkdir()
-        (temp_dir / "file1.txt").touch()
-        (temp_dir / "file2.txt").touch()
-
-        dirs = list_dirs(temp_dir)
-
-        assert len(dirs) == 2
-        # Verify sorted alphabetically
-        assert dirs[0].name == "aaa_dir"
-        assert dirs[1].name == "zzz_dir"
-
-
-class TestListFiles:
-    """Tests for list_files function."""
-
-    def test_list_files_basic(self, temp_dir):
-        """Test listing files."""
-        (temp_dir / "file1.txt").touch()
-        (temp_dir / "file2.txt").touch()
-        (temp_dir / "file3.txt").touch()
-        (temp_dir / "subdir").mkdir()
-
-        files = list_files(temp_dir)
-
-        assert len(files) == 3
-        assert all(f.is_file() for f in files)
-        # Verify sorted by name
-        assert [f.name for f in files] == ["file1.txt", "file2.txt", "file3.txt"]
-
-    def test_list_files_empty(self, temp_dir):
-        """Test listing directory with no files."""
-        (temp_dir / "subdir").mkdir()
-
-        files = list_files(temp_dir)
-
-        assert files == []
-
 
 @pytest.mark.skip(reason="is_review_complete removed - review state is now DB-only")
 class TestIsReviewComplete:

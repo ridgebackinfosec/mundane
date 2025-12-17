@@ -22,9 +22,9 @@ from .ops import (
 from .parsing import (
     is_ipv6, is_ipv4,
     is_valid_token, build_item_set,
-    normalize_combos, parse_for_overview,
+    normalize_combos,
     split_host_port, parse_hosts_ports,
-    parse_file_hosts_ports_detailed, is_hostname,
+    is_hostname,
     extract_plugin_id_from_filename, group_files_by_workflow,
 )
 from .render import (
@@ -33,7 +33,6 @@ from .render import (
     show_reviewed_help, menu_pager, severity_cell, severity_style,
 )
 from .fs import (
-    list_dirs, list_files, read_text_lines, safe_print_file,
     build_results_paths, mark_review_complete, undo_review_complete,
     default_page_size, pretty_severity_label, write_work_files
 )

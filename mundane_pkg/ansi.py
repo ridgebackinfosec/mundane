@@ -74,6 +74,60 @@ def get_no_color(config: Optional["MundaneConfig"] = None) -> bool:
     return config.no_color or config.term_override == "dumb"
 
 
+# ========== Rich Console configuration ==========
+_console_cache = None
+
+
+def get_console(config: Optional["MundaneConfig"] = None):
+    """Get Rich Console instance configured with no_color setting.
+
+    Returns a cached Console instance to ensure consistency across the application.
+    The Console is initialized with no_color parameter based on configuration.
+
+    Args:
+        config: Configuration object. If None, loads config.
+
+    Returns:
+        Console instance with no_color parameter set appropriately
+    """
+    global _console_cache
+
+    if _console_cache is None:
+        from rich.console import Console
+
+        if config is None:
+            from .config import load_config
+            config = load_config()
+
+        _console_cache = Console(
+            no_color=config.no_color or config.term_override == "dumb"
+        )
+
+    return _console_cache
+
+
+def style_if_enabled(style_name: str, config: Optional["MundaneConfig"] = None) -> str:
+    """Return style name or empty string based on no_color configuration.
+
+    Use this to conditionally apply Rich styles based on user configuration.
+
+    Args:
+        style_name: Rich style string (e.g., "bold cyan", "red", "yellow")
+        config: Configuration object. If None, loads config.
+
+    Returns:
+        Style name if colors enabled, empty string if colors disabled
+
+    Example:
+        >>> text.stylize(style_if_enabled("green"))
+        >>> table.add_column("Name", style=style_if_enabled("cyan"))
+        >>> Panel(..., border_style=style_if_enabled("blue"))
+    """
+    if get_no_color(config):
+        return ""
+    return style_name
+
+
 def header(msg: str) -> None:
     """Print a bold blue header message with newline prefix.
 

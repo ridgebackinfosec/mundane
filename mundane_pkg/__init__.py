@@ -1,7 +1,7 @@
 
 """Internal package for the mundane CLI (split from monolithic script)."""
 from ._version import __version__
-from .ansi import C, header, ok, warn, err, info, fmt_action, fmt_reviewed, cyan_label, colorize_severity_label, breadcrumb, initialize_colors, get_no_color
+from .ansi import C, header, ok, warn, err, info, fmt_action, fmt_reviewed, cyan_label, colorize_severity_label, breadcrumb, initialize_colors, get_no_color, style_if_enabled
 from .banner import display_banner
 from .constants import (
     get_results_root, reset_results_root_cache, SCANS_ROOT, REVIEW_PREFIX,

@@ -20,11 +20,11 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 
-from .ansi import err, header, ok, warn
+from .ansi import err, header, ok, warn, get_console
 from .constants import get_results_root, REVIEW_PREFIX
 
 
-_console_global = Console()
+_console_global = get_console()
 
 
 def read_text_lines(path: Path) -> list[str]:
@@ -67,8 +67,9 @@ def safe_print_file(path: Path, max_bytes: int = 2_000_000) -> None:
         header(f"Showing: {path} ({size} bytes)")
         if size > max_bytes:
             warn(f"File is large; showing first {max_bytes} bytes.")
+        from .ansi import style_if_enabled
         with Progress(
-            SpinnerColumn(style="cyan"),
+            SpinnerColumn(style=style_if_enabled("cyan")),
             TextColumn("[progress.description]{task.description}"),
             TimeElapsedColumn(),
             console=_console_global,

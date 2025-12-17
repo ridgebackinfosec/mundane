@@ -26,12 +26,12 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 
-from .ansi import C, err, header, ok
+from .ansi import C, err, header, ok, get_console
 from .constants import PROCESS_TERMINATE_TIMEOUT
 from .logging_setup import log_error, log_info, log_timing
 
 
-_console_global = Console()
+_console_global = get_console()
 
 
 @dataclass
@@ -140,8 +140,9 @@ def run_command_with_progress(
         )
 
     try:
+        from .ansi import style_if_enabled
         with Progress(
-            SpinnerColumn(style="cyan"),
+            SpinnerColumn(style=style_if_enabled("cyan")),
             TextColumn("[progress.description]{task.description}"),
             TimeElapsedColumn(),
             console=_console_global,

@@ -24,12 +24,11 @@ from rich.progress import (
 from rich.table import Table
 
 from .ansi import header, info, warn, style_if_enabled
-from .fs import list_dirs, list_files
+from .fs import list_files
 from .logging_setup import log_timing
 from .parsing import (
     build_item_set,
     normalize_combos,
-    parse_file_hosts_ports_detailed,
 )
 from .render import render_compare_tables
 from .ansi import get_console
@@ -38,15 +37,15 @@ from .ansi import get_console
 _console_global = get_console()
 
 @log_timing
-def compare_filtered(files: Union[list[Path], list['Finding'], list[tuple['Finding', 'Plugin']]]) -> list[list[str]]:
-    """Compare host/port combinations across multiple filtered files.
+def compare_filtered(files: Union[list['Finding'], list[tuple['Finding', 'Plugin']]]) -> list[list[str]]:
+    """Compare host/port combinations across multiple findings (database-only).
 
-    Parses each file, computes intersections and unions of hosts and ports,
-    groups files with identical host:port combinations, and renders
+    Queries database for host/port combinations, computes intersections and unions,
+    groups findings with identical host:port combinations, and renders
     comparison tables.
 
     Args:
-        files: List of file paths, Finding objects, or (Finding, Plugin) tuples to compare
+        files: List of Finding objects or (Finding, Plugin) tuples to compare
 
     Returns:
         List of groups where each group is a list of plugin identifiers with
@@ -59,22 +58,16 @@ def compare_filtered(files: Union[list[Path], list['Finding'], list[tuple['Findi
     header("Filtered Files: Host/Port Comparison")
     info(f"Files compared: {len(files)}")
 
-    # Detect what type of input we have
+    # Detect what type of input we have (database-only)
     from .models import Finding, Plugin
     if files and isinstance(files[0], tuple) and len(files[0]) == 2:
         # (Finding, Plugin) tuples - extract Findings
         findings = [pf for pf, _ in files]
         plugins_map = {pf.plugin_id: plugin for pf, plugin in files}
-        use_database = True
-    elif files and isinstance(files[0], Finding):
+    else:
         # Just Finding objects (need to query plugins separately for display)
         findings = files
         plugins_map = {}  # Will be populated if needed
-        use_database = True
-    else:
-        # Path objects (legacy file-based mode)
-        findings = None
-        use_database = False
 
     parsed = []
     with Progress(
@@ -85,19 +78,18 @@ def compare_filtered(files: Union[list[Path], list['Finding'], list[tuple['Findi
         transient=True,
     ) as progress:
         task = progress.add_task(
-            "Parsing files for comparison...", total=len(files)
+            "Querying findings for comparison...", total=len(files)
         )
 
-        if use_database:
-            # Database mode: query all hosts/ports in a single batch
-            from .database import db_transaction, query_all
+        # Database query: fetch all hosts/ports in a single batch
+        from .database import db_transaction, query_all
 
-            finding_ids = [pf.finding_id for pf in findings]
-            with db_transaction() as conn:
-                rows = query_all(
-                    conn,
-                    """
-                    SELECT
+        finding_ids = [pf.finding_id for pf in findings]
+        with db_transaction() as conn:
+            rows = query_all(
+                conn,
+                """
+                SELECT
                         fah.finding_id,
                         h.host_address,
                         fah.port_number,
@@ -111,54 +103,46 @@ def compare_filtered(files: Union[list[Path], list['Finding'], list[tuple['Findi
                              WHEN h.host_type = 'ipv6' THEN 1
                              ELSE 2 END,
                         h.host_address ASC
-                    """.format(','.join('?' * len(finding_ids))),
-                    finding_ids
-                )
+                """.format(','.join('?' * len(finding_ids))),
+                finding_ids
+            )
 
-            # Group results by finding_id
-            hosts_by_file = defaultdict(list)
-            for row in rows:
-                hosts_by_file[row['finding_id']].append(row)
+        # Group results by finding_id
+        hosts_by_file = defaultdict(list)
+        for row in rows:
+            hosts_by_file[row['finding_id']].append(row)
 
-            # Process each Finding
-            for pf in findings:
-                file_rows = hosts_by_file.get(pf.finding_id, [])
+        # Process each Finding
+        for pf in findings:
+            file_rows = hosts_by_file.get(pf.finding_id, [])
 
-                # Extract hosts and ports from database rows
-                hosts = []
-                ports_set = set()
-                combos = defaultdict(set)
-                had_explicit = False
+            # Extract hosts and ports from database rows
+            hosts = []
+            ports_set = set()
+            combos = defaultdict(set)
+            had_explicit = False
 
-                for row in file_rows:
-                    host = row['host_address']
-                    port = row['port_number']
+            for row in file_rows:
+                host = row['host_address']
+                port = row['port_number']
 
-                    if host not in hosts:
-                        hosts.append(host)
-                    if port:
-                        ports_set.add(port)
-                        combos[host].add(port)
-                        had_explicit = True
+                if host not in hosts:
+                    hosts.append(host)
+                if port:
+                    ports_set.add(port)
+                    combos[host].add(port)
+                    had_explicit = True
 
-                # Create display identifier from plugin info (not filename)
-                if pf.plugin_id in plugins_map:
-                    plugin = plugins_map[pf.plugin_id]
-                    display_name = f"Plugin {plugin.plugin_id}: {plugin.plugin_name}"
-                else:
-                    # Fallback if plugin info not available
-                    display_name = f"Plugin {pf.plugin_id}"
+            # Create display identifier from plugin info (not filename)
+            if pf.plugin_id in plugins_map:
+                plugin = plugins_map[pf.plugin_id]
+                display_name = f"Plugin {plugin.plugin_id}: {plugin.plugin_name}"
+            else:
+                # Fallback if plugin info not available
+                display_name = f"Plugin {pf.plugin_id}"
 
-                parsed.append((display_name, hosts, ports_set, combos, had_explicit))
-                progress.advance(task)
-        else:
-            # File-based mode: parse each file individually
-            for file_path in files:
-                hosts, ports_set, combos, had_explicit = (
-                    parse_file_hosts_ports_detailed(file_path)
-                )
-                parsed.append((file_path, hosts, ports_set, combos, had_explicit))
-                progress.advance(task)
+            parsed.append((display_name, hosts, ports_set, combos, had_explicit))
+            progress.advance(task)
 
     all_host_sets = [set(h) for _, h, _, _, _ in parsed]
     all_port_sets = [set(p) for _, _, p, _, _ in parsed]
@@ -237,14 +221,14 @@ def compare_filtered(files: Union[list[Path], list['Finding'], list[tuple['Findi
 
 
 @log_timing
-def analyze_inclusions(files: Union[list[Path], list['Finding'], list[tuple['Finding', 'Plugin']]]) -> list[list[str]]:
-    """Analyze superset relationships across filtered files.
+def analyze_inclusions(files: Union[list['Finding'], list[tuple['Finding', 'Plugin']]]) -> list[list[str]]:
+    """Analyze superset relationships across findings (database-only).
 
-    Identifies which files are supersets of others (contain all their
+    Identifies which findings are supersets of others (contain all their
     host:port combinations) and groups them accordingly.
 
     Args:
-        files: List of file paths, Finding objects, or (Finding, Plugin) tuples to analyze
+        files: List of Finding objects or (Finding, Plugin) tuples to analyze
 
     Returns:
         List of groups where each group is [superset_name, *covered_names],
@@ -257,22 +241,16 @@ def analyze_inclusions(files: Union[list[Path], list['Finding'], list[tuple['Fin
     header("Filtered Files: Superset / Coverage Analysis")
     info(f"Files analyzed: {len(files)}")
 
-    # Detect what type of input we have
+    # Detect what type of input we have (database-only)
     from .models import Finding, Plugin
     if files and isinstance(files[0], tuple) and len(files[0]) == 2:
         # (Finding, Plugin) tuples - extract Findings
         findings = [pf for pf, _ in files]
         plugins_map = {pf.plugin_id: plugin for pf, plugin in files}
-        use_database = True
-    elif files and isinstance(files[0], Finding):
+    else:
         # Just Finding objects
         findings = files
         plugins_map = {}
-        use_database = True
-    else:
-        # Path objects (legacy file-based mode)
-        findings = None
-        use_database = False
 
     parsed = []
     item_sets = {}
@@ -283,18 +261,17 @@ def analyze_inclusions(files: Union[list[Path], list['Finding'], list[tuple['Fin
         console=_console_global,
         transient=True,
     ) as progress:
-        task = progress.add_task("Parsing files...", total=len(files))
+        task = progress.add_task("Querying findings...", total=len(files))
 
-        if use_database:
-            # Database mode: query all hosts/ports in a single batch
-            from .database import db_transaction, query_all
+        # Database query: fetch all hosts/ports in a single batch
+        from .database import db_transaction, query_all
 
-            finding_ids = [pf.finding_id for pf in findings]
-            with db_transaction() as conn:
-                rows = query_all(
-                    conn,
-                    """
-                    SELECT
+        finding_ids = [pf.finding_id for pf in findings]
+        with db_transaction() as conn:
+            rows = query_all(
+                conn,
+                """
+                SELECT
                         fah.finding_id,
                         h.host_address,
                         fah.port_number,
@@ -309,59 +286,48 @@ def analyze_inclusions(files: Union[list[Path], list['Finding'], list[tuple['Fin
                              ELSE 2 END,
                         h.host_address ASC
                     """.format(','.join('?' * len(finding_ids))),
-                    finding_ids
-                )
+                finding_ids
+            )
 
-            # Group results by finding_id
-            hosts_by_file = defaultdict(list)
-            for row in rows:
-                hosts_by_file[row['finding_id']].append(row)
+        # Group results by finding_id
+        hosts_by_file = defaultdict(list)
+        for row in rows:
+            hosts_by_file[row['finding_id']].append(row)
 
-            # Process each Finding
-            for pf in findings:
-                file_rows = hosts_by_file.get(pf.finding_id, [])
+        # Process each Finding
+        for pf in findings:
+            file_rows = hosts_by_file.get(pf.finding_id, [])
 
-                # Extract hosts and ports from database rows
-                hosts = []
-                ports_set = set()
-                combos = defaultdict(set)
-                had_explicit = False
+            # Extract hosts and ports from database rows
+            hosts = []
+            ports_set = set()
+            combos = defaultdict(set)
+            had_explicit = False
 
-                for row in file_rows:
-                    host = row['host_address']
-                    port = row['port_number']
+            for row in file_rows:
+                host = row['host_address']
+                port = row['port_number']
 
-                    if host not in hosts:
-                        hosts.append(host)
-                    if port:
-                        ports_set.add(port)
-                        combos[host].add(port)
-                        had_explicit = True
+                if host not in hosts:
+                    hosts.append(host)
+                if port:
+                    ports_set.add(port)
+                    combos[host].add(port)
+                    had_explicit = True
 
-                # Create display identifier from plugin info (not filename)
-                if pf.plugin_id in plugins_map:
-                    plugin = plugins_map[pf.plugin_id]
-                    display_name = f"Plugin {plugin.plugin_id}: {plugin.plugin_name}"
-                else:
-                    # Fallback if plugin info not available
-                    display_name = f"Plugin {pf.plugin_id}"
+            # Create display identifier from plugin info (not filename)
+            if pf.plugin_id in plugins_map:
+                plugin = plugins_map[pf.plugin_id]
+                display_name = f"Plugin {plugin.plugin_id}: {plugin.plugin_name}"
+            else:
+                # Fallback if plugin info not available
+                display_name = f"Plugin {pf.plugin_id}"
 
-                parsed.append((display_name, hosts, ports_set, combos, had_explicit))
-                item_sets[display_name] = build_item_set(
-                    hosts, ports_set, combos, had_explicit
-                )
-                progress.advance(task)
-        else:
-            # File-based mode: parse each file individually
-            for file_path in files:
-                hosts, ports_set, combos, had_explicit = (
-                    parse_file_hosts_ports_detailed(file_path)
-                )
-                parsed.append((file_path, hosts, ports_set, combos, had_explicit))
-                item_sets[file_path] = build_item_set(
-                    hosts, ports_set, combos, had_explicit
-                )
-                progress.advance(task)
+            parsed.append((display_name, hosts, ports_set, combos, had_explicit))
+            item_sets[display_name] = build_item_set(
+                hosts, ports_set, combos, had_explicit
+            )
+            progress.advance(task)
 
     # Extract display names from parsed results
     display_names = [display_name for display_name, _, _, _, _ in parsed]
@@ -472,25 +438,16 @@ def natural_key(s: str) -> list[int | str]:
 
 def count_reviewed_in_scan(
     scan_dir: Path,
-    scan_id: Optional[int] = None
+    scan_id: int
 ) -> tuple[int, int]:
-    """Count total and reviewed files in a scan directory.
+    """Count total and reviewed files in a scan directory (database-only).
 
     Args:
-        scan_dir: Path to the scan directory
-        scan_id: Optional scan ID for database queries (required for review counts)
+        scan_dir: Path to the scan directory (unused, kept for API compatibility)
+        scan_id: Scan ID for database queries (required)
 
     Returns:
         Tuple of (total_files, reviewed_files)
     """
-    # Database is required for review state tracking
-    if scan_id is not None:
-        from .models import Finding
-        return Finding.count_by_scan(scan_id)
-
-    # Fallback: count files but no review state available
-    total_files = 0
-    for severity_dir in list_dirs(scan_dir):
-        files = [f for f in list_files(severity_dir) if f.suffix.lower() == ".txt"]
-        total_files += len(files)
-    return total_files, 0  # All files treated as unreviewed when no database
+    from .models import Finding
+    return Finding.count_by_scan(scan_id)

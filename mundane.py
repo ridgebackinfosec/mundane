@@ -25,7 +25,6 @@ from mundane_pkg import (
     # parsing
     normalize_combos,
     parse_hosts_ports,
-    parse_file_hosts_ports_detailed,
     extract_plugin_id_from_filename,
     group_files_by_workflow,
     # constants
@@ -691,32 +690,6 @@ def show_scan_summary(
 
 
 # === Grouped host:ports printer ===
-
-
-def print_grouped_hosts_ports(path: Path) -> None:
-    """
-    Print hosts with their ports in grouped format (host:port,port,...).
-
-    Args:
-        path: Plugin file to parse and display
-    """
-    try:
-        hosts, _ports, combos, _had_explicit = parse_file_hosts_ports_detailed(path)
-        if not hosts:
-            warn(f"No hosts found in {path}")
-            return
-
-        header(f"Grouped view: {path.name}")
-        for host in hosts:
-            port_list = (
-                sorted(combos[host], key=lambda x: int(x)) if combos[host] else []
-            )
-            if port_list:
-                _console_global.print(f"{host}:{','.join(port_list)}")
-            else:
-                _console_global.print(host)
-    except Exception as exc:
-        warn(f"Error grouping hosts/ports: {exc}")
 
 
 def _grouped_payload_text(finding: "Finding") -> str:

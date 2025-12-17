@@ -8,7 +8,6 @@ import pytest
 
 from mundane_pkg.fs import (
     read_text_lines,
-    list_dirs,
     list_files,
     mark_review_complete,
     undo_review_complete,
@@ -95,44 +94,6 @@ class TestReadTextLines:
 
         assert len(lines) == 3
         assert lines[2] == "™"
-
-
-class TestListDirs:
-    """Tests for list_dirs function."""
-
-    def test_list_dirs_basic(self, temp_dir):
-        """Test listing directories."""
-        (temp_dir / "dir1").mkdir()
-        (temp_dir / "dir2").mkdir()
-        (temp_dir / "dir3").mkdir()
-        (temp_dir / "file.txt").touch()
-
-        dirs = list_dirs(temp_dir)
-
-        assert len(dirs) == 3
-        assert all(d.is_dir() for d in dirs)
-        # Verify sorted by name
-        assert [d.name for d in dirs] == ["dir1", "dir2", "dir3"]
-
-    def test_list_dirs_empty(self, temp_dir):
-        """Test listing empty directory."""
-        dirs = list_dirs(temp_dir)
-
-        assert dirs == []
-
-    def test_list_dirs_mixed_content(self, temp_dir):
-        """Test listing with files and directories."""
-        (temp_dir / "zzz_dir").mkdir()
-        (temp_dir / "aaa_dir").mkdir()
-        (temp_dir / "file1.txt").touch()
-        (temp_dir / "file2.txt").touch()
-
-        dirs = list_dirs(temp_dir)
-
-        assert len(dirs) == 2
-        # Verify sorted alphabetically
-        assert dirs[0].name == "aaa_dir"
-        assert dirs[1].name == "zzz_dir"
 
 
 class TestListFiles:

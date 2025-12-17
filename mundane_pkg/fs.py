@@ -86,25 +86,6 @@ def safe_print_file(path: Path, max_bytes: int = 2_000_000) -> None:
         warn(f"Could not display file: {e}")
 
 
-def list_dirs(directory: Path) -> list[Path]:
-    """List all subdirectories in a directory, sorted by name.
-
-    .. deprecated:: 1.8.19
-        This function is part of the legacy file-based architecture.
-        Database-only mode uses Finding.get_severity_dirs_for_scan() instead.
-        This function is kept as a fallback but should not be used for new code.
-
-    Args:
-        directory: Path to the parent directory
-
-    Returns:
-        Sorted list of directory paths
-    """
-    return sorted(
-        [d for d in directory.iterdir() if d.is_dir()], key=lambda d: d.name
-    )
-
-
 def mark_review_complete(plugin_file, plugin=None) -> bool:
     """Mark a file as review complete in the database.
 

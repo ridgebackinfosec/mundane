@@ -568,3 +568,488 @@ def show_msf_available(plugin_url: str) -> None:
         "available modules.\n"
     )
 
+
+# ===================================================================
+# Tool Workflow Orchestration (moved from mundane.py)
+# ===================================================================
+
+
+def _build_nmap_workflow(ctx: "ToolContext") -> Optional["CommandResult"]:
+    """
+    Build nmap command through interactive prompts.
+
+    Args:
+        ctx: Unified tool context containing all parameters
+
+    Returns:
+        CommandResult with command details, or None if interrupted
+    """
+    from .tool_context import CommandResult
+    from rich.prompt import Confirm, Prompt
+    from .ansi import warn, info, C
+    from .ops import require_cmd
+
+    try:
+        udp_ports = Confirm.ask(
+            "\nDo you want to perform UDP scanning instead of TCP?", default=False
+        )
+    except KeyboardInterrupt:
+        return None
+
+    try:
+        from .config import load_config
+        config = load_config()
+        nse_scripts, needs_udp = choose_nse_profile(config)
+    except KeyboardInterrupt:
+        return None
+
+    try:
+        extra = Prompt.ask(
+            "Enter additional NSE scripts (comma-separated, no spaces, or Enter to skip)",
+            default=""
+        ).strip()
+    except KeyboardInterrupt:
+        return None
+
+    if extra:
+        for script in extra.split(","):
+            script = script.strip()
+            if script and script not in nse_scripts:
+                nse_scripts.append(script)
+
+    extras_imply_udp = any(
+        script.lower().startswith("snmp") or script.lower() == "ipmi-version"
+        for script in nse_scripts
+    )
+
+    if needs_udp or extras_imply_udp:
+        if not udp_ports:
+            warn("SNMP/IPMI selected — switching to UDP scan.")
+        udp_ports = True
+
+    if nse_scripts:
+        info(f"{C.BOLD}NSE scripts to run:{C.RESET} {','.join(nse_scripts)}")
+
+    nse_option = f"--script={','.join(nse_scripts)}" if nse_scripts else ""
+
+    ips_file = ctx.udp_ips if udp_ports else ctx.tcp_ips
+    require_cmd("nmap")
+    cmd = build_nmap_cmd(udp_ports, nse_option, ips_file, ctx.ports_str, ctx.use_sudo, ctx.oabase)
+
+    return CommandResult(
+        command=cmd,
+        display_command=cmd,
+        artifact_note=f"Results base:  {ctx.oabase}  (nmap -oA)",
+    )
+
+
+def _build_netexec_workflow(ctx: "ToolContext") -> Optional["CommandResult"]:
+    """
+    Build netexec command through interactive prompts.
+
+    Args:
+        ctx: Unified tool context containing all parameters
+
+    Returns:
+        CommandResult with command details, or None if interrupted
+    """
+    from .tool_context import CommandResult
+    from .ansi import warn, info
+    from .ops import resolve_cmd
+    from .config import load_config
+
+    config = load_config()
+    protocol = choose_netexec_protocol(config)
+    if not protocol:
+        return None
+
+    exec_bin = resolve_cmd(["nxc", "netexec"])
+    if not exec_bin:
+        warn("Neither 'nxc' nor 'netexec' was found in PATH.")
+        info("Skipping run; returning to tool menu.")
+        return None
+
+    cmd, nxc_log, relay_path = build_netexec_cmd(exec_bin, protocol, ctx.tcp_ips, ctx.oabase)
+
+    return CommandResult(
+        command=cmd,
+        display_command=cmd,
+        artifact_note=f"NetExec log:   {nxc_log}",
+        relay_path=relay_path,
+    )
+
+
+def _build_custom_workflow(ctx: "ToolContext") -> Optional["CommandResult"]:
+    """
+    Build custom command from user template with placeholder substitution.
+
+    Args:
+        ctx: Unified tool context containing all parameters
+
+    Returns:
+        CommandResult with command details, or None if cancelled
+    """
+    from .tool_context import CommandResult
+    from rich.prompt import Prompt
+    from .ansi import warn
+
+    mapping = {
+        "{TCP_IPS}": ctx.tcp_ips,
+        "{UDP_IPS}": ctx.udp_ips,
+        "{TCP_HOST_PORTS}": ctx.tcp_sockets,
+        "{PORTS}": ctx.ports_str or "",
+        "{WORKDIR}": ctx.workdir,
+        "{RESULTS_DIR}": ctx.results_dir,
+        "{OABASE}": ctx.oabase,
+    }
+    custom_command_help(mapping)
+
+    try:
+        template = Prompt.ask(
+            "\nEnter your command (placeholders allowed)"
+        ).strip()
+    except KeyboardInterrupt:
+        return None
+
+    if not template:
+        warn("No command entered.")
+        return None
+
+    rendered = render_placeholders(template, mapping)
+
+    return CommandResult(
+        command=rendered,
+        display_command=rendered,
+        artifact_note=f"OABASE path:   {ctx.oabase}",
+    )
+
+
+def run_tool_workflow(
+    chosen: Path,
+    scan_dir: Path,
+    sev_dir: Path,
+    hosts: list[str],
+    ports_str: str,
+    args,  # types.SimpleNamespace
+    use_sudo: bool,
+) -> bool:
+    """
+    Execute tool selection and execution workflow.
+
+    NOTE: This function will be refactored to use ReviewContext in Phase 6.
+    For now, it maintains the old signature for compatibility.
+
+    Args:
+        chosen: Selected plugin file
+        scan_dir: Scan directory
+        sev_dir: Severity directory
+        hosts: List of target hosts
+        ports_str: Comma-separated ports
+        args: Command-line arguments namespace
+        use_sudo: Whether sudo is available
+
+    Returns:
+        True if any tool was executed, False otherwise
+    """
+    import random
+    import tempfile
+    import subprocess
+    from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+    from rich.prompt import Confirm, IntPrompt, Prompt
+    from .ansi import warn, ok, err, info, header, get_console
+    from .constants import SAMPLE_THRESHOLD, get_results_root
+    from .fs import build_results_paths, pretty_severity_label, write_work_files
+    from .ops import require_cmd, run_command_with_progress, log_tool_execution, log_artifacts_for_nmap
+    from .parsing import extract_plugin_id_from_filename
+    from .tool_registry import get_tool
+    from .tool_context import ToolContext
+
+    _console_global = get_console()
+
+    sample_hosts = hosts
+
+    if len(hosts) > SAMPLE_THRESHOLD:
+        try:
+            do_sample = Confirm.ask(
+                f"There are {len(hosts)} hosts. Sample a subset?", default=False
+            )
+        except KeyboardInterrupt:
+            return False
+
+        if do_sample:
+            while True:
+                try:
+                    sample_count = IntPrompt.ask(
+                        "How many hosts to sample?",
+                        default=min(10, len(hosts))
+                    )
+                except KeyboardInterrupt:
+                    warn("\nInterrupted — not sampling.")
+                    break
+
+                if sample_count <= 0:
+                    warn("Enter a positive integer.")
+                    continue
+
+                count = min(sample_count, len(hosts))
+                sample_hosts = random.sample(hosts, count)
+                ok(f"Sampling {count} host(s).")
+                break
+
+    with Progress(
+        SpinnerColumn(style="cyan"),
+        TextColumn("[progress.description]{task.description}"),
+        TimeElapsedColumn(),
+        console=_console_global,
+        transient=True,
+    ) as progress:
+        progress.add_task("Preparing workspace...", start=True)
+        workdir = Path(tempfile.mkdtemp(prefix="nph_work_"))
+        tcp_ips, udp_ips, tcp_sockets = write_work_files(
+            workdir, sample_hosts, ports_str, udp=True
+        )
+
+    out_dir_static = (
+        get_results_root()
+        / scan_dir.name
+        / pretty_severity_label(sev_dir.name)
+        / Path(chosen.name).stem
+    )
+    out_dir_static.mkdir(parents=True, exist_ok=True)
+
+    tool_used = False
+
+    # Get plugin details for Metasploit
+    # Import _plugin_details_line temporarily from mundane.py context
+    # This will be refactored in Phase 5
+    plugin_id = extract_plugin_id_from_filename(chosen)
+    plugin_url = None
+    if plugin_id:
+        from .constants import PLUGIN_DETAILS_BASE
+        plugin_url = f"{PLUGIN_DETAILS_BASE}{plugin_id}"
+
+    while True:
+        from .config import load_config
+        config = load_config()
+        tool_choice = choose_tool(config)
+        if tool_choice is None:
+            break
+
+        # Get the selected tool from registry
+        selected_tool = get_tool(tool_choice)
+
+        if not selected_tool:
+            warn(f"Unknown tool selection: {tool_choice}")
+            continue
+
+        _tmp_dir, oabase = build_results_paths(scan_dir, sev_dir, chosen.name)
+        results_dir = out_dir_static
+
+        # ====================================================================
+        # Tool Dispatch - Unified Context Pattern
+        # ====================================================================
+        # Build context once, pass to all workflows (no more per-tool params!)
+        # ====================================================================
+
+        # Special handling for metasploit (read-only from database)
+        if tool_choice == "metasploit":
+            from .models import Plugin
+            from .database import get_connection
+
+            if not plugin_id:
+                warn("Cannot extract plugin ID from filename.")
+                continue
+
+            # Query Metasploit module names from database (no web scraping)
+            try:
+                header("Metasploit Module Information")
+
+                with get_connection() as conn:
+                    plugin_obj = Plugin.get_by_id(int(plugin_id), conn=conn)
+
+                if not plugin_obj or not plugin_obj.metasploit_names:
+                    warn("No Metasploit modules associated with this finding.")
+                    continue
+
+                # Display available module names
+                info(f"Found {len(plugin_obj.metasploit_names)} Metasploit module(s):")
+                for idx, msf_name in enumerate(plugin_obj.metasploit_names, start=1):
+                    _console_global.print(f"  {idx}. {msf_name}")
+
+                # Build list of all commands
+                one_liners = []
+                for msf_name in plugin_obj.metasploit_names:
+                    cmd = f"msfconsole -q -x 'search {msf_name}; exit'"
+                    one_liners.append(cmd)
+
+                if plugin_obj.cves:
+                    for cve in plugin_obj.cves:
+                        cmd = f"msfconsole -q -x 'search {cve}; exit'"
+                        one_liners.append(cmd)
+
+                # Interactive command selection loop
+                while True:
+                    _console_global.print("\n[cyan]>>[/cyan] Available commands:")
+                    for idx, cmd in enumerate(one_liners, start=1):
+                        _console_global.print(f"  {idx}. {cmd}")
+
+                    try:
+                        answer = Prompt.ask(
+                            "\nRun which command? (number or [n] None)",
+                            default="n"
+                        )
+
+                        if answer and answer.strip().lower() != "n":
+                            try:
+                                selection = int(answer.strip())
+                                if 1 <= selection <= len(one_liners):
+                                    selected_cmd = one_liners[selection - 1]
+
+                                    # Execute command with confirmation
+                                    info(f"\nExecuting: {selected_cmd}\n")
+                                    if Confirm.ask("Confirm?", default=False):
+                                        shell_exec = shutil.which("bash") or shutil.which("sh")
+                                        if shell_exec:
+                                            run_command_with_progress(
+                                                selected_cmd,
+                                                shell=True,
+                                                executable=shell_exec
+                                            )
+                                            ok("\nCommand completed.")
+                                        else:
+                                            warn("No shell found (bash/sh).")
+                                    else:
+                                        info("Execution skipped.")
+
+                                    continue  # Show menu again
+                                else:
+                                    warn("Invalid selection.")
+                                    continue
+                            except ValueError:
+                                warn("Invalid selection.")
+                                continue
+                        else:
+                            break  # Exit loop
+                    except (KeyboardInterrupt, EOFError):
+                        info("\nReturning to menu.")
+                        break
+            except Exception as exc:
+                warn(f"Failed to retrieve Metasploit information: {exc}")
+
+            continue
+
+        # Build unified context for all other tools
+        ctx = ToolContext(
+            tcp_ips=tcp_ips,
+            udp_ips=udp_ips,
+            tcp_sockets=tcp_sockets,
+            ports_str=ports_str,
+            use_sudo=use_sudo,
+            workdir=workdir,
+            results_dir=results_dir,
+            oabase=oabase,
+            scan_dir=scan_dir,
+            sev_dir=sev_dir,
+            plugin_url=plugin_url,
+            chosen_file=chosen,
+        )
+
+        # Call workflow with unified context (same signature for all tools!)
+        result = selected_tool.workflow_builder(ctx)
+
+        # Handle cancellation
+        if result is None:
+            # User cancelled - break for nmap/custom, continue for netexec
+            if tool_choice in ("nmap", "custom"):
+                break
+            else:
+                continue
+
+        # Extract results from unified CommandResult
+        cmd = result.command
+        display_cmd = result.display_command
+        artifact_note = result.artifact_note
+        nxc_relay_path = result.relay_path
+
+        action = command_review_menu(display_cmd)
+
+        if action == "copy":
+            cmd_str = display_cmd if isinstance(display_cmd, str) else " ".join(display_cmd)
+            if copy_to_clipboard(cmd_str)[0]:
+                ok("Command copied to clipboard.")
+            else:
+                warn(
+                    "Could not copy to clipboard automatically. "
+                    "Here it is to copy manually:"
+                )
+                _console_global.print(cmd_str)
+
+        elif action == "run":
+            try:
+                tool_used = True
+
+                # Execute command and capture metadata
+                if isinstance(cmd, list):
+                    exec_metadata = run_command_with_progress(cmd, shell=False)
+                else:
+                    shell_exec = shutil.which("bash") or shutil.which("sh")
+                    exec_metadata = run_command_with_progress(cmd, shell=True, executable=shell_exec)
+
+                # Log execution to database
+                cmd_str = display_cmd if isinstance(display_cmd, str) else " ".join(str(x) for x in display_cmd)
+
+                # Count hosts for metadata
+                host_count = None
+                try:
+                    if tcp_ips.exists():
+                        with open(tcp_ips) as f:
+                            host_count = sum(1 for _ in f)
+                except Exception:
+                    pass
+
+                execution_id = log_tool_execution(
+                    tool_name=selected_tool.name,
+                    command_text=cmd_str,
+                    execution_metadata=exec_metadata,
+                    tool_protocol=getattr(selected_tool, 'protocol', None),
+                    host_count=host_count,
+                    ports=ports_str if ports_str else None,
+                    file_path=chosen,
+                    scan_dir=scan_dir
+                )
+
+                # Track artifacts (nmap outputs, etc.)
+                if execution_id and selected_tool.name == "nmap":
+                    log_artifacts_for_nmap(execution_id, oabase)
+
+            except KeyboardInterrupt:
+                warn("\nRun interrupted — returning to tool menu.")
+                continue
+            except subprocess.CalledProcessError as exc:
+                err(f"Command exited with {exc.returncode}.")
+                info("Returning to tool menu.")
+                continue
+
+        elif action == "cancel":
+            info("Canceled. Returning to tool menu.")
+            continue
+
+        header("Artifacts")
+        info(f"Workspace:     {workdir}")
+        info(f" - Hosts:      {workdir / 'tcp_ips.list'}")
+        if ports_str:
+            info(f" - Host:Ports: {workdir / 'tcp_host_ports.list'}")
+        info(f" - {artifact_note}")
+        if nxc_relay_path:
+            info(f" - Relay targets: {nxc_relay_path}")
+        info(f" - Results dir:{results_dir}")
+
+        try:
+            again = Confirm.ask("\nRun another command for this finding?", default=False)
+        except KeyboardInterrupt:
+            break
+        if not again:
+            break
+
+    return tool_used
+

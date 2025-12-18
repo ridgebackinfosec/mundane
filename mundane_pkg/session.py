@@ -5,6 +5,7 @@ Database-only mode: all session state stored in SQLite database.
 
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 from .logging_setup import log_error, log_info
@@ -229,3 +230,167 @@ def _db_end_session(scan_id: int) -> None:
 
     except Exception as e:
         log_error(f"Failed to end session in database: {e}")
+
+
+# ===================================================================
+# Scan Summary and Statistics Display (moved from mundane.py)
+# ===================================================================
+
+
+def show_scan_summary(
+    scan_dir: Path,
+    top_ports_n: int = 25,
+    scan_id: Optional[int] = None
+) -> None:
+    """
+    Display comprehensive scan overview with host/port statistics.
+
+    Database-only mode: queries all statistics from database.
+
+    Args:
+        scan_dir: Scan directory (used for display name only)
+        top_ports_n: Number of top ports to display
+        scan_id: Scan ID (required for database queries)
+    """
+    from collections import Counter
+    from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+    from rich.table import Table
+    from rich import box
+    from .ansi import header, err, get_console, style_if_enabled
+    from .analysis import count_reviewed_in_scan
+    from .database import db_transaction, query_all
+
+    if scan_id is None:
+        err("Database scan_id is required for scan summary")
+        return
+
+    _console_global = get_console()
+    header(f"Scan Overview — {scan_dir.name}")
+
+    total_files, reviewed_files = count_reviewed_in_scan(scan_dir, scan_id=scan_id)
+
+    # Query all host/port data from database
+    unique_hosts = set()
+    ipv4_set = set()
+    ipv6_set = set()
+    ports_counter: Counter = Counter()
+    empties = 0
+
+    with Progress(
+        SpinnerColumn(style="cyan"),
+        TextColumn("[progress.description]{task.description}"),
+        TimeElapsedColumn(),
+        console=_console_global,
+        transient=True,
+    ) as progress:
+        task = progress.add_task("Querying database for overview...", total=None)
+
+        with db_transaction() as conn:
+            # Get all host/port combinations for this scan
+            rows = query_all(
+                conn,
+                """
+                SELECT DISTINCT h.host_address, fah.port_number, h.host_type, fah.finding_id
+                FROM finding_affected_hosts fah
+                JOIN findings f ON fah.finding_id = f.finding_id
+                JOIN hosts h ON fah.host_id = h.host_id
+                WHERE f.scan_id = ?
+                """,
+                (scan_id,)
+            )
+
+            # Count findings with no hosts (empty findings)
+            empty_files = query_all(
+                conn,
+                """
+                SELECT f.finding_id
+                FROM findings f
+                LEFT JOIN finding_affected_hosts fah ON f.finding_id = fah.finding_id
+                WHERE f.scan_id = ? AND fah.finding_id IS NULL
+                """,
+                (scan_id,)
+            )
+            empties = len(empty_files)
+
+        # Track unique host:port combinations to avoid counting duplicates
+        unique_host_port_pairs = set()
+
+        # Process query results
+        for row in rows:
+            host = row["host_address"]
+            port = row["port_number"]
+            host_type = row["host_type"]
+            is_ipv4 = (host_type == 'ipv4')
+            is_ipv6 = (host_type == 'ipv6')
+
+            unique_hosts.add(host)
+
+            if is_ipv4:
+                ipv4_set.add(host)
+            elif is_ipv6:
+                ipv6_set.add(host)
+
+            if port is not None:
+                # Track unique (host, port) pairs instead of counting every row
+                unique_host_port_pairs.add((host, str(port)))
+
+        # Now count ports from unique host:port combinations only
+        for host, port in unique_host_port_pairs:
+            ports_counter[port] += 1
+
+        progress.update(task, completed=True)
+
+    # File Statistics - Inline Display
+    # Calculate reviewed percentage and color code
+    review_pct = (reviewed_files / total_files * 100) if total_files > 0 else 0
+    if review_pct > 75:
+        review_color = "green"
+    elif review_pct >= 25:
+        review_color = "yellow"
+    else:
+        review_color = "red"
+
+    # Build inline file stats with conditional display
+    file_stats_parts = [
+        f"[cyan]Findings:[/cyan] {total_files} total",
+        f"[cyan]Reviewed:[/cyan] [{review_color}]{reviewed_files} ({review_pct:.1f}%)[/{review_color}]"
+    ]
+    if empties > 0:
+        file_stats_parts.append(f"[cyan]Empty:[/cyan] {empties}")
+
+    _console_global.print(" │ ".join(file_stats_parts))
+    _console_global.print()  # Blank line
+
+    # Host & Port Analysis Table
+    analysis_table = Table(show_header=True, header_style=style_if_enabled("bold cyan"), box=box.SIMPLE, title="Host & Port Analysis", title_style=style_if_enabled("bold blue"))
+    analysis_table.add_column("Metric", style=style_if_enabled("cyan"))
+    analysis_table.add_column("Value", justify="right", style=style_if_enabled("yellow"))
+
+    analysis_table.add_row("Unique Hosts", str(len(unique_hosts)))
+    analysis_table.add_row("  └─ IPv4", str(len(ipv4_set)))
+    analysis_table.add_row("  └─ IPv6", str(len(ipv6_set)))
+
+    port_set = set(ports_counter.keys())
+    analysis_table.add_row("Unique Ports", str(len(port_set)))
+
+    _console_global.print(analysis_table)
+    _console_global.print()  # Blank line after table
+
+    # Top Ports Table (if any ports found)
+    if ports_counter and top_ports_n > 0:
+        top_ports_table = Table(
+            show_header=True,
+            header_style=style_if_enabled("bold cyan"),
+            box=box.SIMPLE,
+            title=f"Top {min(top_ports_n, len(ports_counter))} Ports",
+            title_style=style_if_enabled("bold blue")
+        )
+        top_ports_table.add_column("Port", justify="right", style=style_if_enabled("cyan"))
+        top_ports_table.add_column("Occurrences", justify="right", style=style_if_enabled("yellow"))
+
+        # Get top N ports by occurrence count
+        for port, count in ports_counter.most_common(top_ports_n):
+            top_ports_table.add_row(str(port), str(count))
+
+        _console_global.print(top_ports_table)
+        _console_global.print()  # Blank line after table

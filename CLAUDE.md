@@ -302,18 +302,30 @@ Mundane uses a **fully normalized database architecture** with SQLite as the sou
 ### Module Structure
 
 ```
-mundane.py                  # Main entry point (Typer CLI commands)
+mundane.py                  # Main entry point (Typer CLI commands, 1,679 lines)
+                            # CLI layer: review/import/scan/config commands
+                            # Navigation: browse_file_list, browse_workflow_groups, show_session_statistics
 mundane_pkg/
   ├── database.py          # SQLite connection, schema, transactions
   ├── models.py            # ORM models (Scan, Plugin, Finding, Session, ToolExecution, Artifact)
   ├── nessus_import.py     # .nessus XML parsing and database import
   ├── parsing.py           # Host:port parsing (canonical parser, ParsedHostsPorts model)
   ├── analysis.py          # Cross-file comparison, superset analysis
-  ├── session.py           # Review session state management
-  ├── tools.py             # Tool execution (nmap, netexec, custom commands)
+  ├── session.py           # Review session state management (396 lines)
+  │                        # Includes: scan summary, session statistics
+  ├── tool_context.py      # Context dataclasses for review operations (137 lines)
+  │                        # ToolContext, ReviewContext (14 fields to replace 8-11 parameter lists)
+  ├── tools.py             # Tool execution and workflow orchestration (1,055 lines)
+  │                        # Command builders, NSE profiles, workflow building/execution
   ├── tool_registry.py     # ToolSpec registry pattern
-  ├── render.py            # Rich UI rendering (tables, menus, pagination)
-  ├── fs.py                # Filesystem operations (deprecated, DB-first now)
+  ├── render.py            # Rich UI rendering (1,105 lines)
+  │                        # Tables, menus, pagination, finding display, CVE display
+  ├── tui.py               # Terminal User Interface navigation (587 lines)
+  │                        # Interactive menus, file list actions, severity selection
+  ├── fs.py                # File operations and processing (591 lines)
+  │                        # File viewing, workflow display, review state management
+  ├── enums.py             # Type-safe enums (23 lines)
+  │                        # DisplayFormat, ViewFormat, SortMode
   ├── ops.py               # Command execution, sudo handling
   ├── workflow_mapper.py   # YAML workflow configuration
   ├── config.py            # YAML config file management
@@ -322,6 +334,13 @@ mundane_pkg/
   ├── logging_setup.py     # Loguru setup with rotation
   └── _version.py          # Version resolution (importlib.metadata → pyproject.toml)
 ```
+
+**Refactoring summary** (v2.4.0+):
+- `mundane.py` reduced from 3,699 to 1,679 lines (54.6% reduction)
+- Extended 5 existing modules: `tool_context.py`, `tools.py`, `render.py`, `fs.py`, `session.py`
+- Created 2 new modules: `tui.py` (interactive navigation), `enums.py` (type-safe choices)
+- Introduced `ReviewContext` dataclass to eliminate massive parameter lists (8-11 params → 1 context object)
+- Clear separation: `tui.py` handles navigation, `fs.py` handles file operations, `render.py` handles display
 
 ### Core Data Flow
 

@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import re
 import shutil
+import types
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Any, TYPE_CHECKING
 
 from rich.console import Console
 from rich.progress import (
@@ -19,9 +20,14 @@ from rich.progress import (
     TextColumn,
     TimeElapsedColumn,
 )
+from rich.prompt import Prompt, Confirm
 
-from .ansi import err, header, ok, warn, get_console
+from .ansi import err, header, ok, warn, get_console, info
 from .constants import get_results_root, REVIEW_PREFIX
+
+if TYPE_CHECKING:
+    from .models import Finding, Plugin
+    from .workflow_mapper import WorkflowMapper, Workflow
 
 
 _console_global = get_console()
@@ -183,5 +189,403 @@ def write_work_files(
             for host in hosts:
                 f.write(f"{host}:{ports_str}\n")
     return tcp_ips, udp_ips, tcp_sockets
+
+
+# ===================================================================
+# File/Finding Processing and Viewing (moved from mundane.py)
+# ===================================================================
+
+
+def display_workflow(workflow: "Workflow") -> None:
+    """
+    Display a verification workflow for plugin(s).
+
+    Args:
+        workflow: Workflow object to display
+    """
+    from rich.panel import Panel
+
+    console = get_console()
+
+    # Header
+    header(f"Verification Workflow: {workflow.workflow_name}")
+    info(f"Plugin ID(s): {workflow.plugin_id}")
+    info(f"Description: {workflow.description}")
+    _console_global.print()
+
+    # Steps
+    from mundane_pkg.ansi import style_if_enabled
+    for idx, step in enumerate(workflow.steps, 1):
+        step_panel = Panel(
+            f"[bold cyan]{step.title}[/bold cyan]\n\n"
+            + "\n".join(f"  {cmd}" for cmd in step.commands)
+            + (f"\n\n[yellow]Notes:[/yellow] {step.notes}" if step.notes else ""),
+            title=f"Step {idx}",
+            border_style=style_if_enabled("cyan"),
+        )
+        console.print(step_panel)
+        _console_global.print()
+
+    # References
+    if workflow.references:
+        info("References:")
+        for ref in workflow.references:
+            _console_global.print(f"  - {ref}")
+        _console_global.print()
+
+    info("Press [Enter] to continue...")
+    try:
+        Prompt.ask("", default="")
+    except KeyboardInterrupt:
+        pass
+
+
+def handle_file_view(
+    chosen: Path,
+    finding: Optional["Finding"] = None,
+    plugin: Optional["Plugin"] = None,
+    plugin_url: Optional[str] = None,
+    workflow_mapper: Optional["WorkflowMapper"] = None,
+    scan_dir: Optional[Path] = None,
+    sev_dir: Optional[Path] = None,
+    hosts: Optional[List[str]] = None,
+    ports_str: Optional[str] = None,
+    args: Any = None,
+    use_sudo: bool = False,
+) -> Optional[str]:
+    """
+    Interactive file viewing menu (raw/grouped/hosts-only/copy/CVE info/workflow/tool/mark).
+
+    Args:
+        chosen: Plugin file to view
+        finding: Finding database object (None if database not available)
+        plugin: Plugin metadata object (None if database not available)
+        plugin_url: Optional Tenable plugin URL for CVE extraction
+        workflow_mapper: Optional workflow mapper for plugin workflows
+        scan_dir: Scan directory for tool workflow
+        sev_dir: Severity directory for tool workflow
+        hosts: List of target hosts for tool workflow
+        ports_str: Comma-separated ports for tool workflow
+        args: CLI arguments for tool workflow
+        use_sudo: Whether to use sudo for tools
+
+    Returns:
+        "back": User wants to go back to file selection
+        "mark_complete": File was marked as reviewed
+        None: Continue normally
+    """
+    # Lazy imports to avoid circular dependencies
+    from .parsing import extract_plugin_id_from_filename
+    from .render import (
+        _file_raw_paged_text, _file_raw_payload_text,
+        _grouped_paged_text, _grouped_payload_text,
+        _hosts_only_paged_text, _hosts_only_payload_text,
+        _build_plugin_output_details, _display_finding_preview,
+        print_action_menu, menu_pager
+    )
+    from .tools import copy_to_clipboard, run_tool_workflow
+
+    # Alias for consistency with original code
+    _console = _console_global
+    _plugin_id_from_filename = extract_plugin_id_from_filename
+
+    # Check if workflow is available
+    has_workflow = False
+    if workflow_mapper:
+        plugin_id = _plugin_id_from_filename(chosen)
+        has_workflow = plugin_id and workflow_mapper.has_workflow(plugin_id)
+
+    # Loop to allow multiple actions on the same file
+    while True:
+        # Build action menu with all available options
+        from rich.text import Text
+        from mundane_pkg.ansi import style_if_enabled
+        action_text = Text()
+        action_text.append("[I] ", style=style_if_enabled("cyan"))
+        action_text.append("Finding Info / ", style=None)
+        action_text.append("[D] ", style=style_if_enabled("cyan"))
+        action_text.append("Finding Details", style=None)
+        action_text.append("[V] ", style=style_if_enabled("cyan"))
+        action_text.append("View host(s) / ", style=None)
+        action_text.append("[E] ", style=style_if_enabled("cyan"))
+        action_text.append("CVE info / ", style=None)
+        if has_workflow:
+            action_text.append(" / ", style=None)
+            action_text.append("[W] ", style=style_if_enabled("cyan"))
+            action_text.append("Workflow", style=None)
+        action_text.append(" / ", style=None)
+        action_text.append("[T] ", style=style_if_enabled("cyan"))
+        action_text.append("Run tool / ", style=None)
+        action_text.append("[M] ", style=style_if_enabled("cyan"))
+        action_text.append("Mark reviewed / ", style=None)
+        action_text.append("[B] ", style=style_if_enabled("cyan"))
+        action_text.append("Back", style=None)
+
+        _console.print("[cyan]>>[/cyan] ", end="")
+        _console.print(action_text)
+        try:
+            action_choice = Prompt.ask("Choose action").strip().lower()
+        except KeyboardInterrupt:
+            # User cancelled - treat as back
+            return "back"
+
+        # Handle Back action
+        if action_choice in ("b", "back"):
+            return "back"
+
+        # Handle Mark reviewed action
+        if action_choice in ("m", "mark"):
+            if finding is None:
+                warn("Database not available - cannot mark file as reviewed")
+                continue
+            try:
+                if mark_review_complete(finding, plugin):
+                    return "mark_complete"
+            except Exception as exc:
+                warn(f"Failed to mark file: {exc}")
+                continue
+
+        # Handle Run tool action
+        if action_choice in ("t", "tool"):
+            if scan_dir is None or sev_dir is None or hosts is None or args is None:
+                warn("Tool execution not available in this context.")
+                continue
+
+            # Run tool workflow
+            run_tool_workflow(chosen, scan_dir, sev_dir, hosts, ports_str or "", args, use_sudo)
+            # After tool completes, loop back to show menu again
+            continue
+
+        # Legacy support for Enter/skip - treat as back
+        if action_choice in ("", "n", "none", "skip"):
+            return "back"
+
+        # Handle workflow option
+        if action_choice in ("w", "workflow"):
+            if not has_workflow:
+                warn("No workflow available for this finding.")
+                continue
+
+            plugin_id = _plugin_id_from_filename(chosen)
+            workflow = workflow_mapper.get_workflow(plugin_id)
+            if workflow:
+                display_workflow(workflow)
+            continue
+
+        # Handle CVE info option (read-only from database)
+        if action_choice in ("e", "cve"):
+            # Get plugin ID from filename
+            plugin_id = _plugin_id_from_filename(chosen)
+            if not plugin_id:
+                warn("Cannot extract plugin ID from filename.")
+                continue
+
+            from mundane_pkg.models import Plugin
+            from mundane_pkg.database import get_connection
+
+            # Query CVEs from database (no web scraping)
+            try:
+                header("CVE Information")
+
+                with get_connection() as conn:
+                    plugin_obj = Plugin.get_by_id(int(plugin_id), conn=conn)
+
+                if plugin_obj and plugin_obj.cves:
+                    info(f"Found {len(plugin_obj.cves)} CVE(s):")
+                    for cve in plugin_obj.cves:
+                        info(f"{cve}")
+                else:
+                    warn("No CVEs associated with this finding.")
+            except Exception as exc:
+                warn(f"Failed to retrieve CVE information: {exc}")
+
+            continue
+
+        # Handle Finding Info action
+        if action_choice in ("i", "info"):
+            # Redisplay the preview panel
+            if plugin is None or sev_dir is None:
+                warn("Plugin metadata not available - cannot display finding info")
+                continue
+            _display_finding_preview(plugin, finding, sev_dir, chosen)
+            continue
+
+        # Handle Finding Details action
+        if action_choice in ("d", "details"):
+            if finding is None:
+                warn("Database not available - cannot display finding details")
+                continue
+
+            # Generate and display plugin output details
+            details_text = _build_plugin_output_details(finding, plugin)
+
+            if details_text:
+                menu_pager(details_text)
+            else:
+                warn("No plugin output available for this finding.")
+
+            continue
+
+        # Handle View file action
+        if not action_choice in ("v", "view"):
+            warn("Invalid action choice.")
+            continue
+
+        # Step 2: Ask for format (only applies to view now)
+        print_action_menu([
+            ("R", "Raw"),
+            ("G", "Grouped (host:port)"),
+            ("H", "Hosts only")
+        ])
+        try:
+            format_choice = Prompt.ask(
+                "Choose format",
+                default="g"
+            ).lower()
+        except KeyboardInterrupt:
+            return
+
+        # Check if plugin_file is available (database mode)
+        if finding is None:
+            warn("Database not available - cannot view file contents")
+            continue
+
+        # Check if plugin is available for display
+        if plugin is None:
+            warn("Plugin metadata not available - cannot view file contents")
+            continue
+
+        # Initialize variables to None for defensive programming
+        text = None
+        payload = None
+
+        # Strip whitespace from format_choice
+        format_choice = format_choice.strip()
+
+        # Default to grouped
+        if format_choice in ("", "g", "grouped"):
+            text = _grouped_paged_text(finding, plugin)
+            payload = _grouped_payload_text(finding)
+        elif format_choice in ("h", "hosts", "hosts-only"):
+            text = _hosts_only_paged_text(finding, plugin)
+            payload = _hosts_only_payload_text(finding)
+        elif format_choice in ("r", "raw"):
+            text = _file_raw_paged_text(finding, plugin)
+            payload = _file_raw_payload_text(finding)
+        else:
+            warn("Invalid format choice.")
+            continue
+
+        # Guard: Ensure text and payload were successfully generated
+        if text is None or payload is None:
+            warn("Failed to generate content for selected format.")
+            continue
+
+        # Step 3: Display file content
+        menu_pager(text)
+
+        # Step 4: Offer to copy to clipboard
+        try:
+            if Confirm.ask("Copy to clipboard?", default=True):
+                copy_choice = "y"
+            else:
+                copy_choice = "n"
+        except KeyboardInterrupt:
+            continue
+
+        if copy_choice in ("y", "yes"):
+            ok_flag, detail = copy_to_clipboard(payload)
+            if ok_flag:
+                ok("Copied to clipboard.")
+            else:
+                warn(f"{detail} Printing below for manual copy:")
+                _console_global.print(payload)
+
+
+def process_single_file(
+    chosen: Path,
+    plugin: "Plugin",
+    finding: "Finding",
+    scan_dir: Path,
+    sev_dir: Path,
+    args: types.SimpleNamespace,
+    use_sudo: bool,
+    skipped_total: List[str],
+    reviewed_total: List[str],
+    completed_total: List[str],
+    show_severity: bool = False,
+    workflow_mapper: Optional["WorkflowMapper"] = None,
+) -> None:
+    """
+    Process a single plugin file: preview, view, run tools, mark complete (database-only).
+
+    Args:
+        chosen: Selected plugin file
+        plugin: Plugin metadata object
+        finding: Finding database object (required)
+        scan_dir: Scan directory
+        sev_dir: Severity directory
+        args: Command-line arguments
+        use_sudo: Whether sudo is available
+        skipped_total: List to track skipped findings
+        reviewed_total: List to track reviewed findings
+        completed_total: List to track completed findings
+        show_severity: Whether to show severity label (for MSF mode)
+        workflow_mapper: Optional workflow mapper for plugin workflows
+    """
+    # Lazy imports to avoid circular dependencies
+    from .parsing import extract_plugin_id_from_filename
+    from .render import _display_finding_preview
+
+    # Alias for consistency with original code
+    _plugin_id_from_filename = extract_plugin_id_from_filename
+
+    # Get hosts and ports from database
+    hosts, ports_str = finding.get_hosts_and_ports()
+
+    # Construct display name from plugin metadata
+    display_name = f"Plugin {plugin.plugin_id}: {plugin.plugin_name}"
+
+    if not hosts:
+        info("File is empty (no hosts found). This usually means the vulnerability doesn't affect any hosts.")
+        skipped_total.append(display_name)
+        return
+
+    # Display finding preview panel
+    _display_finding_preview(plugin, finding, sev_dir, chosen)
+
+    # Extract plugin URL for handle_file_view
+    plugin_url = None
+    # Note: _plugin_details_line is no longer available after refactoring
+    # This functionality is handled by the database plugin metadata instead
+
+    # View file and handle actions
+    result = handle_file_view(
+        chosen,
+        finding=finding,
+        plugin=plugin,
+        plugin_url=plugin_url,
+        workflow_mapper=workflow_mapper,
+        scan_dir=scan_dir,
+        sev_dir=sev_dir,
+        hosts=hosts,
+        ports_str=ports_str,
+        args=args,
+        use_sudo=use_sudo,
+    )
+
+    # Handle result from file view
+    if result == "back":
+        # User chose to go back - add to reviewed list
+        reviewed_total.append(display_name)
+        return
+    elif result == "mark_complete":
+        # File was marked as reviewed
+        completed_total.append(display_name)
+        return
+    else:
+        # Implicit completion - add to reviewed list
+        reviewed_total.append(display_name)
+        return
 
 

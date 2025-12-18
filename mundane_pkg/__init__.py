@@ -95,6 +95,11 @@ from .nessus_import import (
     import_nessus_file,
     ExportResult,
 )
+from .enums import (
+    DisplayFormat,
+    ViewFormat,
+    SortMode,
+)
 from .database import (
     get_database_path,
     get_connection,

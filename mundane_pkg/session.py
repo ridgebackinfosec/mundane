@@ -5,6 +5,7 @@ Database-only mode: all session state stored in SQLite database.
 
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 from .logging_setup import log_error, log_info

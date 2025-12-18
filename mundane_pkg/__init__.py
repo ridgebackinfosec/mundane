@@ -31,6 +31,7 @@ from .render import (
     render_scan_table, render_severity_table, render_file_list_table,
     render_compare_tables, render_actions_footer, show_actions_help,
     show_reviewed_help, menu_pager, severity_cell, severity_style,
+    print_action_menu,
     _file_raw_payload_text, _file_raw_paged_text,
     _grouped_payload_text, _grouped_paged_text,
     _hosts_only_payload_text, _hosts_only_paged_text,

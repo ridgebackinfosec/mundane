@@ -442,10 +442,10 @@ def browse_file_list(
                     f"({len(group_filter[1])})"
                 )
             sort_label = {
-                "plugin_id": "Plugin ID â†‘",
-                "hosts": "Host count â†“",
-                "name": "Name Aâ†‘Z"
-            }.get(sort_mode, "Plugin ID â†‘")
+                "plugin_id": "Plugin ID ASC",
+                "hosts": "Host count DESC",
+                "name": "Name A-Z"
+            }.get(sort_mode, "Plugin ID ASC")
             status += f" | Sort: {sort_label}"
             status += f" | Page: {page_idx+1}/{total_pages}"
             _console_global.print(status)

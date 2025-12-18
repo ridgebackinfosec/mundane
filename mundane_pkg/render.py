@@ -956,3 +956,150 @@ def _display_finding_preview(
 
     _console_global.print()  # Blank line before panel
     _console_global.print(panel)
+
+
+# ===================================================================
+# CVE Display Functions (moved from mundane.py)
+# ===================================================================
+
+
+def bulk_extract_cves_for_plugins(plugins: List[tuple[int, str]]) -> None:
+    """
+    Display CVEs for multiple plugins from database (read-only, no web scraping).
+
+    Queries the database for CVEs associated with each plugin and displays
+    a consolidated list organized by plugin.
+
+    Args:
+        plugins: List of (plugin_id, plugin_name) tuples
+    """
+    from .models import Plugin
+    from .database import get_connection
+    from .ansi import header, info
+
+    header("CVE Information for Filtered Findings")
+    info(f"Displaying CVEs from {len(plugins)} finding(s)...\n")
+
+    results = {}  # plugin_name -> list of CVEs
+
+    # Query database (instant, no progress bar needed)
+    with get_connection() as conn:
+        for plugin_id, plugin_name in plugins:
+            try:
+                plugin = Plugin.get_by_id(plugin_id, conn=conn)
+                if plugin and plugin.cves:
+                    results[plugin_name] = plugin.cves
+            except Exception:
+                # Silently skip failed queries
+                pass
+
+    # Display results
+    _display_bulk_cve_results(results)
+
+
+def bulk_extract_cves_for_files(files: List[Path]) -> None:
+    """
+    Display CVEs for multiple plugin findings from database (read-only, no web scraping).
+
+    Queries the database for CVEs associated with each plugin file and displays
+    a consolidated list organized by plugin.
+
+    Args:
+        files: List of plugin file paths to display CVEs for
+    """
+    from .models import Plugin
+    from .database import get_connection
+    from .parsing import extract_plugin_id_from_filename
+    from .ansi import header, info
+
+    header("CVE Information for Filtered Findings")
+    info(f"Displaying CVEs from {len(files)} file(s)...\n")
+
+    results = {}  # plugin_name -> list of CVEs
+
+    # Query database (instant, no progress bar needed)
+    with get_connection() as conn:
+        for file_path in files:
+            plugin_id = extract_plugin_id_from_filename(file_path)
+            if not plugin_id:
+                continue
+
+            try:
+                plugin = Plugin.get_by_id(int(plugin_id), conn=conn)
+                if plugin and plugin.cves:
+                    results[file_path.name] = plugin.cves
+            except Exception:
+                # Silently skip failed queries
+                pass
+
+    # Display results
+    _display_bulk_cve_results(results)
+
+
+def _display_bulk_cve_results(results: dict[str, list[str]]) -> None:
+    """Display CVE extraction results in separated or combined format.
+
+    Args:
+        results: Dictionary mapping plugin name/filename to list of CVEs
+    """
+    from rich.prompt import Prompt
+    from .ansi import info, warn
+
+    # Display results
+    if results:
+        # Ask user for display format
+        print_action_menu([
+            ("S", "Separated (by finding)"),
+            ("C", "Combined (all unique CVEs)")
+        ])
+        try:
+            format_choice = Prompt.ask(
+                "Choose format",
+                default="s"
+            ).lower()
+        except KeyboardInterrupt:
+            return
+
+        if format_choice in ("c", "combined"):
+            # Combined list: all unique CVEs across all findings
+            all_cves = set()
+            for cves in results.values():
+                all_cves.update(cves)
+
+            info(f"\nFound {len(all_cves)} unique CVE(s) across {len(results)} finding(s):\n")
+            for cve in sorted(all_cves):
+                info(f"{cve}")
+        else:
+            # Separated by file (default)
+            info(f"\nFound CVEs for {len(results)} finding(s):\n")
+            for plugin_name, cves in sorted(results.items()):
+                info(f"{plugin_name}:")
+                for cve in cves:
+                    info(f"{cve}")
+                _console_global.print()  # Blank line between plugins
+    else:
+        warn("No CVEs found for any of the filtered findings.")
+
+    try:
+        Prompt.ask("\nPress Enter to continue", default="")
+    except KeyboardInterrupt:
+        pass
+
+
+def _color_unreviewed(count: int) -> str:
+    """
+    Colorize unreviewed file count based on severity.
+
+    Args:
+        count: Number of unreviewed findings
+
+    Returns:
+        ANSI-colored string
+    """
+    from .ansi import C
+
+    if count == 0:
+        return f"{C.GREEN}{count}{C.RESET}"
+    if count <= 10:
+        return f"{C.YELLOW}{count}{C.RESET}"
+    return f"{C.RED}{count}{C.RESET}"

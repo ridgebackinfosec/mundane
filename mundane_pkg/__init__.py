@@ -36,6 +36,8 @@ from .render import (
     _hosts_only_payload_text, _hosts_only_paged_text,
     _build_plugin_output_details, _display_finding_preview,
     page_text,
+    bulk_extract_cves_for_plugins, bulk_extract_cves_for_files,
+    _display_bulk_cve_results, _color_unreviewed,
 )
 from .fs import (
     build_results_paths, mark_review_complete, undo_review_complete,
@@ -75,6 +77,7 @@ from .session import (
     save_session,
     load_session,
     delete_session,
+    show_scan_summary,
 )
 from .workflow_mapper import (
     Workflow,

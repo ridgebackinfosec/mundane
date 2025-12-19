@@ -25,7 +25,7 @@ from mundane_pkg import (
     # parsing
     normalize_combos,
     extract_plugin_id_from_filename,
-    group_files_by_workflow,
+    group_findings_by_workflow,
     # constants
     get_results_root,
     PLUGIN_DETAILS_BASE,
@@ -47,7 +47,7 @@ from mundane_pkg import (
     style_if_enabled,
     # render (including newly moved functions):
     render_severity_table,
-    render_file_list_table,
+    render_finding_list_table,
     render_actions_footer,
     show_actions_help,
     show_reviewed_help,
@@ -66,7 +66,7 @@ from mundane_pkg import (
     _display_finding_preview,
     page_text,
     bulk_extract_cves_for_plugins,
-    bulk_extract_cves_for_files,
+    bulk_extract_cves_for_findings,
     _display_bulk_cve_results,
     _color_unreviewed,
     print_action_menu,
@@ -74,8 +74,8 @@ from mundane_pkg import (
     build_results_paths,
     write_work_files,
     display_workflow,
-    handle_file_view,
-    process_single_file,
+    handle_finding_view,
+    process_single_finding,
     # tools (including newly moved functions):
     build_nmap_cmd,
     build_netexec_cmd,
@@ -109,7 +109,7 @@ from mundane_pkg import (
     # tui (newly created module):
     parse_severity_selection,
     choose_from_list,
-    handle_file_list_actions,
+    handle_finding_list_actions,
     # enums (newly created module):
     DisplayFormat,
     ViewFormat,
@@ -450,7 +450,7 @@ def browse_file_list(
             status += f" | Page: {page_idx+1}/{total_pages}"
             _console_global.print(status)
 
-            render_file_list_table(
+            render_finding_list_table(
                 page_items, sort_mode, get_counts_for, row_offset=start,
                 show_severity=is_msf_mode
             )
@@ -471,7 +471,7 @@ def browse_file_list(
             break
 
         # Handle actions
-        action_result = handle_file_list_actions(
+        action_result = handle_finding_list_actions(
             ans,
             candidates,
             page_items,
@@ -561,7 +561,7 @@ def browse_file_list(
                 chosen_sev_dir = sev_dir
 
             # Process the file
-            process_single_file(
+            process_single_finding(
                 chosen_path,
                 plugin,
                 finding,
@@ -1066,7 +1066,7 @@ def main(args: types.SimpleNamespace) -> None:
                 # === Workflow Mapped only ===
                 elif workflow_in_selection:
                     # Group findings by workflow name using database records
-                    workflow_groups = group_files_by_workflow(workflow_files, workflow_mapper)
+                    workflow_groups = group_findings_by_workflow(workflow_files, workflow_mapper)
 
                     browse_workflow_groups(
                         selected_scan,

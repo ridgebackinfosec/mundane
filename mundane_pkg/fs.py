@@ -240,7 +240,7 @@ def display_workflow(workflow: "Workflow") -> None:
         pass
 
 
-def handle_file_view(
+def handle_finding_view(
     chosen: Path,
     finding: Optional["Finding"] = None,
     plugin: Optional["Plugin"] = None,
@@ -502,7 +502,7 @@ def handle_file_view(
                 _console_global.print(payload)
 
 
-def process_single_file(
+def process_single_finding(
     chosen: Path,
     plugin: "Plugin",
     finding: "Finding",
@@ -537,9 +537,6 @@ def process_single_file(
     from .parsing import extract_plugin_id_from_filename
     from .render import _display_finding_preview
 
-    # Alias for consistency with original code
-    _plugin_id_from_filename = extract_plugin_id_from_filename
-
     # Get hosts and ports from database
     hosts, ports_str = finding.get_hosts_and_ports()
 
@@ -554,13 +551,13 @@ def process_single_file(
     # Display finding preview panel
     _display_finding_preview(plugin, finding, sev_dir, chosen)
 
-    # Extract plugin URL for handle_file_view
+    # Extract plugin URL for handle_finding_view
     plugin_url = None
     # Note: _plugin_details_line is no longer available after refactoring
     # This functionality is handled by the database plugin metadata instead
 
     # View file and handle actions
-    result = handle_file_view(
+    result = handle_finding_view(
         chosen,
         finding=finding,
         plugin=plugin,

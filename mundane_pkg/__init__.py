@@ -25,10 +25,10 @@ from .parsing import (
     normalize_combos,
     split_host_port, parse_hosts_ports,
     is_hostname,
-    extract_plugin_id_from_filename, group_files_by_workflow,
+    extract_plugin_id_from_filename, group_findings_by_workflow,
 )
 from .render import (
-    render_scan_table, render_severity_table, render_file_list_table,
+    render_scan_table, render_severity_table, render_finding_list_table,
     render_compare_tables, render_actions_footer, show_actions_help,
     show_reviewed_help, menu_pager, severity_cell, severity_style,
     print_action_menu,
@@ -37,13 +37,13 @@ from .render import (
     _hosts_only_payload_text, _hosts_only_paged_text,
     _build_plugin_output_details, _display_finding_preview,
     page_text,
-    bulk_extract_cves_for_plugins, bulk_extract_cves_for_files,
+    bulk_extract_cves_for_plugins, bulk_extract_cves_for_findings,
     _display_bulk_cve_results, _color_unreviewed,
 )
 from .fs import (
     build_results_paths, mark_review_complete, undo_review_complete,
     default_page_size, pretty_severity_label, write_work_files,
-    display_workflow, handle_file_view, process_single_file
+    display_workflow, handle_finding_view, process_single_finding
 )
 from .tools import (
     build_nmap_cmd, build_netexec_cmd,
@@ -56,7 +56,7 @@ from .tools import (
 from .tui import (
     parse_severity_selection,
     choose_from_list,
-    handle_file_list_actions,
+    handle_finding_list_actions,
 )
 from .analysis import (
     compare_filtered, analyze_inclusions,

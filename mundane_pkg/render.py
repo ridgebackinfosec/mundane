@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, List, Optional, Union, TYPE_CHECKING
 
 from rich import box
 from rich.console import Console
@@ -22,6 +22,8 @@ from .constants import SEVERITY_COLORS
 from .fs import default_page_size, pretty_severity_label
 from .logging_setup import log_timing
 
+if TYPE_CHECKING:
+    from .models import Finding, Plugin
 
 _console_global = get_console()
 
@@ -154,7 +156,7 @@ def render_severity_table(
     table.add_column("Total", justify="right", no_wrap=True, max_width=8)
 
     for i, severity_dir in enumerate(severities, 1):
-        unreviewed, reviewed, total = count_severity_files(severity_dir, scan_id=scan_id)
+        unreviewed, reviewed, total = count_severity_findings(severity_dir, scan_id=scan_id)
         label = pretty_severity_label(severity_dir.name)
         table.add_row(
             str(i),
@@ -187,7 +189,7 @@ def render_severity_table(
     _console_global.print(table)
 
 
-def render_file_list_table(
+def render_finding_list_table(
     display: list[tuple[Any, Any]],
     sort_mode: str,
     get_counts_for: Any,
@@ -518,7 +520,7 @@ def join_actions_texts(items: list[Text]) -> Text:
     return output
 
 
-def count_severity_files(
+def count_severity_findings(
     directory: Path,
     scan_id: int
 ) -> tuple[int, int, int]:
@@ -653,10 +655,6 @@ def _file_raw_payload_text(finding: "Finding") -> str:
     Returns:
         File content as UTF-8 string (one host:port per line)
     """
-    from typing import TYPE_CHECKING
-    if TYPE_CHECKING:
-        from .models import Finding
-
     # Get all host:port lines from database
     lines = finding.get_all_host_port_lines()
     content = "\n".join(lines)
@@ -676,10 +674,6 @@ def _file_raw_paged_text(finding: "Finding", plugin: "Plugin") -> str:
     Returns:
         Formatted string with file info and content
     """
-    from typing import TYPE_CHECKING
-    if TYPE_CHECKING:
-        from .models import Finding, Plugin
-
     display_name = f"Plugin {plugin.plugin_id}: {plugin.plugin_name}"
 
     # Get content from database
@@ -712,10 +706,6 @@ def _grouped_payload_text(finding: "Finding") -> str:
     Returns:
         Formatted string with host:port,port,... lines
     """
-    from typing import TYPE_CHECKING
-    if TYPE_CHECKING:
-        from .models import Finding
-
     # Get all host:port lines from database
     lines = finding.get_all_host_port_lines()
 
@@ -764,10 +754,6 @@ def _grouped_paged_text(finding: "Finding", plugin: "Plugin") -> str:
     Returns:
         Formatted string with header and grouped content
     """
-    from typing import TYPE_CHECKING
-    if TYPE_CHECKING:
-        from .models import Finding, Plugin
-
     body = _grouped_payload_text(finding)
     display_name = f"Plugin {plugin.plugin_id}: {plugin.plugin_name}"
     return f"Grouped view: {display_name}\n{body}"
@@ -783,10 +769,6 @@ def _hosts_only_payload_text(finding: "Finding") -> str:
     Returns:
         One host per line
     """
-    from typing import TYPE_CHECKING
-    if TYPE_CHECKING:
-        from .models import Finding
-
     # Get unique hosts from database (already sorted: IPs first, then hostnames)
     hosts, _ports_str = finding.get_hosts_and_ports()
     return "\n".join(hosts) + ("\n" if hosts else "")
@@ -803,10 +785,6 @@ def _hosts_only_paged_text(finding: "Finding", plugin: "Plugin") -> str:
     Returns:
         Formatted string with header and host list
     """
-    from typing import TYPE_CHECKING
-    if TYPE_CHECKING:
-        from .models import Finding, Plugin
-
     body = _hosts_only_payload_text(finding)
     display_name = f"Plugin {plugin.plugin_id}: {plugin.plugin_name}"
     return f"Hosts-only view: {display_name}\n{body}"
@@ -828,10 +806,6 @@ def _build_plugin_output_details(
     Returns:
         Formatted string for display via menu_pager(), or None if no outputs
     """
-    from typing import TYPE_CHECKING
-    if TYPE_CHECKING:
-        from .models import Finding, Plugin
-
     from .database import get_connection
 
     # Get all plugin outputs from database
@@ -888,10 +862,6 @@ def _display_finding_preview(
         sev_dir: Severity directory path
         chosen: File path (for URL extraction)
     """
-    from typing import TYPE_CHECKING
-    if TYPE_CHECKING:
-        from .models import Finding, Plugin
-
     import re
 
     # Get hosts and ports from database
@@ -997,7 +967,7 @@ def bulk_extract_cves_for_plugins(plugins: List[tuple[int, str]]) -> None:
     _display_bulk_cve_results(results)
 
 
-def bulk_extract_cves_for_files(files: List[Path]) -> None:
+def bulk_extract_cves_for_findings(files: List[Path]) -> None:
     """
     Display CVEs for multiple plugin findings from database (read-only, no web scraping).
 

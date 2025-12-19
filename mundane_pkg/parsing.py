@@ -317,7 +317,7 @@ def extract_plugin_id_from_filename(name_or_path) -> Optional[str]:
     return match.group(1) if match else None
 
 
-def group_files_by_workflow(files: list[tuple[Any, Any]], workflow_mapper: "WorkflowMapper") -> dict[str, list[tuple[Any, Any]]]:
+def group_findings_by_workflow(files: list[tuple[Any, Any]], workflow_mapper: "WorkflowMapper") -> dict[str, list[tuple[Any, Any]]]:
     """
     Group files by their workflow name.
 
@@ -332,7 +332,7 @@ def group_files_by_workflow(files: list[tuple[Any, Any]], workflow_mapper: "Work
     Example:
         >>> # With database tuples:
         >>> files = [(Finding(...), Plugin(...)), ...]
-        >>> groups = group_files_by_workflow(files, mapper)
+        >>> groups = group_findings_by_workflow(files, mapper)
         >>> groups
         {"SMB Signing Not Required": [(Finding(...), Plugin(...)), ...], ...}
     """

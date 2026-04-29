@@ -873,6 +873,15 @@ class TestBuildNmapCmd:
         assert "-sU" in cmd
 
     @pytest.mark.unit
+    def test_proxy_suppresses_udp_flag(self, tmp_path):
+        ips = tmp_path / "ips.txt"
+        out = tmp_path / "output"
+        cmd = build_nmap_cmd(True, None, ips, "161", True, out, use_proxy=True)
+        assert "-sU" not in cmd
+        assert "-Pn" in cmd
+        assert "sudo" not in cmd
+
+    @pytest.mark.unit
     def test_no_ports_str(self, tmp_path):
         ips = tmp_path / "ips.txt"
         out = tmp_path / "output"

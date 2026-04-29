@@ -385,8 +385,8 @@ def build_nmap_cmd(
         ports_str: Port specification string
         use_sudo: Whether to run with sudo (ignored when use_proxy=True)
         output_base: Base path for output files
-        use_proxy: When True, adds -Pn (ICMP won't traverse SOCKS) and
-                   omits sudo (raw socket scanning unavailable through proxy)
+        use_proxy: When True, adds -Pn (ICMP won't traverse SOCKS), omits sudo,
+                   and suppresses UDP scanning (raw sockets unavailable through proxy)
 
     Returns:
         Command as list of strings ready for subprocess execution
@@ -408,7 +408,7 @@ def build_nmap_cmd(
 
     cmd.extend(["-iL", str(ips_file)])
 
-    if udp:
+    if udp and not use_proxy:
         cmd.append("-sU")
 
     if ports_str:
@@ -885,7 +885,8 @@ def build_nmap_workflow(ctx: "ToolContext") -> Optional["CommandResult"]:
 
     nse_option = f"--script={','.join(nse_scripts)}" if nse_scripts else ""
 
-    ips_file = ctx.udp_ips if udp_ports else ctx.tcp_ips
+    effective_udp = bool(udp_ports) and not ctx.use_proxy
+    ips_file = ctx.udp_ips if effective_udp else ctx.tcp_ips
     require_cmd("nmap")
 
     # --- Remote scan mode ---
@@ -932,7 +933,7 @@ def build_nmap_workflow(ctx: "ToolContext") -> Optional["CommandResult"]:
         print("    \u2022 SYN scan (-sS) unavailable \u2014 proxychains4 forces TCP connect")
         print("    \u2022 UDP scanning not supported through SOCKS proxy")
 
-    cmd = build_nmap_cmd(udp_ports, nse_option, ips_file, ctx.ports_str, ctx.use_sudo, ctx.oabase, use_proxy=ctx.use_proxy)
+    cmd = build_nmap_cmd(effective_udp, nse_option, ips_file, ctx.ports_str, ctx.use_sudo, ctx.oabase, use_proxy=ctx.use_proxy)
 
     return CommandResult(
         command=cmd,
@@ -1534,4 +1535,3 @@ def run_tool_workflow(
             break
 
     return tool_used
-

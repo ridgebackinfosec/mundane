@@ -2369,18 +2369,20 @@ def list_scans() -> None:
     info("Use 'cerno review' to start reviewing a scan")
 
 
-@scan_app.command(name="delete", help="Delete a scan and all associated data from database")
+@scan_app.command(name="delete", help="Delete a scan and its review data from database")
 def delete_scan(
     scan_name: str = typer.Argument(..., help="Name of scan to delete")
 ) -> None:
-    """Delete a scan and all associated data from the database.
+    """Delete a scan and its review data from the database.
 
     This will permanently remove:
     - The scan entry
     - All findings for this scan
     - All host:port data
     - All review sessions
-    - All tool execution records and artifacts
+
+    Tool execution and artifact records are retained for audit/history, but
+    links to deleted findings or sessions are cleared.
 
     This action cannot be undone!
     """
@@ -2395,11 +2397,11 @@ def delete_scan(
 
     # Confirm deletion
     warn(f"You are about to delete scan: {scan_name}")
-    warn("This will permanently delete ALL associated data:")
+    warn("This will permanently delete scan review data:")
     warn("  - Findings")
     warn("  - Host:port combinations")
     warn("  - Review sessions")
-    warn("  - Tool executions and artifacts")
+    info("Tool executions and artifacts are retained, but links to this scan's findings/sessions are cleared.")
     _console_global.print()  # Blank line
 
     try:

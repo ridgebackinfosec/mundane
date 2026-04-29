@@ -918,9 +918,10 @@ artifact_types
 ```
 
 **Cascade Rules**:
-- Deleting a scan removes all findings, sessions, and dependent records
+- Deleting a scan removes all findings, sessions, and dependent review records
 - Deleting a finding removes all finding_affected_hosts and workflow_executions
-- Deleting a session or tool_execution sets foreign keys to NULL (preserves artifacts)
+- Deleting a finding or session sets matching tool execution foreign keys to NULL, preserving execution history
+- Deleting a tool_execution sets artifact foreign keys to NULL, preserving artifact records
 - Cannot delete severity_levels, hosts, ports, or artifact_types if referenced
 
 ---

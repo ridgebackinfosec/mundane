@@ -30,6 +30,9 @@ env/
 # IDE / Editors
 .vscode/
 .claude/
+.codex
+.remember/
+.superpowers/
 .idea/
 *.swp
 *.swo

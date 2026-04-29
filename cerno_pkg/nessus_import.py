@@ -557,10 +557,8 @@ def _write_to_database(
             existing_scan = Scan.get_by_name(scan_name, conn)
             if existing_scan:
                 scan.scan_id = existing_scan.scan_id
-                # Preserve original metadata when updating (prevents hash mismatch on re-import)
+                # Preserve the original import timestamp while refreshing source metadata.
                 scan.created_at = existing_scan.created_at
-                scan.nessus_file_hash = existing_scan.nessus_file_hash
-                scan.nessus_file_path = existing_scan.nessus_file_path
                 log_info(f"Updating existing scan: {scan_name}")
             else:
                 log_info(f"Creating new scan: {scan_name}")
@@ -569,6 +567,13 @@ def _write_to_database(
             if scan_id is None:
                 log_error("Failed to save scan - scan_id is None")
                 return
+
+            if existing_scan:
+                # Replace scan-derived data before inserting the fresh import. Keeping
+                # the scan row preserves stable references while avoiding duplicate
+                # (scan_id, plugin_id) findings and stale host/service rows.
+                conn.execute("DELETE FROM findings WHERE scan_id = ?", (scan_id,))
+                conn.execute("DELETE FROM host_services WHERE scan_id = ?", (scan_id,))
 
             # ========== Step 1: Collect unique hosts and ports from ALL plugins ==========
             # Use (ip_address, scan_target) as composite key for hosts
@@ -794,4 +799,4 @@ def _write_to_database(
 
     except Exception as e:
         log_error(f"Failed to write to database: {e}")
-        # Don't fail the export if database write fails
+        raise

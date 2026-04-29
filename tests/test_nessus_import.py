@@ -749,7 +749,6 @@ class TestCVEAndMetasploitExtraction:
         assert plugin.metasploit_names is None, "Plugin without Metasploit names should have None"
 
     @pytest.mark.integration
-    @pytest.mark.skip(reason="Re-import behavior needs investigation - INSERT OR REPLACE should work but test fails")
     def test_reimport_overwrites_cves_and_metasploit_names(self, nessus_with_cves_and_msf, temp_dir, temp_db):
         """Verify CVEs and Metasploit names are refreshed from XML on re-import."""
         from cerno_pkg.models import Plugin
@@ -805,3 +804,7 @@ class TestCVEAndMetasploitExtraction:
         assert plugin_10043.metasploit_names is not None
         assert plugin_10043.metasploit_names == ["Chargen Probe Utility"]
         assert "STALE_MODULE" not in plugin_10043.metasploit_names
+
+        # Findings should be replaced cleanly, not duplicated or left stale
+        cursor = temp_db.execute("SELECT COUNT(*) as count FROM findings")
+        assert cursor.fetchone()["count"] == 3

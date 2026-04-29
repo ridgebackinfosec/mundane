@@ -542,6 +542,52 @@ class TestNessusImportDatabaseIntegration:
         host_count = cursor.fetchone()["count"]
         assert host_count > 0
 
+    @pytest.mark.integration
+    def test_import_preserves_bare_ipv6_hosts(self, temp_dir, temp_db):
+        """Bare IPv6 scan targets are not split as host:port entries."""
+        nessus_file = temp_dir / "ipv6.nessus"
+        nessus_file.write_text(
+            """<?xml version="1.0" ?>
+<NessusClientData_v2>
+  <Report name="IPv6 Scan">
+    <ReportHost name="2001:db8::1">
+      <HostProperties>
+        <tag name="host-ip">2001:db8::1</tag>
+      </HostProperties>
+      <ReportItem port="0" svc_name="general" protocol="tcp" severity="0" pluginID="19506" pluginName="Nessus Scan Information">
+        <plugin_output>General host information</plugin_output>
+      </ReportItem>
+      <ReportItem port="443" svc_name="https" protocol="tcp" severity="2" pluginID="12345" pluginName="TLS Test Finding">
+        <cvss3_base_score>5.3</cvss3_base_score>
+        <plugin_output>TLS service detected</plugin_output>
+      </ReportItem>
+    </ReportHost>
+  </Report>
+</NessusClientData_v2>
+""",
+            encoding="utf-8",
+        )
+
+        result = import_nessus_file(nessus_file, temp_dir, use_database=True)
+
+        assert result.plugins_exported == 2
+
+        host_row = temp_db.execute(
+            "SELECT ip_address, scan_target, scan_target_type FROM hosts"
+        ).fetchone()
+        assert host_row is not None
+        assert host_row["ip_address"] == "2001:db8::1"
+        assert host_row["scan_target"] == "2001:db8::1"
+        assert host_row["scan_target_type"] == "ipv6"
+
+        ports = [
+            row["port_number"]
+            for row in temp_db.execute(
+                "SELECT port_number FROM finding_affected_hosts ORDER BY port_number"
+            ).fetchall()
+        ]
+        assert ports == [None, 443]
+
 
 class TestNessusImportEdgeCases:
     """Tests for edge cases in Nessus import."""

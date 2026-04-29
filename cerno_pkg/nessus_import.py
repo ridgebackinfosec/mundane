@@ -229,6 +229,39 @@ def truthy(text: Optional[str]) -> bool:
     return text is not None and text.strip().lower() in ("true", "yes", "1")
 
 
+def _format_host_entry(scan_target: str, port: str, include_ports: bool) -> str:
+    """Format a scan target with an optional port, preserving IPv6 boundaries."""
+    if not include_ports or port == "0":
+        return scan_target
+
+    try:
+        if isinstance(ipaddress.ip_address(scan_target), ipaddress.IPv6Address):
+            return f"[{scan_target}]:{port}"
+    except ValueError:
+        pass
+
+    return f"{scan_target}:{port}"
+
+
+def _parse_host_entry(host_entry: str) -> tuple[str, Optional[int]]:
+    """Parse a stored host entry into scan target and optional port."""
+    from .parsing import split_host_port
+
+    scan_target, port_str = split_host_port(host_entry)
+    if not scan_target or not port_str:
+        return host_entry, None
+
+    try:
+        port = int(port_str)
+    except ValueError:
+        return host_entry, None
+
+    if not (1 <= port <= 65535):
+        return scan_target, None
+
+    return scan_target, port
+
+
 def _build_index_stream(
     filename: Path,
     include_ports: bool = True
@@ -363,7 +396,7 @@ def _build_index_stream(
 
                 # Record host:port combination with plugin_output
                 port = elem.attrib.get("port", "0")
-                entry = current_host if (not include_ports or port == "0") else f"{current_host}:{port}"
+                entry = _format_host_entry(current_host, port, include_ports)
                 plugin_hosts[pid].add((entry, plugin_output or ""))
 
                 # Collect service mapping for host_services table
@@ -588,16 +621,7 @@ def _write_to_database(
                     host_entry, plugin_output = host_entry_data
 
                     # Parse host:port - host_entry contains scan_target (possibly with port)
-                    if ":" in host_entry:
-                        scan_target, port_str = host_entry.rsplit(":", 1)
-                        try:
-                            port = int(port_str)
-                        except ValueError:
-                            scan_target = host_entry
-                            port = None
-                    else:
-                        scan_target = host_entry
-                        port = None
+                    scan_target, port = _parse_host_entry(host_entry)
 
                     # Get host metadata for this scan_target
                     meta_entry = host_metadata.get(scan_target)
@@ -734,15 +758,10 @@ def _write_to_database(
                     host_entry, _ = host_entry_data  # Extract host:port, ignore plugin_output
 
                     # Now parse host:port as before
-                    if ":" in host_entry:
-                        try:
-                            host, port_str = host_entry.rsplit(":", 1)
-                            unique_hosts_for_plugin.add(host)
-                            ports_for_plugin.add(int(port_str))
-                        except (ValueError, IndexError):
-                            unique_hosts_for_plugin.add(host_entry)
-                    else:
-                        unique_hosts_for_plugin.add(host_entry)
+                    host, port = _parse_host_entry(host_entry)
+                    unique_hosts_for_plugin.add(host)
+                    if port is not None:
+                        ports_for_plugin.add(port)
 
                 plugin_file = Finding(
                     scan_id=scan_id,
@@ -759,16 +778,7 @@ def _write_to_database(
                     host_entry, plugin_output = host_entry_data
 
                     # Parse host:port - host_entry contains scan_target (possibly with port)
-                    if ":" in host_entry:
-                        scan_target, port_str = host_entry.rsplit(":", 1)
-                        try:
-                            port = int(port_str)
-                        except ValueError:
-                            scan_target = host_entry
-                            port = None
-                    else:
-                        scan_target = host_entry
-                        port = None
+                    scan_target, port = _parse_host_entry(host_entry)
 
                     # Get ip_address from host_metadata
                     meta_entry = host_metadata.get(scan_target)

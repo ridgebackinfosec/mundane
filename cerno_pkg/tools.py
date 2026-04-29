@@ -783,6 +783,7 @@ def copy_to_clipboard(text: str) -> tuple[bool, str]:
             clipboard_tools.append((tool, args))
     
     # Try each available tool
+    errors: list[str] = []
     for tool_name, tool_args in clipboard_tools:
         try:
             subprocess.run(
@@ -793,9 +794,12 @@ def copy_to_clipboard(text: str) -> tuple[bool, str]:
             )
             return True, f"Copied using {tool_name}."
         except subprocess.CalledProcessError as exc:
-            return False, f"Clipboard tool failed (exit {exc.returncode})."
+            errors.append(f"{tool_name} failed (exit {exc.returncode})")
         except Exception as exc:
-            return False, f"Clipboard error: {exc}"
+            errors.append(f"{tool_name} error: {exc}")
+
+    if errors:
+        return False, "Clipboard tools failed: " + "; ".join(errors)
     
     # Provide platform-specific installation guidance
     if sys.platform.startswith("linux"):

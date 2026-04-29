@@ -13,7 +13,7 @@ from cerno_pkg.ops import (
     log_artifact,
     log_artifacts_for_nmap,
 )
-from cerno_pkg.tools import build_nmap_cmd
+from cerno_pkg.tools import build_nmap_cmd, copy_to_clipboard
 
 
 class TestExecutionMetadata:
@@ -971,6 +971,37 @@ class TestRunCommandWithProgressProxy:
             pass
 
         assert captured.get("cmd") == ["echo", "hello"]
+
+
+class TestCopyToClipboard:
+    """Tests for clipboard fallback behavior."""
+
+    @pytest.mark.unit
+    def test_fallback_tries_next_tool_after_failure(self, monkeypatch):
+        import subprocess
+        import cerno_pkg.tools as tools_module
+
+        calls = []
+
+        def fake_which(tool):
+            return f"/usr/bin/{tool}" if tool in {"xclip", "wl-copy"} else None
+
+        def fake_run(args, **kwargs):
+            calls.append(args[0])
+            if args[0] == "xclip":
+                raise subprocess.CalledProcessError(1, args)
+            return subprocess.CompletedProcess(args, 0)
+
+        monkeypatch.setattr(tools_module.pyperclip, "copy", lambda _text: (_ for _ in ()).throw(RuntimeError("no clipboard")))
+        monkeypatch.setattr(tools_module.shutil, "which", fake_which)
+        monkeypatch.setattr(tools_module.subprocess, "run", fake_run)
+        monkeypatch.setattr(tools_module.sys, "platform", "linux")
+
+        success, message = copy_to_clipboard("hello")
+
+        assert success is True
+        assert message == "Copied using wl-copy."
+        assert calls == ["xclip", "wl-copy"]
 
 
 class TestPivotConfig:

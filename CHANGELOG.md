@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Re-importing or overwriting a scan with the same name now refreshes scan metadata and replaces scan-derived findings/host services cleanly instead of silently failing on duplicate finding rows.
 - Nessus imports now preserve bare IPv6 scan targets instead of misparsing the final IPv6 segment as a port.
 - Nmap proxy mode now suppresses UDP scanning and uses TCP targets so generated proxychains commands match the UI warning that UDP is unsupported through SOCKS.
+- Clipboard copy fallback now tries every available platform tool before reporting failure, so one broken backend no longer blocks later working backends.
 
 ## [1.3.40] - 2026-04-23
 

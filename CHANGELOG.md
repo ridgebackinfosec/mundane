@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added `cerno demo` to prepare bundled synthetic demo data, importing initial and expanded Nessus scans and configuring the included NetExec workspace for review demos.
+- Added synthetic demo Nessus fixtures and NetExec workspace databases for cloned-repo and packaged installs, including `pipx` installs.
+
 ### Fixed
 - Re-importing or overwriting a scan with the same name now refreshes scan metadata and replaces scan-derived findings/host services cleanly instead of silently failing on duplicate finding rows.
 - Nessus imports now preserve bare IPv6 scan targets instead of misparsing the final IPv6 segment as a port.

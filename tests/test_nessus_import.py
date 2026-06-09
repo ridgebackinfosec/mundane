@@ -588,6 +588,109 @@ class TestNessusImportDatabaseIntegration:
         ]
         assert ports == [None, 443]
 
+    @pytest.mark.integration
+    def test_demo_nessus_fixture_imports_expected_review_data(self, temp_dir, temp_db):
+        """The expanded demo scan remains usable for docs and conference demos."""
+        demo_nessus = Path(__file__).parents[1] / "docs" / "demo" / "cerno-demo-expanded.nessus"
+        assert demo_nessus.exists()
+
+        scan_name = extract_scan_name_from_nessus(demo_nessus)
+        result = import_nessus_file(
+            demo_nessus,
+            temp_dir,
+            scan_name=scan_name,
+            use_database=True,
+        )
+
+        assert result.scan_name == "Cerno_Demo_Expanded_Scan"
+        assert result.plugins_exported == 45
+        assert result.severities == {
+            4: 5,
+            3: 10,
+            2: 21,
+            1: 6,
+            0: 3,
+        }
+
+        scan = temp_db.execute(
+            "SELECT scan_id, scan_name FROM scans WHERE scan_name = ?",
+            ("Cerno_Demo_Expanded_Scan",),
+        ).fetchone()
+        assert scan is not None
+
+        host_count = temp_db.execute("SELECT COUNT(*) AS count FROM hosts").fetchone()["count"]
+        assert host_count == 42
+
+        cve_plugins = {
+            row["plugin_id"]: row["cves"]
+            for row in temp_db.execute(
+                "SELECT plugin_id, cves FROM plugins WHERE cves IS NOT NULL"
+            ).fetchall()
+        }
+        assert 20007 in cve_plugins
+        assert "CVE-2014-3566" in cve_plugins[20007]
+        assert 42263 in cve_plugins
+        assert "CVE-1999-0619" in cve_plugins[42263]
+
+        telnet_plugin = temp_db.execute(
+            """
+            SELECT has_metasploit, metasploit_names
+            FROM plugins
+            WHERE plugin_id = 42263
+            """
+        ).fetchone()
+        assert telnet_plugin is not None
+        assert telnet_plugin["has_metasploit"] == 1
+        assert "auxiliary/scanner/telnet/telnet_version" in telnet_plugin["metasploit_names"]
+
+        ssl_hosts = temp_db.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM finding_affected_hosts fah
+            JOIN findings f ON f.finding_id = fah.finding_id
+            WHERE f.plugin_id = 20007
+            """
+        ).fetchone()["count"]
+        assert ssl_hosts == 8
+
+        output_row = temp_db.execute(
+            """
+            SELECT fah.plugin_output
+            FROM finding_affected_hosts fah
+            JOIN findings f ON f.finding_id = fah.finding_id
+            WHERE f.plugin_id = 41028
+            """
+        ).fetchone()
+        assert output_row is not None
+        assert "Community string accepted: public" in output_row["plugin_output"]
+
+    @pytest.mark.integration
+    def test_initial_demo_nessus_fixture_imports_expected_baseline_data(self, temp_dir, temp_db):
+        """The smaller initial demo scan remains usable for compare demos."""
+        demo_nessus = Path(__file__).parents[1] / "docs" / "demo" / "cerno-demo-initial.nessus"
+        assert demo_nessus.exists()
+
+        scan_name = extract_scan_name_from_nessus(demo_nessus)
+        result = import_nessus_file(
+            demo_nessus,
+            temp_dir,
+            scan_name=scan_name,
+            use_database=True,
+        )
+
+        assert result.scan_name == "Cerno_Demo_Initial_Scan"
+        assert result.plugins_exported == 11
+        assert result.severities == {
+            4: 1,
+            3: 3,
+            2: 5,
+            1: 1,
+            0: 1,
+        }
+
+        host_count = temp_db.execute("SELECT COUNT(*) AS count FROM hosts").fetchone()["count"]
+        assert host_count == 5
+
 
 class TestNessusImportEdgeCases:
     """Tests for edge cases in Nessus import."""

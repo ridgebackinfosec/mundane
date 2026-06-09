@@ -64,7 +64,7 @@ packages = ["cerno_pkg"]
 py-modules = ["cerno"]
 
 [tool.setuptools.package-data]
-cerno_pkg = ["*.yaml", "skills/*.md"]
+cerno_pkg = ["*.yaml", "skills/*.md", "demo/*.nessus", "demo/nxc-workspace/*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

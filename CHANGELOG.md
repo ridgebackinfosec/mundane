@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.41] - 2026-06-10
+
 ### Added
 - Added `cerno demo` to prepare bundled synthetic demo data, importing initial and expanded Nessus scans and configuring the included NetExec workspace for review demos.
 - Added synthetic demo Nessus fixtures and NetExec workspace databases for cloned-repo and packaged installs, including `pipx` installs.

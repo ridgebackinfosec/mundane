@@ -1927,6 +1927,151 @@ app.add_typer(config_app, name="config")
 app.add_typer(workflow_app, name="workflow")
 
 
+def _repo_root() -> Path:
+    """Return the Cerno repository root for this checkout."""
+    start = Path(__file__).resolve().parent
+    for candidate in (start, *start.parents):
+        if (
+            (candidate / "pyproject.toml").is_file()
+            and (candidate / "cerno.py").is_file()
+            and (candidate / "cerno_pkg").is_dir()
+        ):
+            return candidate
+
+    return start
+
+
+def _demo_assets_dir() -> Path:
+    """Return the repository demo assets directory."""
+    assets_dir = _repo_root() / "docs" / "demo"
+    if assets_dir.exists():
+        return assets_dir
+
+    from importlib import resources
+
+    package_assets = resources.files("cerno_pkg").joinpath("demo")
+    package_assets_path = Path(str(package_assets))
+    if package_assets.is_dir() and package_assets_path.exists():
+        return package_assets_path
+
+    raise FileNotFoundError(
+        "Demo assets were not found. Expected docs/demo under the Cerno repository "
+        "root or packaged assets under cerno_pkg/demo."
+    )
+
+
+def _import_demo_nessus(nessus_file: Path, overwrite: bool = False) -> tuple[str, bool]:
+    """Import a bundled demo Nessus file without post-import tool suggestions."""
+    from cerno_pkg.constants import SCANS_ROOT
+    from cerno_pkg.database import compute_file_hash
+    from cerno_pkg.models import Scan
+    from cerno_pkg.nessus_import import extract_scan_name_from_nessus, import_nessus_file
+
+    scan_name = extract_scan_name_from_nessus(nessus_file)
+    out_dir = SCANS_ROOT / scan_name
+    new_file_hash = compute_file_hash(nessus_file)
+    existing_scan = Scan.get_by_name(scan_name)
+
+    if existing_scan:
+        if existing_scan.nessus_file_hash == new_file_hash:
+            info(f"Scan already imported: {scan_name}")
+            return scan_name, False
+        if not overwrite:
+            warn(f"Scan exists with different content, skipping: {scan_name}")
+            warn("Use `cerno demo --overwrite` to replace demo scans.")
+            return scan_name, False
+
+        if not Scan.delete_by_name(scan_name):
+            raise RuntimeError(f"Failed to replace existing scan: {scan_name}")
+        info(f"Replaced existing scan: {scan_name}")
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    result = import_nessus_file(
+        nessus_file=nessus_file,
+        output_dir=out_dir,
+        scan_name=scan_name,
+        include_ports=True,
+    )
+    ok(f"Imported {scan_name}: {result.plugins_exported} findings")
+    return scan_name, True
+
+
+@app.command(name="demo", help="Prepare bundled demo scans and NetExec enrichment")
+def demo_cmd(
+    overwrite: bool = typer.Option(
+        False,
+        "--overwrite",
+        help="Replace existing demo scans if their source files changed.",
+    ),
+    no_nxc: bool = typer.Option(
+        False,
+        "--no-nxc",
+        help="Import demo scans without configuring the bundled NetExec workspace.",
+    ),
+) -> None:
+    """Prepare Cerno demo data.
+
+    Imports the bundled initial and expanded Nessus scans, and by default points
+    `nxc_workspace_path` at the bundled synthetic NetExec workspace.
+    """
+    from cerno_pkg import load_config, save_config, get_config_path
+    from cerno_pkg.nxc_db import reset_nxc_manager
+
+    try:
+        assets_dir = _demo_assets_dir()
+    except FileNotFoundError as exc:
+        err(str(exc))
+        raise typer.Exit(1)
+
+    initial_scan = assets_dir / "cerno-demo-initial.nessus"
+    expanded_scan = assets_dir / "cerno-demo-expanded.nessus"
+    nxc_workspace = assets_dir / "nxc-workspace"
+
+    missing = [
+        path for path in (initial_scan, expanded_scan)
+        if not path.exists()
+    ]
+    if not no_nxc and not nxc_workspace.exists():
+        missing.append(nxc_workspace)
+
+    if missing:
+        err("Missing demo asset(s):")
+        for path in missing:
+            err(f"  {path}")
+        raise typer.Exit(1)
+
+    header("Preparing Cerno Demo Data")
+
+    if not no_nxc:
+        config = load_config()
+        config.nxc_workspace_path = str(nxc_workspace.resolve())
+        config.nxc_enrichment_enabled = True
+        if not save_config(config):
+            err("Failed to save demo NetExec configuration.")
+            raise typer.Exit(1)
+        reset_nxc_manager()
+        ok(f"Configured NetExec workspace: {nxc_workspace.resolve()}")
+        info(f"Config saved to {get_config_path()}")
+    else:
+        info("Skipping NetExec workspace configuration.")
+
+    _console_global.print()
+    imported = 0
+    for nessus_file in (initial_scan, expanded_scan):
+        _, did_import = _import_demo_nessus(nessus_file, overwrite=overwrite)
+        if did_import:
+            imported += 1
+
+    _console_global.print()
+    ok(f"Demo setup complete: {imported} scan(s) imported or updated.")
+    info("Next commands:")
+    info("  cerno scan list")
+    info("  cerno scan compare Cerno_Demo_Initial_Scan Cerno_Demo_Expanded_Scan")
+    info("  cerno review")
+    if not no_nxc:
+        info("Open an SMB/SSH/FTP/VNC finding and press [N] for NetExec context.")
+
+
 # Version callback for --version flag
 def version_callback(value: bool):
     """Print version and exit."""
@@ -2369,18 +2514,20 @@ def list_scans() -> None:
     info("Use 'cerno review' to start reviewing a scan")
 
 
-@scan_app.command(name="delete", help="Delete a scan and all associated data from database")
+@scan_app.command(name="delete", help="Delete a scan and its review data from database")
 def delete_scan(
     scan_name: str = typer.Argument(..., help="Name of scan to delete")
 ) -> None:
-    """Delete a scan and all associated data from the database.
+    """Delete a scan and its review data from the database.
 
     This will permanently remove:
     - The scan entry
     - All findings for this scan
     - All host:port data
     - All review sessions
-    - All tool execution records and artifacts
+
+    Tool execution and artifact records are retained for audit/history, but
+    links to deleted findings or sessions are cleared.
 
     This action cannot be undone!
     """
@@ -2395,11 +2542,11 @@ def delete_scan(
 
     # Confirm deletion
     warn(f"You are about to delete scan: {scan_name}")
-    warn("This will permanently delete ALL associated data:")
+    warn("This will permanently delete scan review data:")
     warn("  - Findings")
     warn("  - Host:port combinations")
     warn("  - Review sessions")
-    warn("  - Tool executions and artifacts")
+    info("Tool executions and artifacts are retained, but links to this scan's findings/sessions are cleared.")
     _console_global.print()  # Blank line
 
     try:

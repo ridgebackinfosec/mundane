@@ -196,7 +196,10 @@ class Scan:
         - All findings entries
         - All finding_affected_hosts entries
         - All sessions
-        - All tool_executions (and their artifacts)
+
+        Tool executions and artifacts are retained for audit/history, but their
+        finding_id/session_id or execution_id links are set to NULL by foreign
+        key constraints when referenced rows are deleted.
 
         Args:
             scan_name: Name of scan to delete

@@ -34,6 +34,16 @@ cerno review
 
 **That's it!** See [Common Commands](#commands) for more.
 
+**No Nessus file handy?** Use the synthetic demo scan included in this repo:
+
+```bash
+cerno demo
+cerno review
+```
+
+The demo fixture uses documentation-only IP ranges and `.example` hostnames.
+See [docs/demo](docs/demo) for details.
+
 <p align="center">
   <img src="docs/images/severity-selection.png" alt="Severity selection screen showing color-coded review progress" width="50%">
   <br>

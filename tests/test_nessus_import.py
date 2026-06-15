@@ -542,6 +542,155 @@ class TestNessusImportDatabaseIntegration:
         host_count = cursor.fetchone()["count"]
         assert host_count > 0
 
+    @pytest.mark.integration
+    def test_import_preserves_bare_ipv6_hosts(self, temp_dir, temp_db):
+        """Bare IPv6 scan targets are not split as host:port entries."""
+        nessus_file = temp_dir / "ipv6.nessus"
+        nessus_file.write_text(
+            """<?xml version="1.0" ?>
+<NessusClientData_v2>
+  <Report name="IPv6 Scan">
+    <ReportHost name="2001:db8::1">
+      <HostProperties>
+        <tag name="host-ip">2001:db8::1</tag>
+      </HostProperties>
+      <ReportItem port="0" svc_name="general" protocol="tcp" severity="0" pluginID="19506" pluginName="Nessus Scan Information">
+        <plugin_output>General host information</plugin_output>
+      </ReportItem>
+      <ReportItem port="443" svc_name="https" protocol="tcp" severity="2" pluginID="12345" pluginName="TLS Test Finding">
+        <cvss3_base_score>5.3</cvss3_base_score>
+        <plugin_output>TLS service detected</plugin_output>
+      </ReportItem>
+    </ReportHost>
+  </Report>
+</NessusClientData_v2>
+""",
+            encoding="utf-8",
+        )
+
+        result = import_nessus_file(nessus_file, temp_dir, use_database=True)
+
+        assert result.plugins_exported == 2
+
+        host_row = temp_db.execute(
+            "SELECT ip_address, scan_target, scan_target_type FROM hosts"
+        ).fetchone()
+        assert host_row is not None
+        assert host_row["ip_address"] == "2001:db8::1"
+        assert host_row["scan_target"] == "2001:db8::1"
+        assert host_row["scan_target_type"] == "ipv6"
+
+        ports = [
+            row["port_number"]
+            for row in temp_db.execute(
+                "SELECT port_number FROM finding_affected_hosts ORDER BY port_number"
+            ).fetchall()
+        ]
+        assert ports == [None, 443]
+
+    @pytest.mark.integration
+    def test_demo_nessus_fixture_imports_expected_review_data(self, temp_dir, temp_db):
+        """The expanded demo scan remains usable for docs and conference demos."""
+        demo_nessus = Path(__file__).parents[1] / "docs" / "demo" / "cerno-demo-expanded.nessus"
+        assert demo_nessus.exists()
+
+        scan_name = extract_scan_name_from_nessus(demo_nessus)
+        result = import_nessus_file(
+            demo_nessus,
+            temp_dir,
+            scan_name=scan_name,
+            use_database=True,
+        )
+
+        assert result.scan_name == "Cerno_Demo_Expanded_Scan"
+        assert result.plugins_exported == 45
+        assert result.severities == {
+            4: 5,
+            3: 10,
+            2: 21,
+            1: 6,
+            0: 3,
+        }
+
+        scan = temp_db.execute(
+            "SELECT scan_id, scan_name FROM scans WHERE scan_name = ?",
+            ("Cerno_Demo_Expanded_Scan",),
+        ).fetchone()
+        assert scan is not None
+
+        host_count = temp_db.execute("SELECT COUNT(*) AS count FROM hosts").fetchone()["count"]
+        assert host_count == 42
+
+        cve_plugins = {
+            row["plugin_id"]: row["cves"]
+            for row in temp_db.execute(
+                "SELECT plugin_id, cves FROM plugins WHERE cves IS NOT NULL"
+            ).fetchall()
+        }
+        assert 20007 in cve_plugins
+        assert "CVE-2014-3566" in cve_plugins[20007]
+        assert 42263 in cve_plugins
+        assert "CVE-1999-0619" in cve_plugins[42263]
+
+        telnet_plugin = temp_db.execute(
+            """
+            SELECT has_metasploit, metasploit_names
+            FROM plugins
+            WHERE plugin_id = 42263
+            """
+        ).fetchone()
+        assert telnet_plugin is not None
+        assert telnet_plugin["has_metasploit"] == 1
+        assert "auxiliary/scanner/telnet/telnet_version" in telnet_plugin["metasploit_names"]
+
+        ssl_hosts = temp_db.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM finding_affected_hosts fah
+            JOIN findings f ON f.finding_id = fah.finding_id
+            WHERE f.plugin_id = 20007
+            """
+        ).fetchone()["count"]
+        assert ssl_hosts == 8
+
+        output_row = temp_db.execute(
+            """
+            SELECT fah.plugin_output
+            FROM finding_affected_hosts fah
+            JOIN findings f ON f.finding_id = fah.finding_id
+            WHERE f.plugin_id = 41028
+            """
+        ).fetchone()
+        assert output_row is not None
+        assert "Community string accepted: public" in output_row["plugin_output"]
+
+    @pytest.mark.integration
+    def test_initial_demo_nessus_fixture_imports_expected_baseline_data(self, temp_dir, temp_db):
+        """The smaller initial demo scan remains usable for compare demos."""
+        demo_nessus = Path(__file__).parents[1] / "docs" / "demo" / "cerno-demo-initial.nessus"
+        assert demo_nessus.exists()
+
+        scan_name = extract_scan_name_from_nessus(demo_nessus)
+        result = import_nessus_file(
+            demo_nessus,
+            temp_dir,
+            scan_name=scan_name,
+            use_database=True,
+        )
+
+        assert result.scan_name == "Cerno_Demo_Initial_Scan"
+        assert result.plugins_exported == 11
+        assert result.severities == {
+            4: 1,
+            3: 3,
+            2: 5,
+            1: 1,
+            0: 1,
+        }
+
+        host_count = temp_db.execute("SELECT COUNT(*) AS count FROM hosts").fetchone()["count"]
+        assert host_count == 5
+
 
 class TestNessusImportEdgeCases:
     """Tests for edge cases in Nessus import."""
@@ -749,7 +898,6 @@ class TestCVEAndMetasploitExtraction:
         assert plugin.metasploit_names is None, "Plugin without Metasploit names should have None"
 
     @pytest.mark.integration
-    @pytest.mark.skip(reason="Re-import behavior needs investigation - INSERT OR REPLACE should work but test fails")
     def test_reimport_overwrites_cves_and_metasploit_names(self, nessus_with_cves_and_msf, temp_dir, temp_db):
         """Verify CVEs and Metasploit names are refreshed from XML on re-import."""
         from cerno_pkg.models import Plugin
@@ -805,3 +953,7 @@ class TestCVEAndMetasploitExtraction:
         assert plugin_10043.metasploit_names is not None
         assert plugin_10043.metasploit_names == ["Chargen Probe Utility"]
         assert "STALE_MODULE" not in plugin_10043.metasploit_names
+
+        # Findings should be replaced cleanly, not duplicated or left stale
+        cursor = temp_db.execute("SELECT COUNT(*) as count FROM findings")
+        assert cursor.fetchone()["count"] == 3

@@ -609,6 +609,69 @@ class TestWithFixtureDBs:
         assert result is None
 
 
+class TestDemoNxcWorkspace:
+    """Test the synthetic NetExec workspace used by Cerno demos."""
+
+    @pytest.fixture
+    def demo_nxc_workspace(self) -> Path:
+        """Path to the demo NetExec workspace."""
+        workspace = Path(__file__).parents[1] / "docs" / "demo" / "nxc-workspace"
+        if not workspace.exists():
+            pytest.skip("demo NetExec workspace not found")
+        return workspace
+
+    def test_demo_workspace_available(self, demo_nxc_workspace: Path) -> None:
+        """Demo workspace exposes the expected protocol databases."""
+        mgr = NxcDatabaseManager(demo_nxc_workspace)
+
+        assert mgr.is_available() is True
+        assert mgr.get_available_protocols() == ["smb", "ssh", "ftp", "vnc"]
+
+    def test_demo_workspace_enriches_smb_signing_hosts(self, demo_nxc_workspace: Path) -> None:
+        """SMB signing demo hosts have credentials, shares, and security flags."""
+        mgr = NxcDatabaseManager(demo_nxc_workspace)
+
+        summary = mgr.get_hosts_enrichment(
+            [
+                "198.51.100.20",
+                "198.51.100.21",
+                "198.51.100.30",
+                "198.51.100.32",
+                "198.51.100.60",
+                "198.51.100.61",
+                "198.51.100.62",
+                "198.51.100.63",
+                "198.51.100.64",
+                "198.51.100.65",
+            ]
+        )
+
+        assert summary.hosts_with_data == 10
+        assert summary.protocols_seen == ["smb"]
+        assert summary.security_flag_counts["signing_disabled"] == 9
+        assert summary.security_flag_counts["smbv1_enabled"] == 2
+        assert summary.security_flag_counts["zerologon"] == 1
+        assert summary.security_flag_counts["petitpotam"] == 2
+        assert "C$" in summary.shares_summary
+        assert "SYSVOL" in summary.shares_summary
+        assert any(cred.username == "svc_deploy" for cred, _ in summary.unique_credentials)
+
+    def test_demo_workspace_enriches_multi_protocol_hosts(self, demo_nxc_workspace: Path) -> None:
+        """Legacy and backup hosts show non-SMB and merged protocol context."""
+        mgr = NxcDatabaseManager(demo_nxc_workspace)
+
+        legacy = mgr.get_host_enrichment("198.51.100.33")
+        assert legacy is not None
+        assert legacy.protocols_seen == ["ftp", "vnc"]
+        assert {cred.username for cred in legacy.credentials} == {"anonymous", "none"}
+
+        backup = mgr.get_host_enrichment("203.0.113.63")
+        assert backup is not None
+        assert "smb" in backup.protocols_seen
+        assert "ssh" in backup.protocols_seen
+        assert any(cred.protocol == "ssh" and cred.has_admin for cred in backup.credentials)
+
+
 # =============================================================================
 # Unit Tests: Module-level Functions
 # =============================================================================

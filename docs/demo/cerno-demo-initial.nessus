@@ -1,0 +1,262 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<NessusClientData_v2>
+  <Report name="Cerno Demo Initial Scan">
+    <ReportHost name="198.51.100.10">
+      <HostProperties>
+        <tag name="host-ip">198.51.100.10</tag>
+        <tag name="host-fqdn">web01.demo.example</tag>
+        <tag name="host-rdns">web01.demo.example</tag>
+      </HostProperties>
+      <ReportItem port="80" svc_name="www" protocol="tcp" severity="2" pluginID="40984" pluginName="Web Server Directory Enumeration">
+        <description>A web server directory listing is enabled on a browsable path.</description>
+        <plugin_publication_date>2009/05/20</plugin_publication_date>
+        <plugin_modification_date>2026/01/15</plugin_modification_date>
+        <risk_factor>Medium</risk_factor>
+        <synopsis>The remote web server allows directory browsing.</synopsis>
+        <solution>Disable directory indexing or restrict access to the affected path.</solution>
+        <cvss3_base_score>5.3</cvss3_base_score>
+        <plugin_output>Path: http://198.51.100.10/public/
+Directory listing returned HTTP 200 and exposed index entries:
+  backup.zip
+  old-admin/
+  README.txt</plugin_output>
+      </ReportItem>
+      <ReportItem port="443" svc_name="https" protocol="tcp" severity="2" pluginID="20007" pluginName="SSL Version 2 and 3 Protocol Detection">
+        <description>The remote service supports deprecated SSL/TLS protocol versions.</description>
+        <plugin_publication_date>2005/10/11</plugin_publication_date>
+        <plugin_modification_date>2026/01/15</plugin_modification_date>
+        <risk_factor>Medium</risk_factor>
+        <synopsis>The remote service accepts deprecated TLS protocol versions.</synopsis>
+        <solution>Disable SSLv2, SSLv3, TLSv1.0, and TLSv1.1 unless explicitly required.</solution>
+        <cvss3_base_score>6.5</cvss3_base_score>
+        <cve>CVE-2014-3566</cve>
+        <plugin_output>TLS protocol negotiation summary:
+  TLSv1.0 accepted
+  TLSv1.1 accepted
+  TLSv1.2 accepted
+Recommended minimum protocol: TLSv1.2</plugin_output>
+      </ReportItem>
+      <ReportItem port="443" svc_name="https" protocol="tcp" severity="2" pluginID="42873" pluginName="SSL Medium Strength Cipher Suites Supported">
+        <description>The remote service supports medium strength SSL/TLS cipher suites.</description>
+        <plugin_publication_date>2009/11/23</plugin_publication_date>
+        <plugin_modification_date>2026/01/15</plugin_modification_date>
+        <risk_factor>Medium</risk_factor>
+        <synopsis>The remote service accepts cipher suites below the desired strength.</synopsis>
+        <solution>Disable weak, export, anonymous, and medium strength cipher suites.</solution>
+        <cvss3_base_score>5.9</cvss3_base_score>
+        <plugin_output>Accepted cipher suites include:
+  TLS_RSA_WITH_3DES_EDE_CBC_SHA
+  TLS_RSA_WITH_AES_128_CBC_SHA
+These suites were observed on port 443.</plugin_output>
+      </ReportItem>
+      <ReportItem port="0" svc_name="general" protocol="icmp" severity="1" pluginID="10114" pluginName="ICMP Timestamp Request Remote Date Disclosure">
+        <description>The remote host responded to an ICMP timestamp request.</description>
+        <plugin_publication_date>1999/08/01</plugin_publication_date>
+        <plugin_modification_date>2026/01/15</plugin_modification_date>
+        <risk_factor>Low</risk_factor>
+        <synopsis>The remote host discloses clock information over ICMP.</synopsis>
+        <solution>Filter ICMP timestamp requests at the host or network boundary if not required.</solution>
+        <cvss3_base_score>2.1</cvss3_base_score>
+        <plugin_output>The host responded to an ICMP timestamp request with a synthetic timestamp value.</plugin_output>
+      </ReportItem>
+      <ReportItem port="443" svc_name="https" protocol="tcp" severity="0" pluginID="10107" pluginName="HTTP Server Type and Version">
+        <description>HTTP server banner information was observed.</description>
+        <plugin_publication_date>1999/06/22</plugin_publication_date>
+        <plugin_modification_date>2026/01/15</plugin_modification_date>
+        <risk_factor>None</risk_factor>
+        <synopsis>The remote web server disclosed a server header.</synopsis>
+        <solution>Review whether banner disclosure is acceptable for this environment.</solution>
+        <cvss3_base_score>0.0</cvss3_base_score>
+        <plugin_output>Server: nginx/1.20.2
+X-Demo-Environment: Cerno synthetic fixture</plugin_output>
+      </ReportItem>
+    </ReportHost>
+
+    <ReportHost name="198.51.100.11">
+      <HostProperties>
+        <tag name="host-ip">198.51.100.11</tag>
+        <tag name="host-fqdn">web02.demo.example</tag>
+        <tag name="host-rdns">web02.demo.example</tag>
+      </HostProperties>
+      <ReportItem port="443" svc_name="https" protocol="tcp" severity="2" pluginID="20007" pluginName="SSL Version 2 and 3 Protocol Detection">
+        <description>The remote service supports deprecated SSL/TLS protocol versions.</description>
+        <plugin_publication_date>2005/10/11</plugin_publication_date>
+        <plugin_modification_date>2026/01/15</plugin_modification_date>
+        <risk_factor>Medium</risk_factor>
+        <synopsis>The remote service accepts deprecated TLS protocol versions.</synopsis>
+        <solution>Disable SSLv2, SSLv3, TLSv1.0, and TLSv1.1 unless explicitly required.</solution>
+        <cvss3_base_score>6.5</cvss3_base_score>
+        <cve>CVE-2014-3566</cve>
+        <plugin_output>TLS protocol negotiation summary:
+  TLSv1.0 accepted
+  TLSv1.2 accepted
+Recommended minimum protocol: TLSv1.2</plugin_output>
+      </ReportItem>
+      <ReportItem port="443" svc_name="https" protocol="tcp" severity="2" pluginID="42873" pluginName="SSL Medium Strength Cipher Suites Supported">
+        <description>The remote service supports medium strength SSL/TLS cipher suites.</description>
+        <plugin_publication_date>2009/11/23</plugin_publication_date>
+        <plugin_modification_date>2026/01/15</plugin_modification_date>
+        <risk_factor>Medium</risk_factor>
+        <synopsis>The remote service accepts cipher suites below the desired strength.</synopsis>
+        <solution>Disable weak, export, anonymous, and medium strength cipher suites.</solution>
+        <cvss3_base_score>5.9</cvss3_base_score>
+        <plugin_output>Accepted cipher suites include:
+  TLS_RSA_WITH_3DES_EDE_CBC_SHA
+  TLS_RSA_WITH_AES_128_CBC_SHA
+These suites were observed on port 443.</plugin_output>
+      </ReportItem>
+      <ReportItem port="22" svc_name="ssh" protocol="tcp" severity="3" pluginID="90317" pluginName="SSH Password Authentication Accepted">
+        <description>The SSH service accepts password authentication.</description>
+        <plugin_publication_date>2016/04/18</plugin_publication_date>
+        <plugin_modification_date>2026/01/15</plugin_modification_date>
+        <risk_factor>High</risk_factor>
+        <synopsis>The remote SSH server accepts password-based authentication.</synopsis>
+        <solution>Disable password authentication where key-only access is required.</solution>
+        <cvss3_base_score>7.5</cvss3_base_score>
+        <plugin_output>SSH authentication methods advertised:
+  publickey
+  password
+Banner: SSH-2.0-OpenSSH_8.4</plugin_output>
+      </ReportItem>
+      <ReportItem port="22" svc_name="ssh" protocol="tcp" severity="3" pluginID="70658" pluginName="SSH Server CBC Mode Ciphers Enabled">
+        <description>The SSH server supports CBC mode ciphers.</description>
+        <plugin_publication_date>2013/10/28</plugin_publication_date>
+        <plugin_modification_date>2026/01/15</plugin_modification_date>
+        <risk_factor>High</risk_factor>
+        <synopsis>The remote SSH service supports CBC mode ciphers.</synopsis>
+        <solution>Disable CBC mode ciphers and prefer modern AEAD ciphers.</solution>
+        <cvss3_base_score>7.5</cvss3_base_score>
+        <cve>CVE-2008-5161</cve>
+        <plugin_output>Supported CBC ciphers:
+  aes128-cbc
+  aes256-cbc
+These were reported by the synthetic demo fixture.</plugin_output>
+      </ReportItem>
+    </ReportHost>
+
+    <ReportHost name="198.51.100.20">
+      <HostProperties>
+        <tag name="host-ip">198.51.100.20</tag>
+        <tag name="netbios-name">FILE01</tag>
+        <tag name="host-fqdn">file01.demo.example</tag>
+      </HostProperties>
+      <ReportItem port="445" svc_name="cifs" protocol="tcp" severity="2" pluginID="57608" pluginName="SMB Signing not required">
+        <description>Signing is not required on the remote SMB server.</description>
+        <plugin_publication_date>2012/01/19</plugin_publication_date>
+        <plugin_modification_date>2026/01/15</plugin_modification_date>
+        <risk_factor>Medium</risk_factor>
+        <synopsis>The remote SMB server does not require message signing.</synopsis>
+        <solution>Require SMB signing on the server where operationally appropriate.</solution>
+        <cvss3_base_score>5.3</cvss3_base_score>
+        <plugin_output>SMB signing configuration:
+  Message signing enabled: true
+  Message signing required: false
+Synthetic host role: file server</plugin_output>
+      </ReportItem>
+      <ReportItem port="139" svc_name="netbios-ssn" protocol="tcp" severity="2" pluginID="57608" pluginName="SMB Signing not required">
+        <description>Signing is not required on the remote SMB server.</description>
+        <plugin_publication_date>2012/01/19</plugin_publication_date>
+        <plugin_modification_date>2026/01/15</plugin_modification_date>
+        <risk_factor>Medium</risk_factor>
+        <synopsis>The remote SMB server does not require message signing.</synopsis>
+        <solution>Require SMB signing on the server where operationally appropriate.</solution>
+        <cvss3_base_score>5.3</cvss3_base_score>
+        <plugin_output>SMB signing configuration:
+  Message signing enabled: true
+  Message signing required: false
+Synthetic host role: file server</plugin_output>
+      </ReportItem>
+      <ReportItem port="161" svc_name="snmp" protocol="udp" severity="3" pluginID="41028" pluginName="SNMP Agent Default Community Name (public)">
+        <description>The SNMP agent responded to a default community string.</description>
+        <plugin_publication_date>2010/01/22</plugin_publication_date>
+        <plugin_modification_date>2026/01/15</plugin_modification_date>
+        <risk_factor>High</risk_factor>
+        <synopsis>The remote SNMP service uses a default community string.</synopsis>
+        <solution>Disable SNMP if unused or configure non-default community names with access controls.</solution>
+        <cvss3_base_score>7.5</cvss3_base_score>
+        <plugin_output>Community string accepted: public
+SNMP sysDescr: Cerno Demo Storage Appliance 1.0</plugin_output>
+      </ReportItem>
+    </ReportHost>
+
+    <ReportHost name="198.51.100.21">
+      <HostProperties>
+        <tag name="host-ip">198.51.100.21</tag>
+        <tag name="netbios-name">FILE02</tag>
+        <tag name="host-fqdn">file02.demo.example</tag>
+      </HostProperties>
+      <ReportItem port="445" svc_name="cifs" protocol="tcp" severity="2" pluginID="57608" pluginName="SMB Signing not required">
+        <description>Signing is not required on the remote SMB server.</description>
+        <plugin_publication_date>2012/01/19</plugin_publication_date>
+        <plugin_modification_date>2026/01/15</plugin_modification_date>
+        <risk_factor>Medium</risk_factor>
+        <synopsis>The remote SMB server does not require message signing.</synopsis>
+        <solution>Require SMB signing on the server where operationally appropriate.</solution>
+        <cvss3_base_score>5.3</cvss3_base_score>
+        <plugin_output>SMB signing configuration:
+  Message signing enabled: true
+  Message signing required: false
+Synthetic host role: file server</plugin_output>
+      </ReportItem>
+      <ReportItem port="139" svc_name="netbios-ssn" protocol="tcp" severity="2" pluginID="57608" pluginName="SMB Signing not required">
+        <description>Signing is not required on the remote SMB server.</description>
+        <plugin_publication_date>2012/01/19</plugin_publication_date>
+        <plugin_modification_date>2026/01/15</plugin_modification_date>
+        <risk_factor>Medium</risk_factor>
+        <synopsis>The remote SMB server does not require message signing.</synopsis>
+        <solution>Require SMB signing on the server where operationally appropriate.</solution>
+        <cvss3_base_score>5.3</cvss3_base_score>
+        <plugin_output>SMB signing configuration:
+  Message signing enabled: true
+  Message signing required: false
+Synthetic host role: file server</plugin_output>
+      </ReportItem>
+      <ReportItem port="23" svc_name="telnet" protocol="tcp" severity="4" pluginID="42263" pluginName="Unencrypted Telnet Server">
+        <description>The remote host is running a Telnet service.</description>
+        <plugin_publication_date>2009/11/05</plugin_publication_date>
+        <plugin_modification_date>2026/01/15</plugin_modification_date>
+        <risk_factor>Critical</risk_factor>
+        <synopsis>The remote service allows unencrypted interactive logins.</synopsis>
+        <solution>Disable Telnet and use SSH or another encrypted management channel.</solution>
+        <cvss3_base_score>9.1</cvss3_base_score>
+        <cve>CVE-1999-0619</cve>
+        <exploit_framework_metasploit>true</exploit_framework_metasploit>
+        <metasploit_name>auxiliary/scanner/telnet/telnet_version</metasploit_name>
+        <plugin_output>Telnet banner:
+  Cerno Demo Appliance login:
+The banner is synthetic and does not represent a real device.</plugin_output>
+      </ReportItem>
+    </ReportHost>
+
+    <ReportHost name="portal.demo.example">
+      <HostProperties>
+        <tag name="host-ip">203.0.113.50</tag>
+        <tag name="host-fqdn">portal.demo.example</tag>
+        <tag name="host-rdns">portal.demo.example</tag>
+      </HostProperties>
+      <ReportItem port="443" svc_name="https" protocol="tcp" severity="2" pluginID="10759" pluginName="Web Server HTTP Header Internal IP Disclosure">
+        <description>The web server disclosed an internal IP address in an HTTP header.</description>
+        <plugin_publication_date>2001/08/13</plugin_publication_date>
+        <plugin_modification_date>2026/01/15</plugin_modification_date>
+        <risk_factor>Medium</risk_factor>
+        <synopsis>The remote web server exposed an internal address in a response header.</synopsis>
+        <solution>Review reverse proxy and application header configuration.</solution>
+        <cvss3_base_score>5.3</cvss3_base_score>
+        <plugin_output>HTTP response header observed:
+  X-Backend-Server: 10.10.20.15
+  X-Demo-Note: synthetic finding for Cerno demo use</plugin_output>
+      </ReportItem>
+      <ReportItem port="443" svc_name="https" protocol="tcp" severity="0" pluginID="10107" pluginName="HTTP Server Type and Version">
+        <description>HTTP server banner information was observed.</description>
+        <plugin_publication_date>1999/06/22</plugin_publication_date>
+        <plugin_modification_date>2026/01/15</plugin_modification_date>
+        <risk_factor>None</risk_factor>
+        <synopsis>The remote web server disclosed a server header.</synopsis>
+        <solution>Review whether banner disclosure is acceptable for this environment.</solution>
+        <cvss3_base_score>0.0</cvss3_base_score>
+        <plugin_output>Server: Apache/2.4.57
+X-Demo-Environment: Cerno synthetic fixture</plugin_output>
+      </ReportItem>
+    </ReportHost>
+  </Report>
+</NessusClientData_v2>
